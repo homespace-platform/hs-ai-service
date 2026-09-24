@@ -1,0 +1,1 @@
+"""Eureka service discovery integration."""

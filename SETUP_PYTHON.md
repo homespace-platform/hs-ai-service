@@ -175,16 +175,88 @@ uv sync --link-mode=copy
 
 Việc này chỉ ảnh hưởng cách `uv` đưa package từ cache vào `.venv`, không ảnh hưởng chức năng của ứng dụng.
 
+## 10. Khởi tạo khung HomeSpace AI Service
+
+Service sử dụng `src` layout và chia phần HTTP, use case, domain, tích hợp ngoài và năng lực AI:
+
+```text
+src/homespace_ai/
+|-- api/v1/                    # FastAPI routes
+|-- application/use_cases/     # Điều phối use case
+|-- domain/                    # Quy tắc nghiệp vụ AI
+|-- clients/                   # Gọi API qua Gateway
+|-- core/                      # Settings, logging, identity/security
+|-- discovery/                 # Đăng ký và heartbeat Eureka
+|-- knowledge/                 # RAG điều khoản/hướng dẫn hệ thống
+|   |-- ingestion/
+|   `-- retrieval/
+|-- tools/                     # Lấy dữ liệu nghiệp vụ realtime
+|-- property_search/           # Tìm kiếm tài sản bằng ngôn ngữ tự nhiên
+|-- models/                    # Model/embedding/reranker adapters
+|-- events/                    # Consumer Kafka khi có use case
+`-- repositories/              # Lưu trữ dữ liệu riêng của AI
+
+tests/
+|-- unit/
+|-- integration/
+`-- contract/
+```
+
+Các package tương lai hiện có `__init__.py` để giữ cấu trúc trong Git; chỉ thêm dependency và code khi có use case cụ thể.
+
+## 11. Cấu hình môi trường và cổng
+
+Sao chép file mẫu thành cấu hình local:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Các thiết lập mặc định:
+
+```dotenv
+APP_NAME=hs-ai-service
+HOST=0.0.0.0
+PORT=8084
+EUREKA_CLIENT_SERVICE_URL=http://localhost:8761/eureka
+EUREKA_INSTANCE_HOSTNAME=localhost
+GATEWAY_BASE_URL=http://localhost:8080
+```
+
+Service tự dò địa chỉ IPv4 dùng cho kết nối đi khi đăng ký Eureka. Nếu instance hiện IP không truy cập được từ Gateway, đặt địa chỉ host/IP có thể truy cập được tại `EUREKA_INSTANCE_HOSTNAME` trong file `.env`.
+
+## 12. Chạy service và đường dẫn API
+
+```powershell
+uv sync --frozen
+uv run uvicorn homespace_ai.main:app --app-dir src --host 0.0.0.0 --port 8084 --reload
+```
+
+| Kiểm tra | URL trực tiếp | URL qua Gateway |
+|---|---|---|
+| Liveness | `http://localhost:8084/health/live` | `/api/v1/ai/health/live` |
+| Readiness | `http://localhost:8084/health/ready` | `/api/v1/ai/health/ready` |
+| Ping Eureka | `http://localhost:8084/ping` | `GET /api/v1/ai/ping` |
+| Swagger | `http://localhost:8084/docs` | Requires JWT through Gateway |
+| Kiểm tra identity | `http://localhost:8084/auth/me` | `GET /api/v1/ai/auth/me` |
+
+Gateway cần được khởi động lại để nạp route `/api/v1/ai/**` mới. Endpoint `/auth/me` cần JWT hợp lệ; Gateway chuyển thành `X-User-Id`, `X-User-Email`, `X-User-Name`, `X-User-Name-B64`, `X-User-Role`, `X-User-Authorities`. Service chỉ tin các header này khi request đi qua Gateway. Response thành công giữ format `{ "code": 1000, "result": ... }` của NestJS; `/ping` trả `"pong"`.
+
 ## Các file môi trường đã được tạo
 
 ```text
 hs-ai-service/
 |-- .python-version
 |-- .venv/
+|-- .env.example
 |-- pyproject.toml
 |-- uv.lock
+|-- README.md
+|-- docs/ARCHITECTURE.md
+|-- src/homespace_ai/
 `-- SETUP_PYTHON.md
 ```
 
-- Commit `.python-version`, `pyproject.toml`, `uv.lock` và tài liệu này vào Git.
+- Commit `.python-version`, `.env.example`, `pyproject.toml`, `uv.lock` và tài liệu vào Git.
 - Không commit thư mục `.venv`.
+- Không commit file `.env`.

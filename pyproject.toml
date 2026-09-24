@@ -1,7 +1,8 @@
 [project]
 name = "hs-ai-service"
 version = "0.1.0"
-requires-python = ">=3.12"
+description = "HomeSpace AI application service"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi[standard-no-fastapi-cloud-cli]>=0.141.1",
     "httpx>=0.28.1",
@@ -9,3 +10,10 @@ dependencies = [
     "structlog>=26.1.0",
     "tenacity>=9.1.4",
 ]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
