@@ -61,3 +61,6 @@ coverage.xml
 # UV / Python tooling
 .ruff_cache/
 .mypy_cache/
+
+# Local HuggingFace / embedding model cache
+models_cache/

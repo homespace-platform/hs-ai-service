@@ -1,9 +1,13 @@
 from fastapi import APIRouter, Depends
 
+from homespace_ai.api.v1.admin_knowledge import router as admin_knowledge_router
+from homespace_ai.api.v1.agent_ask import router as agent_ask_router
 from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.security import UserContext, get_current_user
 
 router = APIRouter()
+router.include_router(admin_knowledge_router)
+router.include_router(agent_ask_router)
 
 
 @router.get("/ping", tags=["Health"])
