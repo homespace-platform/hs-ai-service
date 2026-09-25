@@ -85,7 +85,10 @@ class Settings(BaseSettings):
 
     # Generation configuration (disabled | gemini | groq)
     generation_provider: str = Field(default="disabled", alias="GENERATION_PROVIDER")
+    generation_fallback_provider: str = Field(default="", alias="GENERATION_FALLBACK_PROVIDER")
     generation_model: str = Field(default="", alias="GENERATION_MODEL")
+    gemini_model: str = Field(default="", alias="GEMINI_MODEL")
+    groq_model: str = Field(default="", alias="GROQ_MODEL")
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
     generation_max_output_tokens: int = Field(default=1024, ge=64, le=4096, alias="GENERATION_MAX_OUTPUT_TOKENS")

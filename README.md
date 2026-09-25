@@ -59,6 +59,16 @@ returns `GENERATION_UNAVAILABLE` with citations instead of pretending an
 excerpt is a generated answer. Set a supported `GENERATION_PROVIDER` and its
 matching `GENERATION_MODEL` when you are ready to use Gemini or Groq.
 
+To fail over automatically from Gemini to Groq on rate limits, timeouts,
+network failures, or provider 5xx errors, configure:
+
+```dotenv
+GENERATION_PROVIDER=gemini
+GENERATION_FALLBACK_PROVIDER=groq
+GEMINI_MODEL=gemini-2.5-flash
+GROQ_MODEL=openai/gpt-oss-20b
+```
+
 ### Step 3: Run Ingestion Worker (Terminal 2)
 
 The worker processes asynchronous embedding jobs safely with lease-based locking and atomic version activation:
