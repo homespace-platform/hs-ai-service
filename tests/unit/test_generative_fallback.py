@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 import homespace_ai.clients.generative as generative_module
@@ -23,7 +25,7 @@ class StubGenerativeClient(BaseGenerativeClient):
         self.error = error
         self.calls = 0
 
-    async def generate_answer(self, question, context_chunks):
+    async def generate_answer(self, question, context_chunks, *, audience="USER", mode="homespace"):
         self.calls += 1
         if self.error:
             raise self.error
@@ -64,6 +66,25 @@ async def test_fallback_does_not_hide_non_retryable_error():
     assert fallback.calls == 0
 
 
+@pytest.mark.asyncio
+async def test_fallback_uses_second_provider_when_first_exceeds_total_budget():
+    class SlowProvider(StubGenerativeClient):
+        timeout = 0.01
+
+        async def generate_answer(self, question, context_chunks, *, audience="USER", mode="homespace"):
+            self.calls += 1
+            await asyncio.sleep(0.1)
+            return "too late"
+
+    primary = SlowProvider()
+    fallback = StubGenerativeClient(answer="gemini answer")
+    client = FallbackGenerativeClient([("groq", primary), ("gemini", fallback)])
+
+    assert await client.generate_answer("question", []) == "gemini answer"
+    assert primary.calls == 1
+    assert fallback.calls == 1
+
+
 def test_factory_uses_provider_specific_models():
     settings = Settings(
         _env_file=None,
@@ -81,6 +102,23 @@ def test_factory_uses_provider_specific_models():
     assert client.clients[0][1].model == "gemini-test-model"
     assert isinstance(client.clients[1][1], GroqGenerativeClient)
     assert client.clients[1][1].model == "groq-test-model"
+
+
+def test_factory_prefers_groq_and_keeps_gemini_as_fallback():
+    settings = Settings(
+        _env_file=None,
+        GENERATION_PROVIDER="groq",
+        GENERATION_FALLBACK_PROVIDER="gemini",
+        GROQ_MODEL="openai/gpt-oss-20b",
+        GEMINI_MODEL="gemini-2.5-flash",
+    )
+
+    client = get_generative_client(settings)
+
+    assert isinstance(client, FallbackGenerativeClient)
+    assert [name for name, _ in client.clients] == ["groq", "gemini"]
+    assert isinstance(client.clients[0][1], GroqGenerativeClient)
+    assert isinstance(client.clients[1][1], GeminiGenerativeClient)
 
 
 @pytest.mark.asyncio

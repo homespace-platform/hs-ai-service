@@ -6,7 +6,7 @@ winget install --id astral-sh.uv -e --source winget
 Set-Alias uv "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe\uv.exe"
 cd C:\projects\hs-ai-service
 uv sync
-docker compose -f ..\hs-infrastructure\docker-infrastructure.yml up -d postgres-ai
+docker compose -f ..\hs-infrastructure\docker-infrastructure.yml up -d postgres-ai mongodb
 uv run alembic upgrade head
 ```
 

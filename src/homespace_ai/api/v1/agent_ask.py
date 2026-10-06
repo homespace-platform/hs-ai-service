@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from homespace_ai.api.v1.admin_knowledge import get_embedder
@@ -11,6 +11,7 @@ from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.config import Settings, get_settings
 from homespace_ai.core.database import get_db
 from homespace_ai.core.security import UserContext, get_current_user
+from homespace_ai.repositories.conversation_repo import get_conversation_repository
 
 router = APIRouter(prefix="/agent", tags=["Agent Ask"])
 
@@ -26,8 +27,7 @@ async def ask_agent(
     settings: Settings = Depends(get_settings),
     embedder=Depends(get_embedder),
 ) -> ApiResponse[AskResponse]:
-    """User-facing RAG ask endpoint.
-    Retrieves facts from approved active knowledge chunks and synthesizes an answer with citations.
+    """Answer with role-scoped HomeSpace knowledge, or general help for ADMIN.
     """
     generative_client = get_generative_client(settings)
     use_cases = AskUseCases(
@@ -39,20 +39,42 @@ async def ask_agent(
 
     question = body.effective_question
     if not question:
-        from fastapi import HTTPException, status
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Question must not be empty.",
         )
 
+    conversation_id = body.effective_conversation_id
+    conversation_repository = None
+    if conversation_id:
+        conversation_repository = get_conversation_repository()
+        saved = await conversation_repository.append_message(
+            user.user_id, conversation_id, role="user", content=question
+        )
+        if not saved:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Conversation not found.",
+            )
+
     request_id = str(uuid.uuid4())
+    is_admin = (user.role or "").upper() == "ADMIN" or any(
+        authority.upper() in {"ADMIN", "ROLE_ADMIN"} for authority in user.authorities
+    )
     result = await use_cases.ask(
         question=question,
-        user_role=user.role,
+        user_role="ADMIN" if is_admin else "USER",
+        user_name=user.name,
         locale="vi-VN",
-        conversation_id=body.effective_conversation_id,
+        conversation_id=conversation_id,
         request_id=request_id,
     )
+
+    if conversation_repository is not None:
+        await conversation_repository.append_message(
+            user.user_id, conversation_id, role="assistant",
+            content=result.answer, status=result.status,
+        )
 
     citations = [
         CitationItem(

@@ -18,7 +18,7 @@ def require_dedicated_test_database():
 @pytest.fixture(autouse=True)
 def fake_generation(monkeypatch):
     class FakeClient:
-        async def generate_answer(self, question, context_chunks):
+        async def generate_answer(self, question, context_chunks, *, audience="USER", mode="homespace"):
             return context_chunks[0]["content"] if context_chunks else ""
 
     monkeypatch.setattr(

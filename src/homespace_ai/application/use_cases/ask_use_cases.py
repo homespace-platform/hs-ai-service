@@ -26,7 +26,7 @@ class Citation:
 @dataclass
 class AskResult:
     answer: str
-    status: str  # ANSWERED, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE
+    status: str  # ANSWERED, GENERAL_ANSWER, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE
     citations: list[dict[str, Any]]
     request_id: str
 
@@ -38,6 +38,14 @@ REALTIME_PATTERNS = [
     re.compile(r"\b(hợp đồng|chữ ký|lịch hẹn)\s+.*(của tôi|đã ký chưa|sắp tới)\b", re.IGNORECASE),
     re.compile(r"\b(số dư|ví|tiền cọc)\s+.*(của tôi|còn bao nhiêu)\b", re.IGNORECASE),
 ]
+
+GREETINGS = {"chào", "chào bạn", "xin chào", "hi", "hello", "hey", "chào ai", "chào homespace"}
+PLATFORM_TERMS = (
+    "homespace", "trợ lý", "nền tảng", "ứng dụng", "tin đăng", "bài đăng",
+    "nhà thuê", "phòng trọ", "chủ nhà", "người thuê", "thuê nhà", "đặt lịch",
+    "yêu cầu thuê", "hóa đơn", "hoá đơn", "hợp đồng", "tiền cọc",
+    "thanh toán", "đăng nhập", "tài khoản", "kiểm duyệt", "rag",
+)
 
 
 class AskUseCases:
@@ -65,30 +73,47 @@ class AskUseCases:
         self,
         question: str,
         user_role: str | None = None,
+        user_name: str | None = None,
         locale: str = "vi-VN",
         conversation_id: str | None = None,
         request_id: str | None = None,
     ) -> AskResult:
         req_id = request_id or str(uuid.uuid4())
+        audience = "ADMIN" if (user_role or "").upper() == "ADMIN" else "USER"
+
+        normalized_question = question.strip().lower().strip(" .!?…")
+        if normalized_question in GREETINGS:
+            name = " ".join((user_name or "").split())[:80]
+            greeting = f"Chào {name}!" if name else "Chào bạn!"
+            return AskResult(
+                answer=(f"{greeting} Mình là trợ lý HomeSpace. "
+                        "Bạn muốn tìm hiểu về thuê nhà, cho thuê, hợp đồng hay thanh toán?"
+                        if audience == "USER" else
+                        f"{greeting} Mình là trợ lý HomeSpace. Bạn có thể hỏi mình về HomeSpace hoặc bất kỳ chủ đề nào khác."),
+                status="ANSWERED", citations=[], request_id=req_id,
+            )
 
         # 1. Check for real-time / personal dynamic queries
         if self.is_realtime_or_personal_query(question):
             return AskResult(
                 answer=(
-                    "Yêu cầu tra cứu dữ liệu cá nhân hoặc trạng thái thời gian thực "
-                    "(như tin đăng, tiền thuê, hợp đồng hoặc lịch hẹn của bạn) "
-                    "chưa được hỗ trợ trong API này. RAG chỉ hỗ trợ giải đáp các câu hỏi "
-                    "về quy trình, chính sách và hướng dẫn chung của HomeSpace."
+                    "Mình chưa xem được dữ liệu tài khoản hoặc trạng thái cập nhật theo thời gian thực "
+                    "(như tin đăng, hóa đơn, hợp đồng hay lịch hẹn của bạn). "
+                    "Bạn hãy kiểm tra mục tương ứng trên HomeSpace; mình vẫn có thể hướng dẫn cách sử dụng nhé."
                 ),
                 status="OUT_OF_SCOPE",
                 citations=[],
                 request_id=req_id,
             )
 
+        # ADMIN may ask general questions; do not force unrelated topics through HomeSpace RAG.
+        if audience == "ADMIN" and not any(term in normalized_question for term in PLATFORM_TERMS):
+            return await self._answer_general(question, req_id)
+
         # 2. Strict ACL enforcement on visibility
         # Users only get "public". Only explicit ADMIN role gets "admin" docs.
         allowed_visibilities = ["public"]
-        if user_role and user_role.upper() == "ADMIN":
+        if audience == "ADMIN":
             allowed_visibilities.append("admin")
 
         # 3. Embed user question locally with 'query: ' prefix
@@ -109,7 +134,7 @@ class AskUseCases:
         # 5. Check if evidence is sufficient
         if not matching_chunks:
             return AskResult(
-                answer="HomeSpace chưa có thông tin hoặc tài liệu về nội dung này trong hệ thống. Vui lòng liên hệ bộ phận hỗ trợ khách hàng để được giải đáp.",
+                answer="Mình chưa tìm thấy tài liệu HomeSpace phù hợp với câu hỏi này. Bạn có thể hỏi về cách thuê, cho thuê, hợp đồng hoặc thanh toán; nếu cần thông tin tài khoản cụ thể, hãy liên hệ bộ phận hỗ trợ nhé.",
                 status="NO_EVIDENCE",
                 citations=[],
                 request_id=req_id,
@@ -141,6 +166,7 @@ class AskUseCases:
             raw_answer = await self.generative_client.generate_answer(
                 question=question,
                 context_chunks=context_chunks,
+                audience=audience,
             )
 
             # 7. Parse and strictly verify model citations
@@ -169,7 +195,6 @@ class AskUseCases:
             )
         except GenerationUnavailableError as e:
             logger.warn("generation_unavailable", error=str(e), request_id=req_id)
-            # In fallback mode, only return the top candidate as reference
             fallback_citations = [
                 {
                     "documentId": c["document_id"],
@@ -189,6 +214,19 @@ class AskUseCases:
                 status="GENERATION_UNAVAILABLE",
                 citations=fallback_citations,
                 request_id=req_id,
+            )
+
+    async def _answer_general(self, question: str, request_id: str) -> AskResult:
+        try:
+            answer = await self.generative_client.generate_answer(
+                question=question, context_chunks=[], audience="ADMIN", mode="general"
+            )
+            return AskResult(answer=answer, status="GENERAL_ANSWER", citations=[], request_id=request_id)
+        except GenerationUnavailableError as error:
+            logger.warn("general_generation_unavailable", error=str(error), request_id=request_id)
+            return AskResult(
+                answer="Mình chưa thể trả lời câu hỏi này lúc này vì dịch vụ AI đang gián đoạn. Bạn thử lại sau ít phút nhé.",
+                status="GENERATION_UNAVAILABLE", citations=[], request_id=request_id,
             )
 
     def _parse_and_verify_citations(
@@ -251,4 +289,3 @@ class AskUseCases:
             })
 
         return clean_answer, verified
-

@@ -13,15 +13,31 @@ from homespace_ai.core.config import get_settings
 from homespace_ai.core.database import engine
 from homespace_ai.core.logging import configure_logging
 from homespace_ai.discovery.eureka import EurekaRegistration
+from homespace_ai.repositories.conversation_repo import get_conversation_repository
 
 settings = get_settings()
 configure_logging(settings.log_level)
 logger = structlog.get_logger(__name__)
 
 
+def preload_embedding_model() -> None:
+    """Load weights and run one encode before Eureka exposes this instance."""
+    from homespace_ai.api.v1.admin_knowledge import get_embedder
+
+    get_embedder(settings).embed_query("HomeSpace")
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     application.state.eureka_registered = False
+    try:
+        await asyncio.to_thread(preload_embedding_model)
+    except Exception:
+        logger.exception("embedding_model_preload_failed")
+        raise
+    conversation_repository = get_conversation_repository()
+    await conversation_repository.ensure_indexes()
+    await conversation_repository.ping()
     async with httpx.AsyncClient(timeout=5.0) as eureka_http:
         registration = EurekaRegistration(settings, eureka_http)
         application.state.eureka_registered = await registration.register()
@@ -37,9 +53,6 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             eureka_host=registration.host,
             eureka_registered=application.state.eureka_registered,
         )
-        # Warm up embedding model in background so user queries respond in milliseconds
-        from homespace_ai.api.v1.admin_knowledge import get_embedder
-        warmup_task = asyncio.create_task(asyncio.to_thread(get_embedder, settings))
         try:
             yield
         finally:
@@ -49,6 +62,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             except asyncio.CancelledError:
                 pass
             await application.state.gateway_client.aclose()
+            await conversation_repository.close()
+            get_conversation_repository.cache_clear()
             await registration.deregister()
             logger.info("service_stopped", service=settings.app_name)
 
@@ -96,6 +111,10 @@ async def readiness() -> dict[str, str]:
                 await connection.execute(text("SELECT 1"))
     except Exception:
         raise HTTPException(status_code=503, detail="AI database is unavailable.") from None
+    try:
+        await asyncio.wait_for(get_conversation_repository().ping(), timeout=3)
+    except Exception:
+        raise HTTPException(status_code=503, detail="AI conversation storage is unavailable.") from None
     return {
         "status": "READY",
         "service": settings.app_name,

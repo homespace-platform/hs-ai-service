@@ -8,7 +8,7 @@ FastAPI microservice for HomeSpace AI capabilities, local RAG knowledge base, an
   - User Q&A: `/api/v1/ai/**`
   - Admin Knowledge Base: `/api/v1/admin/ai/**` (strictly authorized by `GatewayRouteAuthorization` for role `ADMIN`).
 - Validates internal Gateway secret `X-Internal-Secret` to reject untrusted direct traffic on port 8084.
-- Storage: Dedicated PostgreSQL instance with `pgvector` extension running on port `5433`.
+- Storage: Dedicated PostgreSQL instance with `pgvector` on port `5433`; AI conversation history uses the existing MongoDB container on port `27017` in its own `homespace_ai` database.
 - Local Embedding: `intfloat/multilingual-e5-small` via `sentence-transformers` running on CPU (384-dimensional vector, normalized).
 - Generative Layer: Gemini / Groq / Disabled mode for synthesis with source citations.
 
@@ -22,7 +22,7 @@ In `hs-infrastructure`, the `postgres-ai` container runs `pgvector/pgvector:pg16
 
 ```powershell
 cd D:\Workspace\homespace\hs-infrastructure
-docker compose -f docker-infrastructure.yml up -d postgres-ai
+docker compose -f docker-infrastructure.yml up -d postgres-ai mongodb
 ```
 
 > **Kiểm tra cổng 5433:**
@@ -32,6 +32,10 @@ docker compose -f docker-infrastructure.yml up -d postgres-ai
 > ```
 >
 > Nếu cổng 5433 đã bị chiếm bởi tiến trình khác, bạn có thể đổi port mapping trong `docker-infrastructure.yml` (ví dụ `5434:5432`) và cập nhật `AI_DATABASE_URL` trong `.env` tương ứng.
+
+The AI service also needs `AI_MONGODB_URI` (see `.env.example`). Conversation endpoints
+create their index automatically at startup. History is scoped to the authenticated
+Gateway user ID; deleting a conversation removes its stored messages.
 
 ### Step 2: Install Dependencies & Run Database Migrations
 
@@ -59,12 +63,12 @@ returns `GENERATION_UNAVAILABLE` with citations instead of pretending an
 excerpt is a generated answer. Set a supported `GENERATION_PROVIDER` and its
 matching `GENERATION_MODEL` when you are ready to use Gemini or Groq.
 
-To fail over automatically from Gemini to Groq on rate limits, timeouts,
+To use Groq first and fail over automatically to Gemini on rate limits, timeouts,
 network failures, or provider 5xx errors, configure:
 
 ```dotenv
-GENERATION_PROVIDER=gemini
-GENERATION_FALLBACK_PROVIDER=groq
+GENERATION_PROVIDER=groq
+GENERATION_FALLBACK_PROVIDER=gemini
 GEMINI_MODEL=gemini-2.5-flash
 GROQ_MODEL=openai/gpt-oss-20b
 ```

@@ -49,6 +49,10 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://homespace:homespace123@localhost:5433/homespace_ai",
         alias="AI_DATABASE_URL",
     )
+    ai_mongodb_uri: str = Field(
+        default="mongodb://homespace:homespace123@localhost:27017/homespace_ai?authSource=admin",
+        alias="AI_MONGODB_URI",
+    )
     # Local embedding configuration
     embedding_model_id: str = Field(
         default="intfloat/multilingual-e5-small",

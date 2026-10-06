@@ -104,6 +104,30 @@ class AskRequest(BaseModel):
 
 class AskResponse(BaseModel):
     answer: str
-    status: str  # ANSWERED, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE
+    status: str  # ANSWERED, GENERAL_ANSWER, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE
     citations: list[CitationItem] = Field(default_factory=list)
     requestId: str
+
+
+class ConversationMessage(BaseModel):
+    id: str
+    role: str
+    content: str
+    status: str | None = None
+    createdAt: datetime
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    isPinned: bool
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class ConversationDetail(ConversationSummary):
+    messages: list[ConversationMessage]
+
+
+class SetConversationPinnedRequest(BaseModel):
+    isPinned: bool
