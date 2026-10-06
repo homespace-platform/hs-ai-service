@@ -18,6 +18,7 @@ class ListingFilters(BaseModel):
     district: str | None = Field(default=None, max_length=100)
     category: str | None = None
     price_max: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    min_occupants: int | None = Field(default=None, ge=1, le=30)
     has_mezzanine: bool = False
     has_balcony: bool = False
     has_parking: bool = False
@@ -57,7 +58,13 @@ WHERE l.active IS TRUE AND l.status = 'PUBLISHED'
   AND a.province_code = :province_code
   AND (CAST(:district AS text) IS NULL OR a.full_address ILIKE :district ESCAPE '\\')
   AND (CAST(:category AS text) IS NULL OR l.category = :category)
-  AND (CAST(:price_max AS numeric) IS NULL OR l.price_amount <= :price_max)
+  AND (CAST(:price_max AS numeric) IS NULL OR
+       l.price_amount * CASE WHEN l.price_unit = 'PERSON_MONTH'
+            THEN COALESCE(CAST(:min_occupants AS integer), 1) ELSE 1 END <= :price_max)
+  AND (CAST(:min_occupants AS integer) IS NULL OR
+       (l.category = 'ROOM' AND r.max_occupants >= :min_occupants) OR
+       (l.category = 'HOUSE' AND h.max_occupants >= :min_occupants) OR
+       (l.category = 'APARTMENT' AND ap.max_occupants >= :min_occupants))
   AND (:has_mezzanine IS FALSE OR (l.category = 'ROOM' AND r.has_mezzanine IS TRUE))
   AND (:has_balcony IS FALSE OR
        (l.category = 'ROOM' AND r.has_balcony IS TRUE) OR
@@ -88,15 +95,16 @@ async def search_public_listings(filters: ListingFilters) -> dict:
         "district": _contains(filters.district),
         "category": filters.category if filters.category in {"ROOM", "APARTMENT", "HOUSE"} else None,
         "price_max": filters.price_max,
+        "min_occupants": filters.min_occupants,
         "has_mezzanine": filters.has_mezzanine,
         "has_balcony": filters.has_balcony,
         "has_parking": filters.has_parking,
         "has_garage": filters.has_garage,
         "has_video": filters.has_video,
         "location": _contains(filters.location),
-        # A landmark is a hard match only when the query did not also give a locality.
-        # Without coordinates, a 'near X' claim cannot be inferred from another ward.
-        "landmark": _contains(filters.landmark) if not (filters.location or filters.district) else None,
+        # Named POIs remain mandatory even when a ward was also supplied. A ward
+        # alone can contain many unrelated destinations.
+        "landmark": _contains(filters.landmark),
         "listing_ids": filters.listing_ids or None,
         "limit": filters.size,
         "offset": (filters.page - 1) * filters.size,
@@ -112,8 +120,10 @@ async def search_public_listings(filters: ListingFilters) -> dict:
             count = (await conn.execute(text("SELECT count(*) " + _BASE), values)).scalar_one()
             rows = (await conn.execute(text(
                 "SELECT l.id, l.title, l.category, l.price_amount, l.price_unit, "
-                "l.area_m2, a.ward_name, "
+                "l.area_m2, a.ward_name, r.max_occupants AS room_max_occupants, "
+                "h.max_occupants AS house_max_occupants, ap.max_occupants AS apartment_max_occupants, "
                 "r.parking_policy, r.max_vehicles AS room_max_vehicles, "
+                "r.has_mezzanine, r.has_balcony, ap.balcony_direction, "
                 "h.has_garage, h.max_vehicles AS house_max_vehicles, "
                 "l.max_motorbike_count " + _BASE +
                 f" ORDER BY {order_by} LIMIT :limit OFFSET :offset"
@@ -129,6 +139,13 @@ async def search_public_listings(filters: ListingFilters) -> dict:
                 "price": int(row["price_amount"]), "priceUnit": row["price_unit"],
                 "areaM2": float(row["area_m2"]) if row["area_m2"] is not None else None,
                 "ward": row["ward_name"],
+                "maxOccupants": (row["room_max_occupants"] if row["category"] == "ROOM"
+                                 else row["house_max_occupants"] if row["category"] == "HOUSE"
+                                 else row["apartment_max_occupants"]),
+                "hasMezzanine": row["has_mezzanine"],
+                "hasBalcony": (row["has_balcony"] if row["category"] == "ROOM"
+                               else row["balcony_direction"] is not None if row["category"] == "APARTMENT"
+                               else None),
                 "parkingPolicy": row["parking_policy"],
                 "maxVehicles": row["room_max_vehicles"] if row["category"] == "ROOM" else row["house_max_vehicles"],
                 "hasGarage": row["has_garage"], "maxMotorbikeCount": row["max_motorbike_count"],

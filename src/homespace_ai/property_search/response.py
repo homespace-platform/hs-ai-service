@@ -98,7 +98,8 @@ def _fallback_intro(
             f"Trong {_count(previous_count)} tin vừa xem, chưa có tin nào đáp ứng điều kiện mới."
         )
     elif shown:
-        intro = f"Mình tìm được {_count(total)} tin phù hợp với nhu cầu bạn vừa chia sẻ. Đây là thông tin chính để bạn xem nhanh:"
+        intro = (f"Mình tìm được {_count(total)} tin phù hợp với nhu cầu bạn vừa chia sẻ rồi đây! "
+                 "Mình tóm tắt giá và thông tin chính để bạn dễ chọn nhé:")
     else:
         intro = "Mình chưa tìm thấy tin đang đăng nào đáp ứng đầy đủ các điều kiện bạn vừa nêu."
     if len(conflicts) == 1:
@@ -115,28 +116,49 @@ def _fallback_intro(
     return intro
 
 
+def _approximate_intro(tier: str, count: int) -> str:
+    if tier == "same_landmark":
+        locality = "có nhắc tới địa điểm bạn quan tâm"
+    elif tier == "same_area":
+        locality = "trong khu vực bạn chọn"
+    elif tier == "mixed":
+        locality = "có nhắc tới địa điểm hoặc cùng khu vực bạn chọn"
+    else:
+        locality = "cùng tỉnh/thành phố"
+    return (
+        "Mình chưa thấy tin nào khớp trọn vẹn mọi tiêu chí của bạn, nhưng vẫn có "
+        f"{_count(count)} lựa chọn {locality} đáng xem thử. "
+        "Mình ghi rõ điểm chưa khớp dưới từng tin để bạn dễ cân nhắc nhé "
+        "(khoảng cách thực tế tới địa điểm cần xác nhận trên bản đồ):"
+    )
+
+
 async def compose_search_reply(
     *,
     question: str,
     result_data: dict[str, Any],
     previous_ids: list[str],
     scoped: bool,
+    occupants: int | None = None,
 ) -> str:
     matches = result_data.get("matches") or []
     total = int(result_data.get("total") or 0)
+    approximate = bool(result_data.get("isApproximate"))
     parking_question = asks_about_parking(question)
     conflicts = [item for item in matches if _parking_conflict(item)] if parking_question else []
     supported_count = sum(_parking_label(item) is not None for item in matches) if parking_question else 0
-    intro = _fallback_intro(
-        total, len(matches), len(previous_ids), scoped, parking_question,
-        supported_count, conflicts,
-    )
+    intro = (_approximate_intro(result_data.get("matchTier", "same_province"), len(matches))
+             if approximate else _fallback_intro(
+                 total, len(matches), len(previous_ids), scoped, parking_question,
+                 supported_count, conflicts,
+             ))
 
     # Even a constrained model previously invented a 3.4M price for a 3.2M
     # listing. Keep every property-search claim deterministic and DB-backed.
 
     if not matches:
-        return intro + (" Bạn có thể nới một tiêu chí, chẳng hạn khu vực hoặc ngân sách, để mình tìm lại nhé."
+        return intro + (" Mình đã thử cả các tin cùng khu vực và trong tỉnh/thành phố nhưng chưa có lựa chọn liên quan để giới thiệu. "
+                        "Bạn muốn mình ưu tiên giữ ngân sách, số người ở hay địa điểm? Mình sẽ tìm tiếp theo tiêu chí quan trọng nhất cho bạn."
                         if not scoped else " Bạn có thể nới tiêu chí vừa thêm hoặc mở rộng khu vực để mình tìm tiếp nhé.")
 
     lines = [intro, ""]
@@ -157,8 +179,18 @@ async def compose_search_reply(
         area = listing.get("areaM2")
         if area is not None:
             suffix += f" · {area:g} m²"
+        if listing.get("priceUnit") == "PERSON_MONTH" and occupants:
+            group_price = f"{int(listing['price']) * occupants:,}".replace(",", ".")
+            suffix += f" · khoảng {group_price} đ/tháng cho {occupants} người (chưa gồm phí khác)"
+        if listing.get("maxOccupants") is not None and ("nguoi" in _plain(question)):
+            suffix += f" · tối đa {listing['maxOccupants']} người"
+        notes = listing.get("matchNotes") or []
+        if approximate:
+            suffix += " · Lưu ý: " + ("; ".join(notes) if notes else "cần xác nhận mức độ phù hợp và khoảng cách thực tế")
         lines.append(f"- [{title}](/rent/{listing['id']}) — {price} đ/{price_unit}{suffix}")
-    if total > len(matches) and not scoped:
+    if approximate:
+        lines.append("\nNếu bạn thích tin nào, mình có thể kiểm tra tiếp sức chứa, chi phí thực trả và tiện ích của chính tin đó cho bạn.")
+    elif total > len(matches) and not scoped:
         lines.append(f"\nMình đang hiển thị {_count(len(matches))} tin đầu tiên trong số {_count(total)} tin phù hợp.")
     elif not scoped and not parking_question:
         lines.append("\nBạn muốn mình so sánh thêm phí hàng tháng, tiền cọc hoặc tiện ích của những tin này không?")

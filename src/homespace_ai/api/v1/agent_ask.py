@@ -13,6 +13,7 @@ from homespace_ai.core.database import get_db
 from homespace_ai.core.security import UserContext, get_current_user
 from homespace_ai.repositories.conversation_repo import get_conversation_repository
 from homespace_ai.property_search.intent import parse_intent
+from homespace_ai.property_search.alternatives import find_related_listings
 from homespace_ai.property_search.field_qa import answer_listing_question
 from homespace_ai.property_search.mcp_client import call_listing_tool
 from homespace_ai.property_search.routing import (
@@ -141,11 +142,12 @@ async def ask_agent(
                         search_context.model_dump(exclude_none=True),
                     )
             category = intent.category if intent.category in {"ROOM", "APARTMENT", "HOUSE"} else context.category
-            result_data = await call_listing_tool("search_listings", {
+            search_filters = {
                 "province_code": context.provinceCode,
                 "district": district or "",
                 "category": category or "",
                 "price_max": intent.price_max or 0,
+                "min_occupants": intent.min_occupants or 0,
                 "has_mezzanine": intent.has_mezzanine,
                 "has_balcony": intent.has_balcony,
                 "has_parking": intent.has_parking and not (
@@ -158,13 +160,17 @@ async def ask_agent(
                 "landmark": intent.landmark or "",
                 "page": 1,
                 "size": 5,
-                "sort": "newest",
-            })
+                "sort": "price_asc" if intent.landmark and not intent.price_max else "newest",
+            }
+            result_data = await call_listing_tool("search_listings", search_filters)
+            if not result_data.get("matches") and not scope_to_previous:
+                result_data = await find_related_listings(search_filters, call_listing_tool)
             answer = await compose_search_reply(
                 question=question,
                 result_data=result_data,
                 previous_ids=prior_ids,
                 scoped=scope_to_previous,
+                occupants=intent.min_occupants,
             )
             if conversation_repository is not None and conversation_id:
                 result_ids = [item["id"] for item in result_data.get("matches", [])]

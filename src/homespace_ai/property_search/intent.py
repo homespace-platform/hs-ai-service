@@ -13,6 +13,7 @@ from homespace_ai.core.config import get_settings
 class SearchIntent(BaseModel):
     category: str | None = None
     price_max: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    min_occupants: int | None = Field(default=None, ge=1, le=30)
     has_mezzanine: bool = False
     has_balcony: bool = False
     has_parking: bool = False
@@ -59,6 +60,16 @@ def _is_fresh_search(query: str) -> bool:
     )
 
 
+def _canonical_landmark(value: str | None, location: str | None) -> str | None:
+    if not value:
+        return None
+    value = value.strip(" ,.;·-")
+    if location:
+        value = re.sub(rf"\s*(?:[·,;-]\s*)?{re.escape(location)}$", "", value, flags=re.IGNORECASE).strip(" ,.;·-")
+    value = re.sub(r"^Đại học\s+", "ĐH ", value, flags=re.IGNORECASE)
+    return value or None
+
+
 def fallback_intent(query: str) -> SearchIntent:
     plain = _plain(query)
     _, has_garage = _garage_update(query)
@@ -76,6 +87,8 @@ def fallback_intent(query: str) -> SearchIntent:
         unit = price.group(2) or "trieu"
         multiplier = 1_000_000_000 if unit == "ty" else (1_000_000 if unit in {"trieu", "tr"} else (1_000 if unit in {"nghin", "k"} else 1))
         price_max = int(amount * multiplier)
+    occupants = re.search(r"\b(?:cho|o|nhom|gom|co)\s*(\d{1,2})\s*nguoi\b|\b(\d{1,2})\s*nguoi\s*o\b", plain)
+    min_occupants = int(occupants.group(1) or occupants.group(2)) if occupants else None
     location = None
     if "go vap" in plain:
         location = "Gò Vấp"
@@ -87,11 +100,14 @@ def fallback_intent(query: str) -> SearchIntent:
         # Keep the user's original accents: PostgreSQL ILIKE is not accent-insensitive.
         location = match.group(1).strip() or None
     landmark = None
-    if match := re.search(r"\bgan\s+([^,.]+?)(?:\s+(?:toi|minh|gia|duoi|co|can)|$)", plain):
-        landmark = match.group(1).strip() or None
+    if match := re.search(r"\bgan\s+([^,;]+?)(?:\s+(?:toi|minh|gia|duoi|co|can)\b|[,;]|$)", plain):
+        # Plain and NFC Vietnamese text have matching character offsets. Keep
+        # the original accents because PostgreSQL ILIKE is accent-sensitive.
+        landmark = _canonical_landmark(query[match.start(1):match.end(1)], location)
     return SearchIntent(
         category=category,
         price_max=price_max,
+        min_occupants=min_occupants,
         has_mezzanine=(
             bool(re.search(r"\b(co gac|gac lung|gac xep)\b", plain))
             and not _removes_criterion(query, ("gac", "gac lung", "gac xep"))
@@ -121,6 +137,7 @@ def _merge_history_intent(query: str, previous_user_messages: list[str]) -> Sear
             category=update.category or state.category,
             price_max=(None if _removes_criterion(message, ("gia", "ngan sach"))
                        else update.price_max if update.price_max is not None else state.price_max),
+            min_occupants=update.min_occupants if update.min_occupants is not None else state.min_occupants,
             has_mezzanine=(False if _removes_criterion(message, ("gac", "gac lung", "gac xep"))
                            else update.has_mezzanine or state.has_mezzanine),
             has_balcony=(False if _removes_criterion(message, ("ban cong",))
@@ -160,6 +177,8 @@ async def parse_intent(query: str, previous_user_messages: list[str] | None = No
             category=intent.category or fallback.category,
             price_max=(None if _removes_criterion(query, ("gia", "ngan sach"))
                        else intent.price_max if intent.price_max is not None else fallback.price_max),
+            min_occupants=(fallback.min_occupants if fallback.min_occupants is not None
+                           else intent.min_occupants),
             has_mezzanine=(
                 False if _removes_criterion(query, ("gac", "gac lung", "gac xep"))
                 else intent.has_mezzanine or fallback.has_mezzanine
@@ -175,7 +194,7 @@ async def parse_intent(query: str, previous_user_messages: list[str] | None = No
             ),
             has_garage=fallback.has_garage,
             location=intent.location or fallback.location,
-            landmark=intent.landmark or fallback.landmark,
+            landmark=_canonical_landmark(fallback.landmark or intent.landmark, intent.location or fallback.location),
         )
     except (GenerationUnavailableError, ValidationError, ValueError, TypeError):
         return fallback
