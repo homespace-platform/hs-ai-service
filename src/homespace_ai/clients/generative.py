@@ -70,7 +70,7 @@ def generation_prompts(question: str, context_chunks: list[dict[str, Any]], audi
             "Bạn phân tích nhu cầu tìm nhà cho thuê ở Việt Nam. Chỉ trả về một JSON object, "
             "không Markdown, không giải thích. Các key hợp lệ: category (ROOM, APARTMENT, HOUSE hoặc null), "
             "price_max (số VND hoặc null), has_mezzanine (boolean), has_balcony (boolean), "
-            "has_parking (boolean), "
+            "has_parking (boolean), has_garage (true = cần gara, false = không gara, null = không yêu cầu), "
             "location (tên phường/quận/khu vực được người dùng nêu, hoặc null), "
             "landmark (địa danh cụ thể như trường học, dự án, hoặc null). "
             "Đầu vào có thể gồm lịch sử tìm nhà và tin nhắn mới nhất. Hãy trả về bộ lọc hiệu lực sau tin nhắn mới: "

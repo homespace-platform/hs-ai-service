@@ -1,8 +1,9 @@
 import os
+from types import SimpleNamespace
 
 import pytest
 
-from homespace_ai.property_search.intent import fallback_intent, _merge_history_intent
+from homespace_ai.property_search.intent import fallback_intent, _merge_history_intent, parse_intent
 from homespace_ai.property_search.field_qa import answer_listing_question, is_detail_followup
 from homespace_ai.property_search.mcp_client import call_listing_tool
 from homespace_ai.property_search.response import (
@@ -26,6 +27,51 @@ def test_fallback_keeps_go_vap_without_inventing_distance():
     intent = fallback_intent("trọ gần đại học công nghiệp gò vấp, có gác dưới 3tr")
     assert intent.location == "Gò Vấp"
     assert intent.landmark is not None
+
+
+def test_garage_negation_and_new_search_do_not_reuse_old_filter():
+    first = fallback_intent("Tìm nhà nguyên căn có gara dưới 10 triệu ở TP.HCM")
+    assert first.category == "HOUSE" and first.has_garage is True
+    second = _merge_history_intent(
+        "Tìm nhà nguyên căn không gara dưới 10 triệu ở TP.HCM",
+        ["Tìm nhà nguyên căn có gara dưới 10 triệu ở TP.HCM"],
+    )
+    assert second.category == "HOUSE" and second.has_garage is False
+    assert second.has_parking is False
+    assert second.price_max == 10_000_000
+    assert _merge_history_intent("Bỏ yêu cầu gara", [
+        "Tìm nhà nguyên căn có gara dưới 10 triệu ở TP.HCM"
+    ]).has_garage is None
+    assert fallback_intent("Tìm nhà nguyên căn không có gara").has_garage is False
+    assert fallback_intent("Tìm nhà nguyên căn không cần gara").has_garage is None
+
+
+def test_fresh_search_does_not_inherit_other_category_features():
+    intent = _merge_history_intent(
+        "Tìm nhà nguyên căn không gara dưới 10 triệu",
+        ["Tìm phòng trọ có gác và ban công dưới 3 triệu"],
+    )
+    assert intent.category == "HOUSE" and intent.has_garage is False
+    assert intent.has_mezzanine is False and intent.has_balcony is False
+    assert intent.price_max == 10_000_000
+
+
+@pytest.mark.asyncio
+async def test_explicit_no_garage_overrides_stale_model_output(monkeypatch):
+    class _StaleModel:
+        async def generate_answer(self, question, context_chunks, *, mode):
+            return ('{"category":"HOUSE","price_max":10000000,'
+                    '"has_parking":true,"has_garage":true}')
+
+    monkeypatch.setattr("homespace_ai.property_search.intent.get_settings",
+                        lambda: SimpleNamespace(generation_provider="groq"))
+    monkeypatch.setattr("homespace_ai.property_search.intent.get_generative_client",
+                        lambda settings: _StaleModel())
+    intent = await parse_intent(
+        "Tìm nhà nguyên căn không gara dưới 10 triệu ở TP.HCM",
+        previous_user_messages=["Tìm nhà nguyên căn có gara dưới 10 triệu ở TP.HCM"],
+    )
+    assert intent.has_garage is False and intent.has_parking is False
 
 
 def test_follow_up_can_remove_an_earlier_search_filter():
@@ -109,7 +155,7 @@ async def test_room_wc_and_free_only_are_read_from_detail_fields():
         facts=_room_facts(), previous_questions=[],
         generative_client=DisabledGenerativeClient(),
     )
-    assert "Chưa có phòng nào xác nhận được gửi xe miễn phí" in free
+    assert "chưa xác nhận được phòng nào gửi xe miễn phí" in free
     assert "Phòng A" in free and "Phòng B" not in free
 
 
@@ -224,9 +270,29 @@ async def test_matching_house_scopes_are_answered_once_with_both_links():
         question="Cho thuê toàn bộ nhà hay chỉ một số tầng?", facts=facts,
         previous_questions=[], generative_client=DisabledGenerativeClient(),
     )
-    assert answer.startswith("Cả 2 nhà vừa tìm đều ghi: Cho thuê toàn bộ nhà")
+    assert answer.startswith("Mình đã kiểm tra lại cả 2 nhà vừa tìm")
+    assert "Các tin đều ghi: Cho thuê toàn bộ nhà" in answer
     assert answer.count("Cho thuê toàn bộ nhà") == 1
     assert "Nhà A" in answer and "Nhà B" in answer
+
+
+@pytest.mark.asyncio
+async def test_parking_comparison_answers_both_rooms_instead_of_free_only():
+    facts = _room_facts()
+    facts["listings"][0]["room"]["max_vehicles"] = 1
+    facts["listings"][0]["charges"][0]["amount"] = 0
+    facts["listings"][0]["charges"][0]["included_in_rent"] = True
+    facts["listings"][1]["room"]["max_vehicles"] = 1
+    answer = await answer_listing_question(
+        question=("Hai phòng vừa tìm, phòng nào gửi xe miễn phí, phòng nào thu phí? "
+                  "Mỗi phòng để tối đa mấy xe?"),
+        facts=facts, previous_questions=[], generative_client=DisabledGenerativeClient(),
+    )
+    assert "Mình đã đối chiếu 2 tin" in answer
+    assert "Phòng A" in answer and "Phòng B" in answer
+    assert "gửi xe miễn phí, tối đa 1 xe" in answer
+    assert "gửi xe có thu phí, tối đa 1 xe; mức phí 80.000 đ/xe/tháng" in answer
+    assert "dữ liệu mâu thuẫn" not in answer
 
 
 @pytest.mark.asyncio
@@ -272,6 +338,22 @@ async def test_initial_search_rejects_unasked_parking_claim():
 
 
 @pytest.mark.asyncio
+async def test_initial_search_reply_is_warm_and_uses_actual_price_unit_and_area():
+    reply = await compose_search_reply(
+        question="Tìm phòng trọ ở Bình Thạnh", previous_ids=[], scoped=False,
+        result_data={"total": 1, "matches": [{
+            "id": "c3822603-ae07-e05c-a8f3-ec2da14e0352",
+            "title": "Phòng A", "category": "ROOM", "price": 3_200_000,
+            "priceUnit": "PERSON_MONTH", "areaM2": 28.0,
+        }]},
+    )
+    assert "Mình tìm được một tin" in reply
+    assert "3.200.000 đ/người/tháng" in reply
+    assert "28 m²" in reply
+    assert "Bạn muốn mình so sánh thêm" in reply
+
+
+@pytest.mark.asyncio
 @pytest.mark.skipif(os.getenv("RUN_LIVE_LISTING_TESTS") != "1", reason="requires seeded homespace_core")
 async def test_mcp_queries_live_published_listings():
     result = await call_listing_tool("search_listings", {
@@ -297,6 +379,7 @@ async def test_mcp_queries_live_published_listings():
     })
     assert ward["ward"] == "Phường Gò Vấp"
     details = await call_listing_tool("get_listing_facts", {"listing_ids": [
+        "c3822603-ae07-e05c-a8f3-ec2da14e0352",
         "f199ecd2-5191-4d34-91c8-81a1f5a7e343",
         "f0cb3bc8-0b92-87cb-00ed-79963b48baa6",
         "6eb41796-4e76-fc57-7c9b-a7570aeb98fa",
@@ -304,10 +387,20 @@ async def test_mcp_queries_live_published_listings():
     by_id = {item["id"]: item for item in details["listings"]}
     room = by_id["f199ecd2-5191-4d34-91c8-81a1f5a7e343"]
     assert room["room"]["room_code"] == "P160"
-    assert room["room"]["max_vehicles"] == 10
+    assert room["room"]["max_vehicles"] == 1
     assert room["owner"]["display_name"] == "System Administrator"
     assert any(c["charge_type"] == "MOTORBIKE_PARKING" and c["amount"] == 80000
                for c in room["charges"])
+    parking_reply = await answer_listing_question(
+        question=("Hai phòng vừa tìm, phòng nào gửi xe miễn phí, phòng nào thu phí? "
+                  "Mỗi phòng để tối đa mấy xe?"),
+        facts={"listings": [by_id["c3822603-ae07-e05c-a8f3-ec2da14e0352"], room]},
+        previous_questions=[], generative_client=DisabledGenerativeClient(),
+    )
+    assert "P112" not in parking_reply  # Links use public titles, not internal room codes.
+    assert "cửa sổ lớn" in parking_reply and "có gác sáng thoáng" in parking_reply
+    assert "gửi xe miễn phí, tối đa 1 xe" in parking_reply
+    assert "mức phí 80.000 đ/xe/tháng" in parking_reply
     apartment = by_id["f0cb3bc8-0b92-87cb-00ed-79963b48baa6"]
     assert apartment["apartment"]["project_name"] == "Sunrise City"
     assert apartment["apartment"]["floor_number"] == 9
@@ -317,3 +410,13 @@ async def test_mcp_queries_live_published_listings():
     assert "Cho thuê toàn bộ nhà" in house["house"]["rental_scope_description"]
     assert house["house"]["rented_floor_from"] == 1
     assert house["house"]["rented_floor_to"] == house["house"]["total_floors"] == 2
+    with_garage = await call_listing_tool("search_listings", {
+        "province_code": "79", "category": "HOUSE", "price_max": 10_000_000,
+        "has_garage": True,
+    })
+    without_garage = await call_listing_tool("search_listings", {
+        "province_code": "79", "category": "HOUSE", "price_max": 10_000_000,
+        "has_garage": False,
+    })
+    assert with_garage["total"] == 4
+    assert without_garage["total"] == 0

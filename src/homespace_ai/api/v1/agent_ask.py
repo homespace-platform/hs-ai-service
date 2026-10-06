@@ -142,6 +142,7 @@ async def ask_agent(
                 "has_parking": intent.has_parking and not (
                     scope_to_previous and asks_about_parking(question)
                 ),
+                "has_garage": intent.has_garage,
                 "listing_ids": prior_ids if scope_to_previous else [],
                 "has_video": False,
                 "location": "" if district else (intent.location or ""),

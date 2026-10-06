@@ -43,6 +43,13 @@ def _count(count: int) -> str:
     return {1: "một", 2: "hai", 3: "ba", 4: "bốn", 5: "năm"}.get(count, str(count))
 
 
+_PRICE_UNITS = {
+    "MONTH": "tháng", "ROOM_MONTH": "phòng/tháng",
+    "PERSON_MONTH": "người/tháng", "M2_MONTH": "m²/tháng",
+    "SEAT_MONTH": "chỗ/tháng",
+}
+
+
 def asks_about_parking(question: str) -> bool:
     plain = _plain(question)
     return any(term in plain for term in ("gui xe", "de xe", "do xe", "bai xe"))
@@ -91,9 +98,9 @@ def _fallback_intro(
             f"Trong {_count(previous_count)} tin vừa xem, chưa có tin nào đáp ứng điều kiện mới."
         )
     elif shown:
-        intro = f"Mình thấy {_count(total)} tin phù hợp với nhu cầu của bạn."
+        intro = f"Mình tìm được {_count(total)} tin phù hợp với nhu cầu bạn vừa chia sẻ. Đây là thông tin chính để bạn xem nhanh:"
     else:
-        intro = "Mình chưa thấy tin nào đáp ứng đầy đủ các điều kiện bạn vừa nêu."
+        intro = "Mình chưa tìm thấy tin đang đăng nào đáp ứng đầy đủ các điều kiện bạn vừa nêu."
     if len(conflicts) == 1:
         title = str(conflicts[0].get("title") or "một tin")
         intro += (
@@ -129,11 +136,13 @@ async def compose_search_reply(
     # listing. Keep every property-search claim deterministic and DB-backed.
 
     if not matches:
-        return intro
+        return intro + (" Bạn có thể nới một tiêu chí, chẳng hạn khu vực hoặc ngân sách, để mình tìm lại nhé."
+                        if not scoped else " Bạn có thể nới tiêu chí vừa thêm hoặc mở rộng khu vực để mình tìm tiếp nhé.")
 
-    lines = [intro]
+    lines = [intro, ""]
     for listing in matches:
         price = f"{int(listing['price']):,}".replace(",", ".")
+        price_unit = _PRICE_UNITS.get(listing.get("priceUnit"), "tháng")
         title = str(listing.get("title") or "Tin cho thuê").replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
         detail = _parking_label(listing) if parking_question else None
         suffix = f" · {detail}" if detail else ""
@@ -145,5 +154,12 @@ async def compose_search_reply(
             suffix = f" · chưa xác nhận chỗ gửi xe (chính sách {policy} nhưng tối đa 0 xe)"
         elif parking_question:
             suffix = " · không ghi nhận chỗ gửi xe"
-        lines.append(f"- [{title}](/rent/{listing['id']}) — {price} đ/tháng{suffix}")
+        area = listing.get("areaM2")
+        if area is not None:
+            suffix += f" · {area:g} m²"
+        lines.append(f"- [{title}](/rent/{listing['id']}) — {price} đ/{price_unit}{suffix}")
+    if total > len(matches) and not scoped:
+        lines.append(f"\nMình đang hiển thị {_count(len(matches))} tin đầu tiên trong số {_count(total)} tin phù hợp.")
+    elif not scoped and not parking_question:
+        lines.append("\nBạn muốn mình so sánh thêm phí hàng tháng, tiền cọc hoặc tiện ích của những tin này không?")
     return "\n".join(lines)

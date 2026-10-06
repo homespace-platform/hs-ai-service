@@ -21,6 +21,7 @@ class ListingFilters(BaseModel):
     has_mezzanine: bool = False
     has_balcony: bool = False
     has_parking: bool = False
+    has_garage: bool | None = None
     has_video: bool = False
     location: str | None = Field(default=None, max_length=120)
     landmark: str | None = Field(default=None, max_length=120)
@@ -65,6 +66,8 @@ WHERE l.active IS TRUE AND l.status = 'PUBLISHED'
        (l.category = 'ROOM' AND r.parking_policy IN ('PAID', 'FREE') AND COALESCE(r.max_vehicles, 0) > 0) OR
        (l.category = 'HOUSE' AND h.has_garage IS TRUE AND COALESCE(h.max_vehicles, 0) > 0) OR
        (l.category = 'APARTMENT' AND COALESCE(l.max_motorbike_count, 0) > 0))
+  AND (CAST(:has_garage AS boolean) IS NULL OR
+       (l.category = 'HOUSE' AND h.has_garage = CAST(:has_garage AS boolean)))
   AND (:has_video IS FALSE OR EXISTS (
        SELECT 1 FROM listing_media m WHERE m.listing_id=l.id
          AND m.active IS TRUE AND m.media_type='VIDEO'))
@@ -88,6 +91,7 @@ async def search_public_listings(filters: ListingFilters) -> dict:
         "has_mezzanine": filters.has_mezzanine,
         "has_balcony": filters.has_balcony,
         "has_parking": filters.has_parking,
+        "has_garage": filters.has_garage,
         "has_video": filters.has_video,
         "location": _contains(filters.location),
         # A landmark is a hard match only when the query did not also give a locality.
@@ -107,7 +111,8 @@ async def search_public_listings(filters: ListingFilters) -> dict:
             await conn.execute(text("SET TRANSACTION READ ONLY"))
             count = (await conn.execute(text("SELECT count(*) " + _BASE), values)).scalar_one()
             rows = (await conn.execute(text(
-                "SELECT l.id, l.title, l.category, l.price_amount, a.ward_name, "
+                "SELECT l.id, l.title, l.category, l.price_amount, l.price_unit, "
+                "l.area_m2, a.ward_name, "
                 "r.parking_policy, r.max_vehicles AS room_max_vehicles, "
                 "h.has_garage, h.max_vehicles AS house_max_vehicles, "
                 "l.max_motorbike_count " + _BASE +
@@ -121,7 +126,9 @@ async def search_public_listings(filters: ListingFilters) -> dict:
         "matches": [
             {
                 "id": row["id"], "title": row["title"], "category": row["category"],
-                "price": int(row["price_amount"]), "ward": row["ward_name"],
+                "price": int(row["price_amount"]), "priceUnit": row["price_unit"],
+                "areaM2": float(row["area_m2"]) if row["area_m2"] is not None else None,
+                "ward": row["ward_name"],
                 "parkingPolicy": row["parking_policy"],
                 "maxVehicles": row["room_max_vehicles"] if row["category"] == "ROOM" else row["house_max_vehicles"],
                 "hasGarage": row["has_garage"], "maxMotorbikeCount": row["max_motorbike_count"],

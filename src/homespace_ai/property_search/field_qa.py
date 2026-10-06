@@ -390,7 +390,8 @@ async def answer_listing_question(
 ) -> str:
     listings = facts.get("listings") or []
     if not listings:
-        return "Những tin vừa xem hiện không còn được xuất bản; mình không thể xác nhận thông tin cũ từ CSDL."
+        return ("Mình không còn thấy các tin vừa xem trong danh sách đang được đăng, "
+                "nên chưa thể xác nhận thông tin của chúng. Bạn muốn mình tìm các tin đang còn hiển thị không?")
     fields = await _select_fields(question, previous_questions, generative_client)
     plain = _plain(question)
     parking = any(path in fields for path in ("room.parking_policy", "charges.MOTORBIKE_PARKING"))
@@ -400,11 +401,21 @@ async def answer_listing_question(
         fields = ["room.parking_policy", "room.max_vehicles", "charges.MOTORBIKE_PARKING"]
         parking = True
     if not fields:
-        return "Mình chưa xác định được bạn muốn kiểm tra trường nào của các tin vừa xem. Bạn có thể hỏi cụ thể về giá, diện tích, phí, nội thất, điều kiện thuê hoặc lịch xem nhà nhé."
+        return ("Mình chưa rõ bạn muốn xem thông tin nào của các tin vừa tìm. "
+                "Bạn hỏi cụ thể hơn một chút nhé—chẳng hạn giá, diện tích, phí, nội thất, "
+                "điều kiện thuê hoặc lịch xem nhà—mình sẽ kiểm tra ngay trên tin đăng.")
 
-    free_only = parking and "mien phi" in plain and any(x in plain for x in ("phong nao", "chi chon", "chi muon", "con phong"))
-    paid_only = parking and "so sanh" not in plain and any(
-        x in plain for x in ("phong nao phai tra phi", "phong co thu phi", "phong phai tra phi")
+    asks_both_parking_types = (
+        parking and "mien phi" in plain
+        and any(x in plain for x in ("thu phi", "tra phi", "mat phi", "co phi"))
+        and any(x in plain for x in ("hai phong", "moi phong", "ca hai", "so sanh", "tung phong"))
+        and not any(x in plain for x in ("chi chon", "chi muon", "chi can"))
+    )
+    free_only = (parking and not asks_both_parking_types and "mien phi" in plain
+                 and any(x in plain for x in ("phong nao", "chi chon", "chi muon", "con phong")))
+    paid_only = parking and not asks_both_parking_types and "so sanh" not in plain and any(
+        x in plain for x in ("phong nao phai tra phi", "phong nao thu phi",
+                           "phong co thu phi", "phong phai tra phi")
     )
     selected = _referenced_listings(question, listings)
     if free_only:
@@ -412,13 +423,13 @@ async def answer_listing_question(
     elif paid_only:
         selected = [item for item in selected if (item.get("room") or {}).get("parking_policy") == "PAID"]
 
-    lines: list[str] = []
+    notes: list[str] = []
     if free_only and not selected:
-        lines.append("Chưa có phòng nào xác nhận được gửi xe miễn phí từ dữ liệu hiện tại.")
+        notes.append("Mình chưa xác nhận được phòng nào gửi xe miễn phí từ dữ liệu hiện tại.")
         selected = [item for item in _referenced_listings(question, listings)
                     if (item.get("room") or {}).get("parking_policy") == "FREE"]
     elif paid_only and not selected:
-        return "Trong các tin vừa xem, không có phòng nào ghi chính sách gửi xe có thu phí."
+        return "Mình đã kiểm tra các tin vừa xem: chưa có phòng nào ghi chính sách gửi xe có thu phí."
 
     scope_fields = {"house.rental_scope_description", "house.rented_floor_from",
                     "house.rented_floor_to", "house.total_floors"}
@@ -430,8 +441,18 @@ async def answer_listing_question(
                 f"[{str(item['listing']['title']).replace('[', r'\[').replace(']', r'\]')}](/rent/{item['id']})"
                 for item in selected
             )
-            return f"Cả {len(selected)} nhà vừa tìm đều ghi: {scopes.pop()}. Xem tin: {links}."
+            return (f"Mình đã kiểm tra lại cả {len(selected)} nhà vừa tìm. "
+                    f"Các tin đều ghi: {scopes.pop()}.\n\nXem từng tin: {links}.")
 
+    lines: list[str] = []
+    if notes:
+        lines.extend(notes)
+    elif len(selected) == 1:
+        lines.append("Mình đã xem lại thông tin của tin này:")
+    else:
+        topic = "chỗ gửi xe" if parking else "những thông tin bạn hỏi"
+        lines.append(f"Mình đã đối chiếu {len(selected)} tin vừa tìm về {topic}:")
+    lines.append("")
     for item in selected:
         title = str(item["listing"]["title"]).replace("[", "\\[").replace("]", "\\]")
         label = f"[{title}](/rent/{item['id']})"
@@ -463,4 +484,11 @@ async def answer_listing_question(
         if not parts:
             parts.append("tin này chưa ghi các trường bạn hỏi")
         lines.append(f"- {label}: {'; '.join(parts)}.")
+    if parking and len(selected) > 1 and not any(_parking_conflict(item) for item in selected):
+        free_rooms = [item for item in selected if _is_verified_free(item)]
+        paid_rooms = [item for item in selected if (item.get("room") or {}).get("parking_policy") == "PAID"]
+        if len(free_rooms) == 1 and paid_rooms:
+            free_room = free_rooms[0]
+            title = str(free_room["listing"]["title"]).replace("[", "\\[").replace("]", "\\]")
+            lines.append(f"\nNếu bạn ưu tiên gửi xe không mất phí, [{title}](/rent/{free_room['id']}) là lựa chọn phù hợp hơn về riêng tiêu chí này.")
     return "\n".join(lines)

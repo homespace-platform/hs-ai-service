@@ -16,6 +16,7 @@ class SearchIntent(BaseModel):
     has_mezzanine: bool = False
     has_balcony: bool = False
     has_parking: bool = False
+    has_garage: bool | None = None
     location: str | None = Field(default=None, max_length=120)
     landmark: str | None = Field(default=None, max_length=120)
 
@@ -38,8 +39,29 @@ def _removes_criterion(query: str, aliases: tuple[str, ...]) -> bool:
     return False
 
 
+def _garage_update(query: str) -> tuple[bool, bool | None]:
+    """Return whether garage was mentioned and its requested three-state filter."""
+    plain = _plain(query)
+    if not re.search(r"\b(?:gara|garage|ga ra)\b", plain):
+        return False, None
+    if _removes_criterion(query, ("gara", "garage", "ga ra")):
+        return True, None
+    if re.search(r"\b(?:khong co|khong|ko|tranh)\s+(?:gara|garage|ga ra)\b", plain):
+        return True, False
+    return True, True
+
+
+def _is_fresh_search(query: str) -> bool:
+    plain = _plain(query).strip()
+    return bool(
+        re.search(r"\b(?:tim|kiem)\s+(?:nha|phong|tro|can ho|chung cu)\b", plain)
+        and not any(term in plain for term in ("tim them", "kiem them", "o do", "khu vuc do", "vua xem"))
+    )
+
+
 def fallback_intent(query: str) -> SearchIntent:
     plain = _plain(query)
+    _, has_garage = _garage_update(query)
     category = None
     if any(term in plain for term in ("phong tro", "nha tro", "tim tro", "o tro")):
         category = "ROOM"
@@ -82,6 +104,7 @@ def fallback_intent(query: str) -> SearchIntent:
                 "khong can gui xe", "khong gui xe", "khong co cho gui xe", "khong co cho de xe"
             ))
         ),
+        has_garage=has_garage,
         location=location,
         landmark=landmark,
     )
@@ -90,7 +113,10 @@ def fallback_intent(query: str) -> SearchIntent:
 def _merge_history_intent(query: str, previous_user_messages: list[str]) -> SearchIntent:
     state = SearchIntent()
     for message in [*previous_user_messages, query]:
+        if _is_fresh_search(message):
+            state = SearchIntent()
         update = fallback_intent(message)
+        garage_mentioned, garage_value = _garage_update(message)
         state = SearchIntent(
             category=update.category or state.category,
             price_max=(None if _removes_criterion(message, ("gia", "ngan sach"))
@@ -101,6 +127,7 @@ def _merge_history_intent(query: str, previous_user_messages: list[str]) -> Sear
                          else update.has_balcony or state.has_balcony),
             has_parking=(False if _removes_criterion(message, ("gui xe", "cho de xe", "bai do xe", "do xe"))
                          else update.has_parking or state.has_parking),
+            has_garage=garage_value if garage_mentioned else state.has_garage,
             location=update.location or state.location,
             landmark=update.landmark or state.landmark,
         )
@@ -108,8 +135,9 @@ def _merge_history_intent(query: str, previous_user_messages: list[str]) -> Sear
 
 
 async def parse_intent(query: str, previous_user_messages: list[str] | None = None) -> SearchIntent:
-    previous_user_messages = (previous_user_messages or [])[-8:]
+    previous_user_messages = [] if _is_fresh_search(query) else (previous_user_messages or [])[-8:]
     fallback = _merge_history_intent(query, previous_user_messages)
+    garage_mentioned, _ = _garage_update(query)
     settings = get_settings()
     if settings.generation_provider.lower().strip() not in {"groq", "gemini"}:
         return fallback
@@ -142,8 +170,10 @@ async def parse_intent(query: str, previous_user_messages: list[str] | None = No
             ),
             has_parking=(
                 False if _removes_criterion(query, ("gui xe", "cho de xe", "bai do xe", "do xe"))
+                or (garage_mentioned and not fallback.has_parking)
                 else intent.has_parking or fallback.has_parking
             ),
+            has_garage=fallback.has_garage,
             location=intent.location or fallback.location,
             landmark=intent.landmark or fallback.landmark,
         )
