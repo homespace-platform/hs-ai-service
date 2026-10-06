@@ -296,6 +296,54 @@ async def test_parking_comparison_answers_both_rooms_instead_of_free_only():
 
 
 @pytest.mark.asyncio
+async def test_latest_paid_parking_preference_overrides_earlier_free_mention():
+    facts = _room_facts()
+    facts["listings"][0]["room"]["max_vehicles"] = 1
+    facts["listings"][0]["charges"][0]["amount"] = 0
+    facts["listings"][0]["charges"][0]["included_in_rent"] = True
+    facts["listings"][1]["room"]["max_vehicles"] = 1
+    answer = await answer_listing_question(
+        question="Phòng miễn phí an ninh không tốt, tôi cần phòng gửi xe có phí",
+        facts=facts,
+        previous_questions=["Phòng có hỗ trợ chỗ gửi xe máy không?"],
+        generative_client=DisabledGenerativeClient(),
+    )
+    assert "Phòng B" in answer
+    assert "80.000 đ/xe/tháng" in answer
+    assert "Phòng A" not in answer
+    assert "ưu tiên gửi xe không mất phí" not in answer
+    assert "không đủ để kết luận nơi nào an ninh hơn" in answer
+
+
+@pytest.mark.asyncio
+async def test_paid_parking_request_never_recommends_free_room():
+    facts = _room_facts()
+    facts["listings"][0]["room"]["max_vehicles"] = 1
+    facts["listings"][0]["charges"][0]["amount"] = 0
+    facts["listings"][0]["charges"][0]["included_in_rent"] = True
+    facts["listings"][1]["room"]["max_vehicles"] = 1
+    for question in ("Tôi cần phòng gửi xe có thu phí", "Phòng nào gửi xe có phí?"):
+        answer = await answer_listing_question(
+            question=question, facts=facts, previous_questions=[],
+            generative_client=DisabledGenerativeClient(),
+        )
+        assert "Phòng B" in answer and "Phòng A" not in answer
+
+
+@pytest.mark.asyncio
+async def test_free_parking_synonym_does_not_get_misread_as_paid():
+    facts = _room_facts()
+    facts["listings"][0]["room"]["max_vehicles"] = 1
+    facts["listings"][0]["charges"][0]["amount"] = 0
+    facts["listings"][0]["charges"][0]["included_in_rent"] = True
+    answer = await answer_listing_question(
+        question="Tôi muốn phòng gửi xe không mất phí", facts=facts,
+        previous_questions=[], generative_client=DisabledGenerativeClient(),
+    )
+    assert "Phòng A" in answer and "Phòng B" not in answer
+
+
+@pytest.mark.asyncio
 async def test_parking_follow_up_answers_about_shown_listings_without_generic_template():
     result = {"total": 2, "matches": [
         {"id": "c3822603-ae07-e05c-a8f3-ec2da14e0352", "title": "Phòng A",

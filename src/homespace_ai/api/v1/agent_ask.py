@@ -13,8 +13,14 @@ from homespace_ai.core.database import get_db
 from homespace_ai.core.security import UserContext, get_current_user
 from homespace_ai.repositories.conversation_repo import get_conversation_repository
 from homespace_ai.property_search.intent import parse_intent
-from homespace_ai.property_search.field_qa import answer_listing_question, is_detail_followup
+from homespace_ai.property_search.field_qa import answer_listing_question
 from homespace_ai.property_search.mcp_client import call_listing_tool
+from homespace_ai.property_search.routing import (
+    QuestionRoute,
+    knowledge_history,
+    listing_user_history,
+    route_question,
+)
 from homespace_ai.property_search.response import (
     asks_about_parking,
     compose_search_reply,
@@ -56,6 +62,7 @@ async def ask_agent(
     conversation_id = body.effective_conversation_id
     conversation_repository = None
     search_context = body.searchContext
+    explicit_search_context = body.searchContext is not None
     conversation_history: list[dict] = []
     search_state: dict | None = None
     if conversation_id:
@@ -91,12 +98,14 @@ async def ask_agent(
     is_admin = (user.role or "").upper() == "ADMIN" or any(
         authority.upper() in {"ADMIN", "ROLE_ADMIN"} for authority in user.authorities
     )
-    if search_context:
-        previous_user_messages = [
-            str(message.get("content", ""))
-            for message in conversation_history
-            if message.get("role") == "user" and message.get("content")
-        ][-8:]
+    route = route_question(
+        question,
+        has_search_context=search_context is not None,
+        has_previous_results=bool(previous_result_ids(search_state, conversation_history)),
+        explicit_search_context=explicit_search_context,
+    )
+    if search_context and route != QuestionRoute.KNOWLEDGE:
+        previous_user_messages = listing_user_history(conversation_history)
         context = search_context
         resolved_location = await call_listing_tool("resolve_listing_ward", {
             "province_code": context.provinceCode,
@@ -106,7 +115,7 @@ async def ask_agent(
         district = explicit_district or context.district
         prior_ids = previous_result_ids(search_state, conversation_history)
         changed_ward = bool(explicit_district and explicit_district != context.district)
-        if is_detail_followup(question, bool(prior_ids), changed_ward):
+        if route == QuestionRoute.LISTING_DETAIL and not changed_ward:
             facts = await call_listing_tool("get_listing_facts", {"listing_ids": prior_ids})
             answer = await answer_listing_question(
                 question=question,
@@ -171,6 +180,14 @@ async def ask_agent(
             citations=[],
             request_id=request_id,
         )
+    elif route != QuestionRoute.KNOWLEDGE:
+        result = AskResult(
+            answer=("Mình có thể tìm tin đăng theo yêu cầu này, nhưng chưa biết bạn muốn tìm "
+                    "ở tỉnh/thành nào. Bạn chọn tỉnh/thành ở đầu trang rồi gửi lại nhé."),
+            status="PROPERTY_SEARCH",
+            citations=[],
+            request_id=request_id,
+        )
     else:
         result = await use_cases.ask(
             question=question,
@@ -179,7 +196,7 @@ async def ask_agent(
             locale="vi-VN",
             conversation_id=conversation_id,
             request_id=request_id,
-            conversation_history=conversation_history,
+            conversation_history=knowledge_history(conversation_history),
         )
 
     if conversation_repository is not None:

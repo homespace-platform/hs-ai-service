@@ -171,12 +171,12 @@ def is_detail_followup(question: str, has_previous: bool, changed_ward: bool = F
     if any(phrase in plain for phrase in (
         "phong nao", "tin nao", "nha nao", "can nao", "hai phong", "hai tin",
         "2 phong", "2 tin", "vua gui", "vua neu", "truoc do", "so sanh",
-        "con lai", "luc dau", "phong do", "tin do", "trong do", "bao nhieu",
+        "con lai", "luc dau", "phong do", "tin do", "cho do", "cho nay", "trong do", "bao nhieu",
         "chi chon", "chi muon", "kiem tra lai", "ban vua noi", "phong nay",
         "can ho nay", "nha nay", "tin nay", "no co", "co duoc", "bao gio",
     )):
         return True
-    return bool(_deterministic_fields(question)) or "?" in question
+    return bool(_deterministic_fields(question))
 
 
 def _deterministic_fields(question: str) -> list[str]:
@@ -349,6 +349,51 @@ def _is_verified_free(item: dict) -> bool:
                 and not _parking_conflict(item))
 
 
+def _is_verified_paid(item: dict) -> bool:
+    room = item.get("room") or {}
+    return bool(room.get("parking_policy") == "PAID" and (room.get("max_vehicles") or 0) > 0
+                and not _parking_conflict(item))
+
+
+def _parking_preference(question: str) -> str | None:
+    """Read the user's latest choice, not a fee mentioned as a rejected option."""
+    plain = _plain(question)
+    free = ("mien phi", "khong mat phi", "khong ton phi", "khong phai tra phi",
+            "khong thu phi", "khong co phi")
+    paid = ("co phi", "thu phi", "tra phi", "mat phi", "ton phi")
+    preference = ("toi can", "toi muon", "minh can", "minh muon", "chi chon",
+                  "chi muon", "chi can", "uu tien", "hay chon", "chon", "tim", "loc")
+    def fee_signals(value: str) -> tuple[bool, bool]:
+        has_free = any(term in value for term in free)
+        without_free_phrases = value
+        for term in free:
+            without_free_phrases = without_free_phrases.replace(term, " ")
+        return has_free, any(term in without_free_phrases for term in paid)
+
+    clauses = re.split(r"[,;.!?]|\bnhung\b", plain)
+    for clause in reversed(clauses):
+        if not any(term in clause for term in preference):
+            continue
+        if any(term in clause for term in ("khong can mien phi", "khong muon mien phi")):
+            return "PAID"
+        if any(term in clause for term in ("khong muon tra phi", "khong muon mat phi")):
+            return "FREE"
+        has_free, has_paid = fee_signals(clause)
+        if has_paid != has_free:
+            return "PAID" if has_paid else "FREE"
+
+    has_free, has_paid = fee_signals(plain)
+    # An explicit comparison asks about both policies, not for a recommendation.
+    if "so sanh" in plain or (has_free and has_paid and (
+        plain.count("phong nao") >= 2
+        or any(term in plain for term in ("moi phong", "ca hai", "tung phong"))
+    )):
+        return "BOTH"
+    if has_paid != has_free and any(term in plain for term in ("phong nao", "con phong", "tin nao")):
+        return "PAID" if has_paid else "FREE"
+    return None
+
+
 def _referenced_listings(question: str, listings: list[dict]) -> list[dict]:
     """Narrow explicit references, without guessing which unnamed listing is meant."""
     plain = _plain(question)
@@ -405,23 +450,14 @@ async def answer_listing_question(
                 "Bạn hỏi cụ thể hơn một chút nhé—chẳng hạn giá, diện tích, phí, nội thất, "
                 "điều kiện thuê hoặc lịch xem nhà—mình sẽ kiểm tra ngay trên tin đăng.")
 
-    asks_both_parking_types = (
-        parking and "mien phi" in plain
-        and any(x in plain for x in ("thu phi", "tra phi", "mat phi", "co phi"))
-        and any(x in plain for x in ("hai phong", "moi phong", "ca hai", "so sanh", "tung phong"))
-        and not any(x in plain for x in ("chi chon", "chi muon", "chi can"))
-    )
-    free_only = (parking and not asks_both_parking_types and "mien phi" in plain
-                 and any(x in plain for x in ("phong nao", "chi chon", "chi muon", "con phong")))
-    paid_only = parking and not asks_both_parking_types and "so sanh" not in plain and any(
-        x in plain for x in ("phong nao phai tra phi", "phong nao thu phi",
-                           "phong co thu phi", "phong phai tra phi")
-    )
+    parking_preference = _parking_preference(question) if parking else None
+    free_only = parking_preference == "FREE"
+    paid_only = parking_preference == "PAID"
     selected = _referenced_listings(question, listings)
     if free_only:
         selected = [item for item in selected if _is_verified_free(item)]
     elif paid_only:
-        selected = [item for item in selected if (item.get("room") or {}).get("parking_policy") == "PAID"]
+        selected = [item for item in selected if _is_verified_paid(item)]
 
     notes: list[str] = []
     if free_only and not selected:
@@ -429,7 +465,9 @@ async def answer_listing_question(
         selected = [item for item in _referenced_listings(question, listings)
                     if (item.get("room") or {}).get("parking_policy") == "FREE"]
     elif paid_only and not selected:
-        return "Mình đã kiểm tra các tin vừa xem: chưa có phòng nào ghi chính sách gửi xe có thu phí."
+        return ("Mình đã kiểm tra các tin vừa xem nhưng chưa có phòng nào xác nhận "
+                "chỗ gửi xe có thu phí và còn chỗ. Mình không chọn phòng gửi xe miễn phí "
+                "thay cho yêu cầu của bạn; bạn muốn mình tìm thêm phòng khác không?")
 
     scope_fields = {"house.rental_scope_description", "house.rented_floor_from",
                     "house.rented_floor_to", "house.total_floors"}
@@ -447,6 +485,10 @@ async def answer_listing_question(
     lines: list[str] = []
     if notes:
         lines.extend(notes)
+    elif paid_only:
+        lines.append("Mình hiểu bạn muốn phòng gửi xe có thu phí. Trong các tin vừa xem, phòng phù hợp theo tiêu chí này là:")
+    elif free_only:
+        lines.append("Mình đã lọc các tin vừa xem theo yêu cầu gửi xe miễn phí của bạn:")
     elif len(selected) == 1:
         lines.append("Mình đã xem lại thông tin của tin này:")
     else:
@@ -484,11 +526,7 @@ async def answer_listing_question(
         if not parts:
             parts.append("tin này chưa ghi các trường bạn hỏi")
         lines.append(f"- {label}: {'; '.join(parts)}.")
-    if parking and len(selected) > 1 and not any(_parking_conflict(item) for item in selected):
-        free_rooms = [item for item in selected if _is_verified_free(item)]
-        paid_rooms = [item for item in selected if (item.get("room") or {}).get("parking_policy") == "PAID"]
-        if len(free_rooms) == 1 and paid_rooms:
-            free_room = free_rooms[0]
-            title = str(free_room["listing"]["title"]).replace("[", "\\[").replace("]", "\\]")
-            lines.append(f"\nNếu bạn ưu tiên gửi xe không mất phí, [{title}](/rent/{free_room['id']}) là lựa chọn phù hợp hơn về riêng tiêu chí này.")
+    if parking and any(term in plain for term in ("an ninh", "an toan", "bao ve", "camera")):
+        lines.append("\nPhí gửi xe không đủ để kết luận nơi nào an ninh hơn. "
+                     "Bạn nên kiểm tra camera, bảo vệ và khu vực để xe trên tin hoặc xác nhận với chủ nhà.")
     return "\n".join(lines)
