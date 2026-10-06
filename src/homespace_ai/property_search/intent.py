@@ -88,17 +88,23 @@ def fallback_intent(query: str) -> SearchIntent:
 
 
 def _merge_history_intent(query: str, previous_user_messages: list[str]) -> SearchIntent:
-    previous = fallback_intent("\n".join(previous_user_messages)) if previous_user_messages else SearchIntent()
-    current = fallback_intent(query)
-    return SearchIntent(
-        category=current.category or previous.category,
-        price_max=current.price_max if current.price_max is not None else previous.price_max,
-        has_mezzanine=current.has_mezzanine or previous.has_mezzanine,
-        has_balcony=current.has_balcony or previous.has_balcony,
-        has_parking=current.has_parking or previous.has_parking,
-        location=current.location or previous.location,
-        landmark=current.landmark or previous.landmark,
-    )
+    state = SearchIntent()
+    for message in [*previous_user_messages, query]:
+        update = fallback_intent(message)
+        state = SearchIntent(
+            category=update.category or state.category,
+            price_max=(None if _removes_criterion(message, ("gia", "ngan sach"))
+                       else update.price_max if update.price_max is not None else state.price_max),
+            has_mezzanine=(False if _removes_criterion(message, ("gac", "gac lung", "gac xep"))
+                           else update.has_mezzanine or state.has_mezzanine),
+            has_balcony=(False if _removes_criterion(message, ("ban cong",))
+                         else update.has_balcony or state.has_balcony),
+            has_parking=(False if _removes_criterion(message, ("gui xe", "cho de xe", "bai do xe", "do xe"))
+                         else update.has_parking or state.has_parking),
+            location=update.location or state.location,
+            landmark=update.landmark or state.landmark,
+        )
+    return state
 
 
 async def parse_intent(query: str, previous_user_messages: list[str] | None = None) -> SearchIntent:
@@ -124,17 +130,18 @@ async def parse_intent(query: str, previous_user_messages: list[str] | None = No
         # filter from a short follow-up such as “có chỗ gửi xe riêng không?”.
         return SearchIntent(
             category=intent.category or fallback.category,
-            price_max=intent.price_max if intent.price_max is not None else fallback.price_max,
+            price_max=(None if _removes_criterion(query, ("gia", "ngan sach"))
+                       else intent.price_max if intent.price_max is not None else fallback.price_max),
             has_mezzanine=(
-                fallback.has_mezzanine if _removes_criterion(query, ("gac", "gac lung", "gac xep"))
+                False if _removes_criterion(query, ("gac", "gac lung", "gac xep"))
                 else intent.has_mezzanine or fallback.has_mezzanine
             ),
             has_balcony=(
-                fallback.has_balcony if _removes_criterion(query, ("ban cong",))
+                False if _removes_criterion(query, ("ban cong",))
                 else intent.has_balcony or fallback.has_balcony
             ),
             has_parking=(
-                fallback.has_parking if _removes_criterion(query, ("gui xe", "cho de xe", "bai do xe", "do xe"))
+                False if _removes_criterion(query, ("gui xe", "cho de xe", "bai do xe", "do xe"))
                 else intent.has_parking or fallback.has_parking
             ),
             location=intent.location or fallback.location,

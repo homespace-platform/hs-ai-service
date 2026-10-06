@@ -7,8 +7,19 @@ The AI API uses the same bounded query functions as these MCP tools.
 from mcp.server import MCPServer
 
 from homespace_ai.property_search.repository import ListingFilters, search_public_listings, suggest_places, match_listing_ward
+from homespace_ai.property_search.details import get_public_listing_facts
 
 mcp = MCPServer("homespace-listing-search")
+
+
+@mcp.tool()
+async def get_listing_facts(listing_ids: list[str]) -> dict:
+    """Read all public fields of up to 20 active published listings by exact ID.
+
+    Returns common, category-specific, address, charges, amenities, furnishing,
+    viewing days/slots and media facts from the live HomeSpace database.
+    """
+    return await get_public_listing_facts(listing_ids)
 
 
 @mcp.tool()

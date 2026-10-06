@@ -1,12 +1,8 @@
 """Grounded, conversational replies for live listing searches."""
 
-import json
 import re
 import unicodedata
 from typing import Any
-
-from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnavailableError
-
 
 _LISTING_LINK = re.compile(r"/rent/([0-9a-fA-F-]{36})")
 
@@ -19,8 +15,11 @@ def _plain(value: str) -> str:
 def previous_result_ids(
     search_state: dict[str, Any] | None, history: list[dict[str, Any]]
 ) -> list[str]:
-    if search_state is not None and "resultIds" in search_state:
-        return [str(item) for item in search_state["resultIds"][:20]]
+    if search_state is not None:
+        if "referenceIds" in search_state:
+            return [str(item) for item in search_state["referenceIds"][:20]]
+        if "resultIds" in search_state:
+            return [str(item) for item in search_state["resultIds"][:20]]
     # Existing conversations predate searchState. Recover only links from the
     # most recent property-search answer, never from arbitrary user messages.
     for message in reversed(history):
@@ -115,8 +114,6 @@ async def compose_search_reply(
     result_data: dict[str, Any],
     previous_ids: list[str],
     scoped: bool,
-    district: str | None,
-    generative_client: BaseGenerativeClient,
 ) -> str:
     matches = result_data.get("matches") or []
     total = int(result_data.get("total") or 0)
@@ -128,39 +125,8 @@ async def compose_search_reply(
         supported_count, conflicts,
     )
 
-    # The model writes only the connective prose. The server owns all listing
-    # links, prices and parking labels, so the final facts always match SQL.
-    facts = {
-        "question": question,
-        "resultCount": total,
-        "shownCount": len(matches),
-        "previousShownCount": len(previous_ids),
-        "refersToPreviousListings": scoped,
-        "allPreviousListingsMatch": bool(scoped and len(matches) == len(previous_ids)),
-        "ward": district,
-        "asksAboutParking": parking_question,
-    }
-    # Parking needs a per-listing comparison (and may contain contradictory seed
-    # values). Do not let a language model turn mixed FREE/PAID or one 0-capacity
-    # record into an inaccurate claim about every listing.
-    if not parking_question and matches:
-        try:
-            generated = await generative_client.generate_answer(
-                json.dumps(facts, ensure_ascii=False), [], mode="property_search_reply"
-            )
-            candidate = generated.strip().strip('"')
-            normalized = _plain(candidate)
-            if (
-                candidate and len(candidate) <= 450 and "http" not in candidate
-                and "/rent/" not in candidate and "\n-" not in candidate
-                and not any(term in normalized for term in (
-                    "gui xe", "de xe", "do xe", "mien phi", "thu phi",
-                ))
-                and (not scoped or any(term in normalized for term in ("vua", "truoc", "do", "hai", "2")))
-            ):
-                intro = candidate
-        except GenerationUnavailableError:
-            pass
+    # Even a constrained model previously invented a 3.4M price for a 3.2M
+    # listing. Keep every property-search claim deterministic and DB-backed.
 
     if not matches:
         return intro
