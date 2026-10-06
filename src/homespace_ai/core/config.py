@@ -49,6 +49,10 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://homespace:homespace123@localhost:5433/homespace_ai",
         alias="AI_DATABASE_URL",
     )
+    listing_database_url: str = Field(
+        default="postgresql+asyncpg://homespace:homespace123@localhost:5432/homespace_core",
+        alias="LISTING_DATABASE_URL",
+    )
     ai_mongodb_uri: str = Field(
         default="mongodb://homespace:homespace123@localhost:27017/homespace_ai?authSource=admin",
         alias="AI_MONGODB_URI",

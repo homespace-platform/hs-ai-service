@@ -40,6 +40,8 @@ class ConversationRepository:
             "createdAt": now,
             "updatedAt": now,
             "messages": [],
+            "searchContext": None,
+            "searchState": None,
         }
         await self.collection.insert_one(conversation)
         return conversation
@@ -76,6 +78,24 @@ class ConversationRepository:
                 {"_id": conversation_id, "ownerId": owner_id, "title": "Đoạn chat mới"},
                 {"$set": {"title": content[:60]}},
             )
+        return bool(result.matched_count)
+
+    async def set_search_context(
+        self, owner_id: str, conversation_id: str, context: dict[str, Any]
+    ) -> bool:
+        result = await self.collection.update_one(
+            {"_id": conversation_id, "ownerId": owner_id},
+            {"$set": {"searchContext": context, "updatedAt": _now()}},
+        )
+        return bool(result.matched_count)
+
+    async def set_search_state(
+        self, owner_id: str, conversation_id: str, state: dict[str, Any]
+    ) -> bool:
+        result = await self.collection.update_one(
+            {"_id": conversation_id, "ownerId": owner_id},
+            {"$set": {"searchState": state, "updatedAt": _now()}},
+        )
         return bool(result.matched_count)
 
     async def set_pinned(self, owner_id: str, conversation_id: str, pinned: bool) -> bool:

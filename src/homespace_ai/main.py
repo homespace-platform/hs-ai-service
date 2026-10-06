@@ -14,6 +14,7 @@ from homespace_ai.core.database import engine
 from homespace_ai.core.logging import configure_logging
 from homespace_ai.discovery.eureka import EurekaRegistration
 from homespace_ai.repositories.conversation_repo import get_conversation_repository
+from homespace_ai.property_search.repository import listing_engine
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -62,6 +63,9 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
             except asyncio.CancelledError:
                 pass
             await application.state.gateway_client.aclose()
+            if listing_engine.cache_info().currsize:
+                await listing_engine().dispose()
+                listing_engine.cache_clear()
             await conversation_repository.close()
             get_conversation_repository.cache_clear()
             await registration.deregister()
