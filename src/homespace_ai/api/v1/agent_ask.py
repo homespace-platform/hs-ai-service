@@ -1,12 +1,14 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from homespace_ai.api.v1.admin_knowledge import get_embedder
 from homespace_ai.api.v1.schemas import AskRequest, AskResponse, CitationItem
 from homespace_ai.application.use_cases.ask_use_cases import AskUseCases
+from homespace_ai.application.use_cases.listing_ask import ListingAsk
 from homespace_ai.clients.generative import get_generative_client
+from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.config import Settings, get_settings
 from homespace_ai.core.database import get_db
@@ -22,6 +24,7 @@ router = APIRouter(prefix="/agent", tags=["Agent Ask"])
 )
 async def ask_agent(
     body: AskRequest,
+    request: Request,
     user: UserContext = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -46,8 +49,14 @@ async def ask_agent(
 
     conversation_id = body.effective_conversation_id
     conversation_repository = None
+    history: list[dict[str, str]] = []
     if conversation_id:
         conversation_repository = get_conversation_repository()
+        conversation = await conversation_repository.get(user.user_id, conversation_id)
+        if conversation is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+        history = [{"role": message.get("role", "user"), "content": message.get("content", "")}
+                   for message in conversation.get("messages", [])[-8:]]
         saved = await conversation_repository.append_message(
             user.user_id, conversation_id, role="user", content=question
         )
@@ -61,14 +70,27 @@ async def ask_agent(
     is_admin = (user.role or "").upper() == "ADMIN" or any(
         authority.upper() in {"ADMIN", "ROLE_ADMIN"} for authority in user.authorities
     )
-    result = await use_cases.ask(
-        question=question,
-        user_role="ADMIN" if is_admin else "USER",
-        user_name=user.name,
-        locale="vi-VN",
-        conversation_id=conversation_id,
-        request_id=request_id,
-    )
+    result = None
+    if generative_client is not None and question.strip().lower().strip(" .!?…") not in {"chào", "chào bạn", "xin chào", "hi", "hello", "hey", "chào ai", "chào homespace"}:
+        gateway = getattr(request.app.state, "gateway_client", None)
+        temporary_gateway = gateway is None
+        if gateway is None:
+            gateway = GatewayApiClient(str(settings.gateway_base_url), settings.gateway_request_timeout_seconds)
+        try:
+            result = await ListingAsk(settings, generative_client, gateway, request).try_answer(
+                question, history, request_id)
+        finally:
+            if temporary_gateway:
+                await gateway.aclose()
+    if result is None:
+        result = await use_cases.ask(
+            question=question,
+            user_role="ADMIN" if is_admin else "USER",
+            user_name=user.name,
+            locale="vi-VN",
+            conversation_id=conversation_id,
+            request_id=request_id,
+        )
 
     if conversation_repository is not None:
         await conversation_repository.append_message(
