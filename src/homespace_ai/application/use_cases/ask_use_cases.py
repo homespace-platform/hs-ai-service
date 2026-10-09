@@ -77,7 +77,6 @@ class AskUseCases:
         locale: str = "vi-VN",
         conversation_id: str | None = None,
         request_id: str | None = None,
-        conversation_history: list[dict[str, Any]] | None = None,
     ) -> AskResult:
         req_id = request_id or str(uuid.uuid4())
         audience = "ADMIN" if (user_role or "").upper() == "ADMIN" else "USER"
@@ -109,22 +108,7 @@ class AskUseCases:
 
         # ADMIN may ask general questions; do not force unrelated topics through HomeSpace RAG.
         if audience == "ADMIN" and not any(term in normalized_question for term in PLATFORM_TERMS):
-            return await self._answer_general(
-                question, req_id, conversation_history=conversation_history
-            )
-
-        recent_history = (conversation_history or [])[-8:]
-        history_text = "\n".join(
-            f"{'Khách hàng' if item.get('role') == 'user' else 'Trợ lý'}: "
-            f"{str(item.get('content') or '')[:1200]}"
-            for item in recent_history
-            if item.get("role") in {"user", "assistant"} and item.get("content")
-        )
-        contextual_query = (
-            f"LỊCH SỬ HỘI THOẠI (chỉ dùng để hiểu ngữ cảnh câu hỏi mới):\n{history_text}\n\n"
-            f"CÂU HỎI MỚI NHẤT:\n{question}"
-            if history_text else question
-        )
+            return await self._answer_general(question, req_id)
 
         # 2. Strict ACL enforcement on visibility
         # Users only get "public". Only explicit ADMIN role gets "admin" docs.
@@ -134,11 +118,11 @@ class AskUseCases:
 
         # 3. Embed user question locally with 'query: ' prefix
         import asyncio
-        query_vector = await asyncio.to_thread(self.embedder.embed_query, contextual_query)
+        query_vector = await asyncio.to_thread(self.embedder.embed_query, question)
 
         # 4. Search matching chunks via Hybrid Search (Vector + Lexical FTS via RRF)
         matching_chunks = await self.chunk_repo.search_chunks_hybrid(
-            query_text=contextual_query,
+            query_text=question,
             query_vector=query_vector,
             top_k=self.settings.retrieval_top_k,
             allowed_visibilities=allowed_visibilities,
@@ -180,7 +164,7 @@ class AskUseCases:
         # 6. Generate final answer with LLM
         try:
             raw_answer = await self.generative_client.generate_answer(
-                question=contextual_query,
+                question=question,
                 context_chunks=context_chunks,
                 audience=audience,
             )
@@ -232,28 +216,10 @@ class AskUseCases:
                 request_id=req_id,
             )
 
-    async def _answer_general(
-        self,
-        question: str,
-        request_id: str,
-        *,
-        conversation_history: list[dict[str, Any]] | None = None,
-    ) -> AskResult:
+    async def _answer_general(self, question: str, request_id: str) -> AskResult:
         try:
-            history = (conversation_history or [])[-8:]
-            history_text = "\n".join(
-                f"{'Khách hàng' if item.get('role') == 'user' else 'Trợ lý'}: "
-                f"{str(item.get('content') or '')[:1200]}"
-                for item in history
-                if item.get("role") in {"user", "assistant"} and item.get("content")
-            )
-            contextual_question = (
-                f"LỊCH SỬ HỘI THOẠI (chỉ dùng để hiểu ngữ cảnh):\n{history_text}\n\n"
-                f"CÂU HỎI MỚI NHẤT:\n{question}"
-                if history_text else question
-            )
             answer = await self.generative_client.generate_answer(
-                question=contextual_question, context_chunks=[], audience="ADMIN", mode="general"
+                question=question, context_chunks=[], audience="ADMIN", mode="general"
             )
             return AskResult(answer=answer, status="GENERAL_ANSWER", citations=[], request_id=request_id)
         except GenerationUnavailableError as error:

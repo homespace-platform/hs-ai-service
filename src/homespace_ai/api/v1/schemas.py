@@ -87,18 +87,11 @@ class CitationItem(BaseModel):
 
 
 
-class PropertySearchContext(BaseModel):
-    provinceCode: str = Field(min_length=1, max_length=4)
-    district: str | None = Field(default=None, max_length=100)
-    category: str | None = Field(default=None, max_length=20)
-
-
 class AskRequest(BaseModel):
     question: str | None = Field(default=None, max_length=1000)
     query: str | None = Field(default=None, max_length=1000)
     conversationId: str | None = Field(default=None, max_length=200)
     conversation_id: str | None = Field(default=None, max_length=200)
-    searchContext: PropertySearchContext | None = None
 
     @property
     def effective_question(self) -> str:
@@ -130,7 +123,6 @@ class ConversationSummary(BaseModel):
     isPinned: bool
     createdAt: datetime
     updatedAt: datetime
-    searchContext: PropertySearchContext | None = None
 
 
 class ConversationDetail(ConversationSummary):

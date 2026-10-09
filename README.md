@@ -91,34 +91,6 @@ uv run uvicorn homespace_ai.main:app --app-dir src --host 0.0.0.0 --port 8084 --
 
 ---
 
-## Natural-language listing search / MCP
-
-`/api/v1/ai/property-search` (POST) and `/api/v1/ai/property-search/suggestions`
-(GET) are public Gateway routes. They use the separate `homespace-listing-search`
-MCP server in-process so the Home page does not need a second daemon. To expose
-the same tools to another MCP host over stdio:
-
-```powershell
-cd D:\Workspace\homespace\hs-ai-service
-uv run python -m homespace_ai.tools.listing_mcp
-```
-
-Set `LISTING_DATABASE_URL` in `.env` to the core PostgreSQL database (`5432`).
-Use a SELECT-only database account in non-local environments. Both MCP tools
-execute parameterized queries inside read-only transactions and return only
-active, published, unexpired listings. The model extracts fixed filters; it
-never writes SQL. `suggest_listing_places` returns wards/streets currently
-represented by published listings for the selected province and optional ward.
-`resolve_listing_ward` checks place names in a natural-language query against
-the same live published addresses.
-No geographic distance is inferred unless real coordinates are added later.
-
-After changing these routes, restart AI Service and API Gateway. The Web app
-routes Home searches to `/rent?q=...` and hydrates MCP result IDs through the
-existing public listing-detail API.
-
----
-
 ## 2. Ingest Sample Knowledge Documents
 
 Run the idempotent CLI script to import all `.md` files from `hs-infrastructure/prompts/knowledge` into the database as `DRAFT` status:
