@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from homespace_ai.application.use_cases.listing_ask import ListingAsk
+from homespace_ai.clients.generative import GenerationUnavailableError
 from homespace_ai.clients.listing_tool_planner import ToolPlan
 
 
@@ -100,8 +101,95 @@ async def test_related_suggestion_is_explicitly_not_exact_match():
     assistant.tools = SequenceTools()
     result = await assistant.try_answer("Tìm phòng có ban công", [], "req-5")
     assert result.status == "ANSWERED"
-    assert "Chưa có tin khớp toàn bộ điều kiện" in result.answer
-    assert "room.has_balcony" in result.answer
+    assert "chưa thấy tin khớp đủ mọi tiêu chí" in result.answer
+    assert "nới điều kiện ban công" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_browse_answer_only_links_matching_category_and_skips_unasked_fields():
+    room_id = "00000000-0000-0000-0000-000000000001"
+    house_id = "00000000-0000-0000-0000-000000000002"
+    assistant = make_assistant(ToolPlan("search_listings", {"filters": [
+        {"field": "category", "op": "eq", "value": "ROOM"},
+        {"field": "ward_name", "op": "contains", "value": "Phú Lợi"},
+    ]}), ids=[room_id, house_id])
+    class MixedTools(FakeTools):
+        async def detail(self, listing_id):
+            return {"id": listing_id, "title": "Phòng Phú Lợi" if listing_id == room_id else "Nhà Phú Lợi",
+                    "category": "ROOM" if listing_id == room_id else "HOUSE", "areaM2": 23,
+                    "pricing": {"amount": 3360000, "unit": "ROOM_MONTH", "depositMonths": 3},
+                    "address": {"wardName": "Phường Phú Lợi"},
+                    "roomDetail": {"balconyType": "PRIVATE"}}
+    assistant.tools = MixedTools([room_id, house_id])
+    result = await assistant.try_answer("Tìm phòng khu vực Phú Lợi", [], "req-browse")
+    assert result.status == "ANSWERED"
+    assert "/rent/" + room_id in result.answer
+    assert "/rent/" + house_id not in result.answer
+    assert "3.360.000 đ/phòng/tháng" in result.answer
+    assert "23 m²" in result.answer
+    assert "đặt cọc" not in result.answer.lower()
+    assert "Tiện ích:" not in result.answer
+    assert assistant.generative_client.kwargs is None
+
+
+@pytest.mark.asyncio
+async def test_general_room_comparison_is_complete_compact_markdown_table():
+    ids = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 5)]
+    assistant = make_assistant(ToolPlan("get_listing_details", {"listingIds": ids}), ids=ids)
+
+    class ComparisonTools(FakeTools):
+        async def detail(self, listing_id):
+            index = ids.index(listing_id)
+            return {"id": listing_id, "title": f"Phòng thử nghiệm {index + 1}",
+                    "category": "ROOM", "areaM2": 20 + index,
+                    "pricing": {"amount": 2000000 + index * 100000,
+                                "unit": "ROOM_MONTH"},
+                    "roomDetail": {"maxOccupants": index + 1, "restroomType": "PRIVATE",
+                                   "kitchenType": "SHARED", "hasWindow": True,
+                                   "balconyType": "NONE", "hasMezzanine": False,
+                                   "furnishingStatus": "BASIC", "maxVehicles": 1,
+                                   "parkingPolicy": "FREE" if index == 0 else "PAID"},
+                    "charges": [] if index == 0 else [{"chargeType": "MOTORBIKE_PARKING",
+                                                         "amount": 90000, "unit": "xe/tháng",
+                                                         "includedInRent": False}]}
+
+    assistant.tools = ComparisonTools(ids)
+    result = await assistant.try_answer("Tôi muốn so sánh 4 phòng trên", [], "req-compare")
+
+    assert result.status == "ANSWERED"
+    assert "| Tiêu chí |" in result.answer
+    assert "| Giá thuê |" in result.answer
+    assert "| Ban công |" in result.answer
+    assert "không thu phí riêng" in result.answer
+    assert "90.000 đ/xe/tháng" in result.answer
+    assert all(f"/rent/{listing_id}" in result.answer for listing_id in ids)
+    assert "ID:" not in result.answer
+    assert assistant.generative_client.kwargs is None
+
+
+@pytest.mark.asyncio
+async def test_specific_room_comparison_still_uses_model_for_requested_field():
+    ids = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 3)]
+    assistant = make_assistant(ToolPlan("get_listing_details", {"listingIds": ids}), ids=ids)
+    result = await assistant.try_answer("So sánh phí điện của 2 phòng trên", [], "req-compare-fees")
+    assert result.status == "ANSWERED"
+    assert assistant.generative_client.kwargs is not None
+
+
+@pytest.mark.asyncio
+async def test_generation_failure_after_successful_tool_read_does_not_claim_tool_failed():
+    assistant = make_assistant(ToolPlan("get_listing_detail", {
+        "listingId": "00000000-0000-0000-0000-000000000001"}))
+
+    class FailedGenerator:
+        async def generate_answer(self, **kwargs):
+            raise GenerationUnavailableError("answer was cut off")
+
+    assistant.generative_client = FailedGenerator()
+    result = await assistant.try_answer("Phòng này có tiện ích gì?", [], "req-truncated")
+    assert result.status == "GENERATION_UNAVAILABLE"
+    assert "đã kiểm tra tin đăng" in result.answer
+    assert "chưa kiểm tra được" not in result.answer
 
 
 @pytest.mark.asyncio

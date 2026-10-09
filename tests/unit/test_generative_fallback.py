@@ -161,3 +161,83 @@ async def test_groq_gpt_oss_uses_low_reasoning_budget(monkeypatch):
     assert captured_payload["include_reasoning"] is False
     assert captured_payload["max_completion_tokens"] == 1024
     assert "max_tokens" not in captured_payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["groq", "gemini"])
+async def test_token_limited_response_is_rejected_instead_of_displayed(monkeypatch, provider):
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            if provider == "groq":
+                return {"choices": [{"finish_reason": "length", "message": {"content": "Điện 3"}}]}
+            return {"candidates": [{"finishReason": "MAX_TOKENS",
+                                     "content": {"parts": [{"text": "Điện 3"}]}}]}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, *, json, headers):
+            return FakeResponse()
+
+    monkeypatch.setattr(generative_module.httpx, "AsyncClient", FakeAsyncClient)
+    settings = Settings(_env_file=None, GENERATION_PROVIDER=provider,
+                        GROQ_MODEL="test-groq", GROQ_API_KEY="test-key",
+                        GEMINI_MODEL="test-gemini", GEMINI_API_KEY="test-key")
+    client = GroqGenerativeClient(settings) if provider == "groq" else GeminiGenerativeClient(settings)
+
+    with pytest.raises(GenerationUnavailableError, match="cut off"):
+        await client.generate_answer("question", [], mode="listing")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["groq", "gemini"])
+async def test_token_limited_response_retries_with_larger_budget(monkeypatch, provider):
+    budgets = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def __init__(self, is_first):
+            self.is_first = is_first
+
+        def json(self):
+            if provider == "groq":
+                return {"choices": [{"finish_reason": "length" if self.is_first else "stop",
+                                     "message": {"content": "Nội dung thiếu" if self.is_first else "Câu trả lời đầy đủ."}}]}
+            return {"candidates": [{"finishReason": "MAX_TOKENS" if self.is_first else "STOP",
+                                     "content": {"parts": [{"text": "Nội dung thiếu" if self.is_first
+                                                            else "Câu trả lời đầy đủ."}]}}]}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url, *, json, headers):
+            budgets.append(json["max_completion_tokens"] if provider == "groq"
+                           else json["generationConfig"]["maxOutputTokens"])
+            return FakeResponse(len(budgets) == 1)
+
+    monkeypatch.setattr(generative_module.httpx, "AsyncClient", FakeAsyncClient)
+    settings = Settings(_env_file=None, GENERATION_PROVIDER=provider,
+                        GROQ_MODEL="test-groq", GROQ_API_KEY="test-key",
+                        GEMINI_MODEL="test-gemini", GEMINI_API_KEY="test-key")
+    client = GroqGenerativeClient(settings) if provider == "groq" else GeminiGenerativeClient(settings)
+
+    assert await client.generate_answer("question", [], mode="listing") == "Câu trả lời đầy đủ."
+    assert budgets == [1024, 2048]

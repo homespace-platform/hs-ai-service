@@ -90,12 +90,12 @@ class ListingToolPlanner:
             raise GenerationUnavailableError("Malformed listing search filters.", retryable=False)
 
         category = None
-        if re.search(r"phòng trọ|nhà trọ", question, re.IGNORECASE):
-            category = "ROOM"
-        elif re.search(r"nhà nguyên căn", question, re.IGNORECASE):
+        if re.search(r"nhà nguyên căn", question, re.IGNORECASE):
             category = "HOUSE"
         elif re.search(r"căn hộ|chung cư", question, re.IGNORECASE):
             category = "APARTMENT"
+        elif re.search(r"phòng trọ|nhà trọ|\bphòng\b(?!\s*(?:ngủ|tắm|khách|bếp|vệ sinh))", question, re.IGNORECASE):
+            category = "ROOM"
 
         parking_mentioned = bool(re.search(r"gửi xe|để xe|đỗ xe", question, re.IGNORECASE))
         parking_free = bool(re.search(r"miễn phí|không (?:mất|thu|tính) phí", question, re.IGNORECASE))

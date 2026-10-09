@@ -100,3 +100,11 @@ def test_bare_ward_uses_current_or_prior_full_name():
     assert with_history.arguments["filters"] == [
         {"field": "ward_name", "op": "eq", "value": "Phường Phú Lợi"}
     ]
+
+
+def test_generic_phong_search_is_room_not_house():
+    result = ListingToolPlanner._normalize_search(
+        "Tìm phòng khu vực Phú Lợi", ToolPlan("search_listings", {"filters": [
+            {"field": "ward_name", "op": "eq", "value": "Phú Lợi"}
+        ]}), {"ward_name": "TEXT", "category": "TEXT"})
+    assert {"field": "category", "op": "eq", "value": "ROOM"} in result.arguments["filters"]
