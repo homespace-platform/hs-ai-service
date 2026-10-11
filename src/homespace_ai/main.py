@@ -83,14 +83,16 @@ app = FastAPI(
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    raw_body = await request.body()
+    # Validation errors may contain a signed guest transcript, prompts or tokens.
+    # Never log request bodies or return Pydantic's echoed input/context values.
+    errors = [{key: value for key, value in error.items() if key in {"type", "loc", "msg"}}
+              for error in exc.errors()]
     logger.error(
         "request_validation_error",
-        url=str(request.url),
-        body=raw_body.decode("utf-8", errors="replace"),
-        errors=exc.errors(),
+        path=request.url.path,
+        errors=errors,
     )
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 
 app.include_router(api_router)

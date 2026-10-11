@@ -119,6 +119,19 @@ class AskResponse(BaseModel):
     listingPositions: dict[str, int] = Field(default_factory=dict)
 
 
+class GuestStateRequest(BaseModel):
+    guestState: str = Field(min_length=1, max_length=2097152)
+
+
+class GuestAskRequest(AskRequest):
+    guestState: str = Field(min_length=1, max_length=2097152)
+
+
+class GuestAskResponse(AskResponse):
+    guestState: str
+    remainingQuestions: int
+
+
 class ConversationMessage(BaseModel):
     id: str
     role: str
@@ -139,6 +152,11 @@ class ConversationSummary(BaseModel):
 
 class ConversationDetail(ConversationSummary):
     messages: list[ConversationMessage]
+
+
+class GuestConversationDetail(ConversationDetail):
+    guestState: str
+    remainingQuestions: int
 
 
 class SetConversationPinnedRequest(BaseModel):

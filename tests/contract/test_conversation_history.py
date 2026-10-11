@@ -1,6 +1,8 @@
 import base64
 import os
 from uuid import uuid4
+from unittest.mock import AsyncMock
+import hashlib
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -108,5 +110,69 @@ async def test_mongo_history_is_private_persistent_and_deletable(monkeypatch):
     finally:
         if conversation_id:
             await repository.delete(owner, conversation_id)
+        app.dependency_overrides.clear()
+        await repository.close()
+
+
+@pytest.mark.asyncio
+async def test_real_mongo_guest_metadata_only_three_turns_and_account_claim(monkeypatch):
+    if os.getenv("HS_RUN_MONGO_INTEGRATION") != "1":
+        pytest.skip("Set HS_RUN_MONGO_INTEGRATION=1 for local Mongo verification.")
+    settings = get_settings()
+    repository = ConversationRepository(settings.ai_mongodb_uri)
+    account = "guest-claim-test-" + str(uuid4())
+    identifier = None
+    guest = None
+    try:
+        await repository.ensure_indexes()
+        monkeypatch.setattr(repository, "consume_guest_quota", AsyncMock(return_value=0))
+        app.dependency_overrides[get_conversation_repository] = lambda: repository
+        async def database():
+            yield None
+        app.dependency_overrides[get_db] = database
+        app.dependency_overrides[get_embedder] = lambda: None
+        monkeypatch.setattr(agent_ask, "get_generative_client", lambda settings: None)
+        async def answer(self, **kwargs):
+            return AskResult("Trả lời thử nghiệm", "ANSWERED", [], kwargs["request_id"],
+                             listing_context={"listingIds": ["verified-test-listing"]})
+        monkeypatch.setattr(agent_ask.AskUseCases, "ask", answer)
+        headers = {"X-Internal-Secret": settings.gateway_internal_secret}
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=headers) as c:
+            created = await c.post("/guest/agent/conversations")
+            assert created.status_code == 201, created.text
+            state = created.json()["result"]
+            identifier = state["id"]
+            guest = "guest:" + hashlib.sha256(c.cookies["hs_ai_guest"].encode()).hexdigest()
+            stale = state["guestState"]
+            for remaining in (2, 1, 0):
+                response = await c.post("/guest/agent/ask", json={"question": "Câu hỏi thử nghiệm",
+                    "conversationId": identifier, "guestState": state["guestState"]})
+                assert response.status_code == 200, response.text
+                state.update(response.json()["result"])
+                assert state["remainingQuestions"] == remaining
+            assert await repository.collection.count_documents({"_id": identifier}) == 0
+            trial = await repository.guest_limits.find_one({"_id": "trial:" + guest})
+            assert trial["count"] == 3 and "messages" not in trial
+            replay = await c.post("/guest/agent/ask", json={"question": "Replay",
+                "conversationId": identifier, "guestState": stale})
+            assert replay.status_code == 409
+            denied = await c.post("/guest/agent/ask", json={"question": "Câu thứ tư",
+                "conversationId": identifier, "guestState": state["guestState"]})
+            assert denied.status_code == 403
+            for _ in range(2):
+                claimed = await c.post("/agent/conversations/claim-guest", json={"guestState": state["guestState"]},
+                                       headers={"X-User-Id": account})
+                assert claimed.status_code == 200, claimed.text
+                assert len(claimed.json()["result"]["messages"]) == 6
+            assert await repository.collection.count_documents({"_id": identifier}) == 1
+            persisted = await repository.get(account, identifier)
+            assert persisted["messages"][-1]["listingContext"]["listingIds"] == ["verified-test-listing"]
+            assert "expiresAt" not in persisted
+    finally:
+        # Exact UUID/owner test artifacts only; never delete user conversations.
+        if identifier:
+            await repository.collection.delete_one({"_id": identifier, "ownerId": account})
+        if guest:
+            await repository.guest_limits.delete_one({"_id": "trial:" + guest})
         app.dependency_overrides.clear()
         await repository.close()

@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 import structlog
 
 from homespace_ai.application.listing_context import context_for, current_scope, RECOMMENDATION, scoped_selection
+from homespace_ai.application.listing_presentation import customer_listing_text, relaxed_labels
 from homespace_ai.application.use_cases.ask_use_cases import AskResult
 from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnavailableError
 from homespace_ai.clients.gateway import GatewayApiClient
@@ -140,7 +141,7 @@ class ListingAsk:
         if parking_answer is not None:
             if evidence.get("relaxedFilters"):
                 parking_answer = ("Chưa có tin khớp toàn bộ điều kiện. Những tin dưới đây chỉ là gợi ý sau khi bỏ tiêu chí "
-                                  + ", ".join(evidence["relaxedFilters"]) + ".\n" + parking_answer)
+                                  + relaxed_labels(evidence["relaxedFilters"]) + ".\n" + parking_answer)
             return AskResult(answer=parking_answer, status="ANSWERED", citations=[], request_id=request_id,
                              listing_context=result_context, listing_ids=ids)
 
@@ -149,7 +150,7 @@ class ListingAsk:
             # Defense in depth: never expose a generated reference outside fresh public tool evidence.
             if any(value not in ids for value in generated.listing_ids):
                 raise GenerationUnavailableError("Unknown listing reference.", retryable=False)
-            raw = generated.answer
+            raw = customer_listing_text(generated.answer)
             selected_ids = list(dict.fromkeys(generated.listing_ids))
             # Enforce the no-link contract even if prose ignores the presentation instruction.
             raw = re.sub(r"\[([^\]]+)\]\(/rent/[0-9a-fA-F-]{36}\)", r"\1", raw)
@@ -165,7 +166,7 @@ class ListingAsk:
 
         if evidence.get("relaxedFilters"):
             raw = ("Chưa có tin khớp toàn bộ điều kiện. Mình đã nới tiêu chí "
-                   + ", ".join(evidence["relaxedFilters"]) + " để gợi ý các tin liên quan:\n" + raw)
+                   + relaxed_labels(evidence["relaxedFilters"]) + " để gợi ý các tin liên quan:\n" + raw)
         return AskResult(answer=raw.strip(),
                          status="ANSWERED", citations=[], request_id=request_id,
                          listing_context=result_context, listing_ids=selected_ids)
@@ -305,10 +306,7 @@ class ListingAsk:
         ward = next(iter(wards)) if len(wards) == 1 else None
         total = evidence.get("total") or len(listings)
         if evidence.get("relaxedFilters"):
-            labels = {"price_amount": "mức giá", "room.has_balcony": "ban công",
-                      "room.parking_policy": "chỗ gửi xe", "house.has_garage": "gara"}
-            relaxed = ", ".join(labels.get(field, field.replace("_", " "))
-                                for field in evidence["relaxedFilters"])
+            relaxed = relaxed_labels(evidence["relaxedFilters"])
             intro = f"Mình chưa thấy tin khớp đủ mọi tiêu chí. Sau khi nới điều kiện {relaxed}, có lựa chọn gần với yêu cầu của bạn:"
         else:
             intro = f"Mình tìm thấy {total} {category_name} đang hiển thị" + (f" tại {ward}" if ward else "") + ":"

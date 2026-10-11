@@ -16,6 +16,12 @@
 - Chưa có tool truy vấn hợp đồng, thanh toán, hóa đơn hoặc lịch hẹn cá nhân; chưa có tool ghi dữ liệu nghiệp vụ.
 - Admin RAG hỗ trợ upload nhiều file và sửa Markdown trên giao diện. Mỗi lần upload/lưu tạo version mới theo tên file, kể cả cùng nội dung; tự queue ingestion. Bản cũ chỉ bị xóa vector khi bản mới kích hoạt thành công; giữ metadata/lịch sử version.
 - Không tự nâng model đắt hơn, không tự chạy test API trả phí, không commit/push secret. Những việc đó cần được đặt trong phạm vi yêu cầu riêng.
+- Hỏi AI công khai không cần đăng nhập ở home và `/chat?channel=ai`. Lời chào là bong bóng local (có tên nếu đã đăng nhập), không gọi model và không đưa vào evidence/history backend.
+- Phiên khách dùng session cookie `hs_ai_guest` HttpOnly, SameSite=Lax; owner `guest:<sha256>` tách biệt tài khoản. **Không lưu transcript khách vào Mongo**, không có danh sách lịch sử khách. Browser giữ transcript/context trong RAM khi đang chat; tải lại/đóng/rời khu vực chat sẽ mất. Mở trang chat từ Home là chuyển tiếp chủ động, có thể tiếp tục context trong cùng runtime.
+- Guest được hỏi **3 câu**, không reset bằng refresh/chat mới. Backend dùng atomic counter trong `ai_guest_limits`, chỉ lưu metadata chống abuse (TTL 24 giờ), không lưu câu hỏi/trả lời. Context được AI ký HMAC bằng khóa purpose-derived từ `GATEWAY_INTERNAL_SECRET`, hết hạn sau `GUEST_CHAT_CONTEXT_TTL_SECONDS=3600`; gửi lại context hợp lệ cho follow-up, không tin transcript/tool facts do client tự tạo.
+- Lượt thứ 4 mở modal đăng nhập, không gọi model. Chỉ khi chọn **Đăng nhập và tiếp tục**, browser giữ token context đã ký + câu hỏi đang chờ trong `sessionStorage` tối đa 20 phút qua OAuth redirect. Sau login, endpoint JWT `POST /agent/conversations/claim-guest` kiểm tra cookie/chữ ký/receipt rồi tạo owned account history một lần, giữ cả listing IDs/thứ tự/internal context. Xóa handoff sau thành công; câu hỏi thứ 4 được điền vào composer để người dùng gửi, không tự chạy paid request. Chuyển thất bại có nút thử lại; retry claim không nhân đôi history.
+- Gateway chỉ mở `/api/v1/ai/guest/agent/**`; internal secret vẫn bắt buộc cho signed guest context, kể cả local. Guest luôn scope USER cho RAG, bỏ qua X-User-* giả mạo; account/admin/claim endpoints vẫn yêu cầu đăng nhập.
+- POST khách (tạo hội thoại và hỏi) có quota Mongo atomic theo IP do Gateway cấp: mặc định 20/phút, 120/ngày; quá quota trả 429 + Retry-After. Đây không phải biện pháp chống bot hoàn chỉnh; khi public production cần cấu hình quota phù hợp, proxy IP tin cậy và có thể bổ sung CAPTCHA.
 
 ## 2. Sơ đồ tổng thể hiện tại
 
@@ -24,8 +30,14 @@ flowchart TB
     Tenant["Người dùng: ngôn ngữ tự nhiên"] --> Web["hs-web-app /chat<br/>Next.js + Markdown GFM"]
     Admin["Quản trị viên: quản lý tài liệu"] --> Portal["Admin client"]
     Web -->|"JWT /api/v1/ai/*"| GW["hs-gateway-server<br/>JWT, phân quyền, rewrite path"]
+    Guest["Khách chưa đăng nhập<br/>home / chat"] -->|"HttpOnly cookie /api/v1/ai/guest/agent/*"| GW
     Portal -->|"JWT /api/v1/admin/ai/*"| GW
     GW -->|"User headers + internal secret"| API["hs-ai-service<br/>FastAPI"]
+    API --> GuestSession["Guest scope USER<br/>Cookie + signed RAM context + 3 câu"]
+    GuestSession --> Router
+    GuestSession --> Limits["Mongo ai_guest_limits<br/>Chỉ counters/claim receipts, không transcript"]
+    Guest -->|"Câu thứ 4: đồng ý đăng nhập"| Claim["OAuth + claim-guest<br/>Chuyển signed transcript sang account history"]
+    Claim --> GW
 
     subgraph AI["Bên trong hs-ai-service"]
         API --> Router["agent_ask<br/>Điều phối + phân luồng hybrid"]
@@ -43,7 +55,7 @@ flowchart TB
     Listing -->|"Chọn function + tham số"| OpenAI["OpenAI Responses API<br/>RAG / planner / listing models"]
     Listing -->|"Sinh câu trả lời khi cần"| OpenAI
     RAG -->|"Sinh câu trả lời khi có evidence"| OpenAI
-    Listing -->|"HTTP + JWT gốc qua Gateway"| GW
+    Listing -->|"Public HTTP qua Gateway<br/>JWT nếu đã đăng nhập"| GW
     GW -->|"/public/listings/ai/*"| Core["hs-core-api<br/>Listing module"]
     Core <--> CoreDB["CSDL nghiệp vụ Core<br/>Listings + địa chỉ + chi tiết + phí"]
     Eureka["hs-discovery-server / Eureka"] -. "Service discovery" .-> GW
@@ -103,6 +115,8 @@ flowchart TD
 ### Contract trả về frontend
 
 Gateway endpoint: `POST /api/v1/ai/agent/ask`; endpoint bên trong AI: `POST /agent/ask`.
+
+Khách dùng `POST /api/v1/ai/guest/agent/ask` → `/guest/agent/ask`, thêm `guestState` đã ký và `conversationId` từ guest bootstrap; response thêm `guestState` mới và `remainingQuestions`. Không có API đọc/xóa/ghim guest transcript; GET list trả rỗng. Browser gửi credentials cho bootstrap/ask và authenticated claim. Gateway CORS phải cho phép origin frontend cụ thể + credentials; frontend/gateway cần cùng site để cookie SameSite=Lax hoạt động. Gateway bỏ header IP client gửi và cấp IP peer (sau reverse proxy có thể là IP proxy; không tin X-Forwarded-For chưa kiểm chứng). Downstream không JWT chỉ trong public listing AI; API khác vẫn cần token.
 
 ```json
 {
@@ -319,7 +333,7 @@ conversation
 - Lượt hỏi lấy 8 messages trước đó cùng internal `listingContext`. Planner cắt text mỗi message tối đa 1.200 ký tự, nhưng ID/thứ tự được truyền riêng, không mất do cắt text.
 - `listingContext` của assistant chỉ lưu ID/thứ tự scope đang xét, không lưu giá/facts realtime và không expose frontend. `listingIds`/`listingPositions` public lưu riêng cho các thẻ của message; đề xuất một tin không làm mất scope cả nhóm. Browse hiển thị 4/5 tin thì context chỉ có 4 tin. Câu legacy chưa có state khôi phục ID từ toàn bộ Markdown assistant trước truncation; không dùng link user để tự tạo selection.
 - Hỏi riêng phòng 3 không đổi số thứ tự toàn tập; đổi tìm kiếm tạo tập mới. Trả lời RAG thành công hoặc tìm không có kết quả xóa scope; lỗi tạm thời không xóa scope. Facts luôn đọc lại Core và tin không còn công khai không được dùng dữ liệu cũ để tư vấn. Không có lưu filter/nhu cầu có cấu trúc dài hạn: model nhận các yêu cầu user gần đây và câu hiện tại. Chưa serialize các lượt hỏi đồng thời.
-- Messages array chưa có TTL/giới hạn tổng kích thước trong repository hiện tại.
+- Account messages array chưa có TTL/giới hạn tổng kích thước. TTL index trên `ai_conversations.expiresAt` chỉ dọn legacy guest history; code mới từ chối persist owner `guest:`. `ai_guest_limits` chứa quota IP, trial count/activeSession và claim owner receipt, không chứa transcript. Các lượt guest được reserve atomically, stale/replayed/concurrent context bị chặn trước model.
 - File `SCHEMA-SYSTEM.md` này là **memory context cho kỹ sư/AI coding agent**, không phải collection chat hay nguồn facts listing của trợ lý người thuê.
 
 ## 7. Model, payload và chi phí
@@ -341,16 +355,16 @@ Các giá trị dưới đây đã đối chiếu `.env` local và defaults conf
 - Lỗi mạng và HTTP 408/409/429/500/502/503/504 retry tối đa một lần ở transport; `insufficient_quota`, lỗi auth/invalid request không retry theo nhánh transient. Retry có thể tăng thời gian và chi phí.
 - Generation gặp `incomplete/max_output_tokens` thử lại một lần với budget gấp đôi, trần code 32.768. Nếu vẫn lỗi thì trả `GENERATION_UNAVAILABLE`, không trả đáp án bị cắt.
 - Trần retry là trần code, không đảm bảo mọi model chấp nhận. Khi đổi model phải kiểm tra output/context limit của model; retry generation và retry transport là hai lớp riêng.
-- Không có fallback sang model đắt hơn/provider khác. Chưa có quota/cost accounting theo từng người dùng trong AI service.
+- Không có fallback sang model đắt hơn/provider khác. Chưa có cost accounting/quota theo tài khoản đăng nhập; phiên khách có quota POST theo IP do Gateway cấp.
 - Log `openai_usage`: task, model, input/output/cached/reasoning tokens, response status, provider request ID. Theo dõi spend bằng usage thực tế, không suy ra giá mỗi lượt chỉ từ số câu hỏi hay balance hiển thị làm tròn.
 - Requests dùng `store=false`; không được diễn giải thành cam kết zero data retention cho mọi cơ chế phía provider.
 
 ## 8. Xác thực, secrets và operational boundaries
 
-- Frontend dùng JWT qua Gateway, không giữ `OPENAI_API_KEY` và không gọi OpenAI trực tiếp.
+- Frontend dùng JWT qua Gateway cho tài khoản; phiên khách dùng cookie HttpOnly trong guest namespace. Không giữ `OPENAI_API_KEY` trong frontend và không gọi OpenAI trực tiếp.
 - Gateway xóa các user/internal headers từ request bên ngoài rồi gắn lại user context đã xác thực. AI routes nhận thêm `X-Internal-Secret`.
-- AI dùng shared `GATEWAY_INTERNAL_SECRET` để xác minh trust trước khi tin `X-User-*`; yêu cầu user ID. Môi trường không-local yêu cầu secret hợp lệ; local không cấu hình secret hiện có nhánh bỏ qua trust guard. Không dùng ngoại lệ local này cho triển khai public.
-- AI → Core chuyển tiếp **Authorization JWT gốc**, không sao chép arbitrary user headers. Gateway client chỉ cho `/api/v1/*`, chặn `/api/v1/ai/*` để tránh gọi vòng.
+- AI dùng shared `GATEWAY_INTERNAL_SECRET` để xác minh trust trước khi tin `X-User-*`; agent/admin routes tài khoản yêu cầu user ID. Guest routes cũng kiểm tra Gateway trust nhưng lấy owner từ cookie và luôn scope USER. Môi trường không-local yêu cầu secret hợp lệ; local không cấu hình secret hiện có nhánh bỏ qua trust guard. Không dùng ngoại lệ local này cho triển khai public.
+- AI → Core chuyển tiếp **Authorization JWT gốc** nếu có, không sao chép arbitrary user headers/cookie. Khách chỉ gọi namespace `/api/v1/public/listings/ai`; các path khác vẫn cần JWT. Gateway client chỉ cho `/api/v1/*`, chặn `/api/v1/ai/*` để tránh gọi vòng.
 - `.env` và `.env.*` bị gitignore, ngoại trừ `.env.example`; key dùng `SecretStr`, không chép vào doc/example/tests/frontend. Không overwrite `.env` đang có bằng file example khi chạy lại.
 - Transport OpenAI không log key, headers, prompt, tool bodies hay provider error bodies. **Tuy nhiên** validation error handler trong `main.py` hiện log raw request body; không được tuyên bố toàn service đã loại hết dữ liệu khách hàng khỏi log. Đây là điểm cần rà riêng trước production.
 - Facts listing lấy lại ở mỗi câu hỏi có tool, không cache facts trong vector database. “Realtime” ở đây là đọc lúc request, không phải subscription, push updates hay snapshot nguyên tử của cả hội thoại.
@@ -363,6 +377,9 @@ Các giá trị dưới đây đã đối chiếu `.env` local và defaults conf
 | `/api/v1/ai/agent/conversations` | `/agent/conversations` | GET list, POST create |
 | `/api/v1/ai/agent/conversations/{id}` | `/agent/conversations/{id}` | GET detail, DELETE |
 | `/api/v1/ai/agent/conversations/{id}/pin` | `/agent/conversations/{id}/pin` | PATCH pin |
+| `/api/v1/ai/guest/agent/ask` | `/guest/agent/ask` | Guest RAG/listing, cookie ownership, quota |
+| `/api/v1/ai/guest/agent/conversations` | `/guest/agent/conversations` | GET list rỗng / POST bootstrap signed context, không lưu history |
+| `/api/v1/ai/agent/conversations/claim-guest` | `/agent/conversations/claim-guest` | JWT + cookie + signed state: chuyển guest transcript vào tài khoản một lần |
 | `/api/v1/admin/ai/knowledge/*` | `/admin/knowledge/*` | Admin knowledge API |
 
 Knowledge routes gồm documents CRUD được hỗ trợ, approve/publish/reindex/archive, jobs/{id}, worker-health, search diagnostic, test-ask. `test-ask` có thể dùng generation và phát sinh phí khi provider bật; không gọi tự động chỉ để đọc context.
@@ -443,7 +460,7 @@ Default local endpoints: AI 8084, Gateway 8080, Eureka 8761, PostgreSQL AI 5433,
 6. Citation validation chưa kiểm chứng đúng/sai từng claim; listing generation vẫn cần eval chống suy diễn facts/missing data.
 7. Full public evidence vẫn chịu context/token/rate limits; retry không giải quyết được mọi input payload quá lớn và có thể tăng phí.
 8. Không có SSE, chưa có private account tools, không có nghiệp vụ đặt lịch/thanh toán tự động từ AI.
-9. Logging validation body và Mongo messages array chưa giới hạn cần đánh giá riêng về privacy/vận hành.
+9. Validation logs chỉ ghi path/type/loc/msg, không body/input/signed state. Account Mongo messages array chưa giới hạn cần đánh giá riêng về vận hành. Trial cookie + IP quotas không phải giải pháp chống bot đầy đủ; xóa cookie/đổi IP có thể tạo trial khác, production cần trusted proxy policy/CAPTCHA khi cần.
 10. Tài liệu này không là chỉ thị triển khai các mục còn thiếu; chỉ ghi nhận trạng thái để tránh AI agent tự thêm tính năng ngoài yêu cầu.
 
 ## 11. Context ngắn để đưa cho AI agent lần sau

@@ -26,7 +26,8 @@ class GatewayApiClient:
             raise ValueError("Gateway client only accepts non-AI /api/v1 paths")
 
         authorization = request.headers.get("authorization")
-        if not authorization:
+        public_listing_path = path == "/api/v1/public/listings/ai" or path.startswith("/api/v1/public/listings/ai/")
+        if not authorization and not public_listing_path:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Missing bearer token for downstream Gateway request",
@@ -38,7 +39,7 @@ class GatewayApiClient:
                 f"{self._base_url}{path}",
                 params=params,
                 json=json,
-                headers={"Authorization": authorization},
+                headers={"Authorization": authorization} if authorization else {},
             )
         except httpx.TimeoutException as error:
             raise HTTPException(

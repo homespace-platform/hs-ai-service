@@ -1,11 +1,11 @@
 """Private AI conversations in the existing MongoDB instance."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 from uuid import uuid4
 
-from pymongo import ASCENDING, DESCENDING, AsyncMongoClient
+from pymongo import ASCENDING, DESCENDING, AsyncMongoClient, ReturnDocument
 
 from homespace_ai.core.config import get_settings
 
@@ -18,11 +18,39 @@ class ConversationRepository:
     def __init__(self, mongo_uri: str) -> None:
         self.client = AsyncMongoClient(mongo_uri, serverSelectionTimeoutMS=3000, tz_aware=True)
         self.collection = self.client.get_default_database()["ai_conversations"]
+        self.guest_limits = self.client.get_default_database()["ai_guest_limits"]
 
     async def ensure_indexes(self) -> None:
         await self.collection.create_index(
             [("ownerId", ASCENDING), ("updatedAt", DESCENDING)]
         )
+        # Legacy guest records expire; new guest transcripts are never persisted.
+        await self.collection.create_index("expiresAt", expireAfterSeconds=0)
+        await self.guest_limits.create_index("expiresAt", expireAfterSeconds=0)
+
+    @staticmethod
+    def owner_filter(owner_id: str) -> dict[str, Any]:
+        result: dict[str, Any] = {"ownerId": owner_id}
+        if owner_id.startswith("guest:"):
+            result["expiresAt"] = {"$gt": _now()}
+        return result
+
+    async def consume_guest_quota(self, identity: str) -> int:
+        """Atomic shared IP limits: changing a guest cookie cannot reset the budget."""
+        now = _now()
+        settings = get_settings()
+        for seconds, limit in ((60, settings.guest_chat_requests_per_minute),
+                               (86400, settings.guest_chat_requests_per_day)):
+            bucket = int(now.timestamp()) // seconds
+            end = datetime.fromtimestamp((bucket + 1) * seconds, tz=timezone.utc)
+            counter = await self.guest_limits.find_one_and_update(
+                {"_id": f"{identity}:{seconds}:{bucket}"},
+                {"$inc": {"count": 1}, "$setOnInsert": {"expiresAt": end}},
+                upsert=True, return_document=ReturnDocument.AFTER,
+            )
+            if counter["count"] > limit:
+                return max(1, int((end - now).total_seconds()))
+        return 0
 
     async def ping(self) -> None:
         await self.client.admin.command("ping")
@@ -31,6 +59,8 @@ class ConversationRepository:
         await self.client.close()
 
     async def create(self, owner_id: str) -> dict[str, Any]:
+        if owner_id.startswith("guest:"):
+            raise ValueError("Guest transcripts must never be persisted.")
         now = _now()
         conversation = {
             "_id": str(uuid4()),
@@ -44,15 +74,52 @@ class ConversationRepository:
         await self.collection.insert_one(conversation)
         return conversation
 
+    async def start_guest(self, owner: str, identifier: str) -> dict:
+        """No transcript. Cookie budget survives refresh/new conversations."""
+        now = _now()
+        await self.guest_limits.update_one(
+            {"_id": "trial:" + owner},
+            {"$setOnInsert": {"count": 0, "expiresAt": now + timedelta(days=1)}}, upsert=True)
+        return await self.guest_limits.find_one_and_update(
+            {"_id": "trial:" + owner}, {"$set": {"activeSession": identifier}}, return_document=ReturnDocument.AFTER)
+
+    async def reserve_guest_question(self, owner: str, identifier: str, count: int) -> dict | None:
+        return await self.guest_limits.find_one_and_update(
+            {"_id": "trial:" + owner, "activeSession": identifier,
+             "count": {"$eq": count, "$lt": get_settings().guest_chat_max_questions},
+             "expiresAt": {"$gt": _now()}, "claimedOwner": {"$exists": False}},
+            {"$inc": {"count": 1}}, return_document=ReturnDocument.AFTER)
+
+    async def release_guest_question(self, owner: str, identifier: str, count: int) -> None:
+        await self.guest_limits.update_one(
+            {"_id": "trial:" + owner, "activeSession": identifier, "count": count + 1,
+             "claimedOwner": {"$exists": False}}, {"$inc": {"count": -1}})
+
+    async def claim_guest(self, state: dict, account_id: str) -> dict | None:
+        """Atomic owner-bound receipt + idempotent account insert."""
+        receipt = await self.guest_limits.find_one_and_update(
+            {"_id": "trial:" + state["owner"], "activeSession": state["id"],
+             "count": state["count"], "expiresAt": {"$gt": _now()},
+             "$or": [{"claimedOwner": {"$exists": False}}, {"claimedOwner": account_id}]},
+            {"$set": {"claimedOwner": account_id}}, return_document=ReturnDocument.AFTER)
+        if receipt is None:
+            return None
+        now = _now()
+        document = {"ownerId": account_id, "title": state["messages"][0]["content"][:60],
+                    "isPinned": False, "createdAt": now, "updatedAt": now, "messages": state["messages"]}
+        return await self.collection.find_one_and_update(
+            {"_id": state["id"], "ownerId": account_id}, {"$setOnInsert": document},
+            upsert=True, return_document=ReturnDocument.AFTER)
+
     async def list_for_user(self, owner_id: str) -> list[dict[str, Any]]:
         cursor = self.collection.find(
-            {"ownerId": owner_id}, {"messages": 0, "ownerId": 0}
+            self.owner_filter(owner_id), {"messages": 0, "ownerId": 0}
         ).sort([("isPinned", DESCENDING), ("updatedAt", DESCENDING)])
         return [document async for document in cursor]
 
     async def get(self, owner_id: str, conversation_id: str) -> dict[str, Any] | None:
         return await self.collection.find_one(
-            {"_id": conversation_id, "ownerId": owner_id}
+            {"_id": conversation_id, **self.owner_filter(owner_id)}
         )
 
     async def append_message(
@@ -74,7 +141,7 @@ class ConversationRepository:
             message["listingIds"] = listing_ids or []
             message["listingPositions"] = listing_positions or {}
         result = await self.collection.update_one(
-            {"_id": conversation_id, "ownerId": owner_id},
+            {"_id": conversation_id, **self.owner_filter(owner_id)},
             {"$push": {"messages": message}, "$set": {"updatedAt": now}},
         )
         if result.matched_count and role == "user":
@@ -86,14 +153,14 @@ class ConversationRepository:
 
     async def set_pinned(self, owner_id: str, conversation_id: str, pinned: bool) -> bool:
         result = await self.collection.update_one(
-            {"_id": conversation_id, "ownerId": owner_id},
+            {"_id": conversation_id, **self.owner_filter(owner_id)},
             {"$set": {"isPinned": pinned, "updatedAt": _now()}},
         )
         return bool(result.matched_count)
 
     async def delete(self, owner_id: str, conversation_id: str) -> bool:
         result = await self.collection.delete_one(
-            {"_id": conversation_id, "ownerId": owner_id}
+            {"_id": conversation_id, **self.owner_filter(owner_id)}
         )
         return bool(result.deleted_count)
 

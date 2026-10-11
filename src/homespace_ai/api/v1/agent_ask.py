@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from homespace_ai.api.v1.admin_knowledge import get_embedder
 from homespace_ai.api.v1.schemas import AskRequest, AskResponse, CitationItem
-from homespace_ai.application.use_cases.ask_use_cases import AskUseCases
+from homespace_ai.application.use_cases.ask_use_cases import AskUseCases, AskResult
 from homespace_ai.application.use_cases.listing_ask import ListingAsk
 from homespace_ai.clients.generative import get_generative_client
 from homespace_ai.clients.gateway import GatewayApiClient
@@ -33,14 +33,6 @@ async def ask_agent(
 ) -> ApiResponse[AskResponse]:
     """Answer with role-scoped HomeSpace knowledge, or general help for ADMIN.
     """
-    generative_client = get_generative_client(settings)
-    use_cases = AskUseCases(
-        session=session,
-        settings=settings,
-        embedder=embedder,
-        generative_client=generative_client,
-    )
-
     question = body.effective_question
     if not question:
         raise HTTPException(
@@ -68,6 +60,27 @@ async def ask_agent(
                 detail="Conversation not found.",
             )
 
+    result = await generate_answer(question, history, request, user, session, settings, embedder, conversation_id)
+
+    if conversation_repository is not None:
+        await conversation_repository.append_message(
+            user.user_id, conversation_id, role="assistant",
+            content=result.answer, status=result.status,
+            listing_context=result.listing_context,
+            listing_ids=result.listing_ids,
+            listing_positions=result.listing_positions,
+        )
+    return public_answer(result)
+
+
+async def generate_answer(
+    question: str, history: list[dict[str, Any]], request: Request, user: UserContext,
+    session: AsyncSession, settings: Settings, embedder, conversation_id: str | None = None,
+) -> AskResult:
+    """Shared pipeline; persistence is explicitly handled by each caller."""
+    generative_client = get_generative_client(settings)
+    use_cases = AskUseCases(session=session, settings=settings, embedder=embedder,
+                            generative_client=generative_client)
     request_id = str(uuid.uuid4())
     is_admin = (user.role or "").upper() == "ADMIN" or any(
         authority.upper() in {"ADMIN", "ROLE_ADMIN"} for authority in user.authorities
@@ -94,14 +107,10 @@ async def ask_agent(
             request_id=request_id,
         )
 
-    if conversation_repository is not None:
-        await conversation_repository.append_message(
-            user.user_id, conversation_id, role="assistant",
-            content=result.answer, status=result.status,
-            listing_context=result.listing_context,
-            listing_ids=result.listing_ids,
-            listing_positions=result.listing_positions,
-        )
+    return result
+
+
+def public_answer(result: AskResult) -> ApiResponse[AskResponse]:
 
     citations = [
         CitationItem(

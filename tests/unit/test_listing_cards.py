@@ -30,6 +30,25 @@ async def test_structured_answer_schema_constrains_ids_and_keeps_full_evidence(m
 
 
 @pytest.mark.asyncio
+async def test_listing_request_instructs_bullets_and_preserves_markdown_and_card_contract(monkeypatch):
+    evidence = {"listings": [{"id": IDS[0], "category": "ROOM", "roomDetail": {"maxOccupants": 3}}]}
+    answer = "Mình đề xuất Phòng 1 cho nhóm của bạn.\n\n- **Sức chứa:** Tối đa 3 người.\n\n- **Lưu ý:** Chưa rõ phí điện, nước."
+    calls = mock_http(monkeypatch, [httpx.Response(200, json=completed(json.dumps({
+        "answer": answer, "listingIds": [IDS[0]]})))])
+    result = await OpenAIGenerativeClient(settings()).generate_listing_answer("Mình cần tìm phòng cho 3 người", evidence)
+    payload = json.loads(calls[0].content)
+    instructions = payload["instructions"]
+    assert "BẮT BUỘC tách thành gạch đầu dòng Markdown '- '" in instructions
+    assert "mỗi tin một gạch đầu dòng theo số thứ tự selectionScope" in instructions
+    assert "giữ bảng Markdown ngắn" in instructions
+    assert "không phải dữ kiện để trả lời" in instructions
+    assert json.dumps(evidence, ensure_ascii=False) in payload["input"][0]["content"]
+    assert result.answer == answer
+    assert result.listing_ids == [IDS[0]]
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("raw", ["not json", json.dumps({"answer": "OK", "listingIds": [IDS[4]]}),
     json.dumps({"answer": "", "listingIds": []}), json.dumps({"answer": "OK", "listingIds": "bad"})])
 async def test_invalid_model_output_never_becomes_a_card(monkeypatch, raw):

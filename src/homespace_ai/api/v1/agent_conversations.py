@@ -2,16 +2,19 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from homespace_ai.api.v1.schemas import (
     ConversationDetail,
     ConversationMessage,
     ConversationSummary,
     SetConversationPinnedRequest,
+    GuestStateRequest,
 )
 from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.security import UserContext, get_current_user
+from homespace_ai.core.config import get_settings
+from homespace_ai.core.guest_state import decode_state
 from homespace_ai.repositories.conversation_repo import (
     ConversationRepository,
     get_conversation_repository,
@@ -52,6 +55,21 @@ async def create_conversation(
     repository: ConversationRepository = Depends(get_conversation_repository),
 ) -> ApiResponse[ConversationDetail]:
     document = await repository.create(user.user_id)
+    return ApiResponse(result=detail(document))
+
+
+@router.post("/claim-guest", response_model=ApiResponse[ConversationDetail])
+async def claim_guest(body: GuestStateRequest, request: Request, response: Response,
+                      user: UserContext = Depends(get_current_user),
+                      repository=Depends(get_conversation_repository)):
+    from homespace_ai.api.v1.guest_agent import guest_owner
+    state = decode_state(body.guestState, guest_owner(request), get_settings())
+    if not state["messages"] or user.user_id.startswith("guest:"):
+        raise HTTPException(400, "No guest conversation to transfer.")
+    document = await repository.claim_guest(state, user.user_id)
+    if document is None:
+        raise HTTPException(409, "Guest conversation is stale or already belongs to another account.")
+    response.headers["Cache-Control"] = "no-store"
     return ApiResponse(result=detail(document))
 
 

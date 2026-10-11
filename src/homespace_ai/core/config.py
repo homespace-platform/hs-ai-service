@@ -53,6 +53,10 @@ class Settings(BaseSettings):
         default="mongodb://homespace:homespace123@localhost:27017/homespace_ai?authSource=admin",
         alias="AI_MONGODB_URI",
     )
+    guest_chat_max_questions: int = Field(default=3, ge=1, le=10, alias="GUEST_CHAT_MAX_QUESTIONS")
+    guest_chat_context_ttl_seconds: int = Field(default=3600, ge=300, le=86400, alias="GUEST_CHAT_CONTEXT_TTL_SECONDS")
+    guest_chat_requests_per_minute: int = Field(default=20, ge=1, alias="GUEST_CHAT_REQUESTS_PER_MINUTE")
+    guest_chat_requests_per_day: int = Field(default=120, ge=1, alias="GUEST_CHAT_REQUESTS_PER_DAY")
     # Local embedding configuration
     embedding_model_id: str = Field(
         default="intfloat/multilingual-e5-small",
