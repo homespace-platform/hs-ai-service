@@ -5,12 +5,12 @@ from collections.abc import AsyncIterator
 import httpx
 import structlog
 from fastapi import FastAPI, HTTPException
-from sqlalchemy import text
 
 from homespace_ai.api.v1.router import router as api_router
 from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.core.config import get_settings
 from homespace_ai.core.database import engine
+from homespace_ai.core.schema_health import ensure_schema_ready, SchemaNotReadyError
 from homespace_ai.core.logging import configure_logging
 from homespace_ai.discovery.eureka import EurekaRegistration
 from homespace_ai.repositories.conversation_repo import get_conversation_repository
@@ -30,6 +30,7 @@ def preload_embedding_model() -> None:
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     application.state.eureka_registered = False
+    await ensure_schema_ready(engine)
     try:
         await asyncio.to_thread(preload_embedding_model)
     except Exception:
@@ -107,8 +108,9 @@ async def readiness() -> dict[str, str]:
         raise HTTPException(status_code=503, detail="Gateway trust is not securely configured.")
     try:
         async with asyncio.timeout(3):
-            async with engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
+            await ensure_schema_ready(engine)
+    except SchemaNotReadyError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
     except Exception:
         raise HTTPException(status_code=503, detail="AI database is unavailable.") from None
     try:

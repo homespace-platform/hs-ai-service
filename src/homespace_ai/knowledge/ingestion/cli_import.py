@@ -29,7 +29,6 @@ async def import_knowledge_directory(directory_path: str) -> None:
     settings = get_settings()
 
     created_count = 0
-    unchanged_count = 0
     error_count = 0
 
     async with async_session_maker() as session:
@@ -43,31 +42,27 @@ async def import_knowledge_directory(directory_path: str) -> None:
                     content=content,
                     created_by="system-bootstrap",
                 )
-                if result.is_new_version:
-                    created_count += 1
-                    print(f" [CREATED DRAFT] {f.name} -> {result.document_id} (version: {result.version})")
-                else:
-                    unchanged_count += 1
-                    print(f" [UNCHANGED] {f.name} -> {result.document_id} (checksum matched, no new version)")
+                created_count += 1
+                print(f" [QUEUED] {f.name} -> {result.document_id} (version: {result.version}, job: {result.job_id})")
             except Exception as e:
+                await session.rollback()
                 error_count += 1
                 print(f" [ERROR] {f.name}: {e}")
 
     print("\n--- IMPORT SUMMARY ---")
     print(f"Total scanned: {len(md_files)}")
-    print(f"New draft versions created: {created_count}")
-    print(f"Unchanged (checksum match): {unchanged_count}")
+    print(f"New versions queued: {created_count}")
     print(f"Errors: {error_count}")
-    print("All imported documents are in DRAFT status and require admin approval & publishing before retrieval.")
+    print("New versions activate automatically when the worker succeeds. Re-running increments every file's version.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import Markdown documents into HomeSpace Knowledge Base as DRAFT.")
+    parser = argparse.ArgumentParser(description="Create next knowledge versions and queue automatic ingestion.")
     parser.add_argument(
         "--dir",
         "-d",
-        default="../hs-infrastructure/prompts/knowledge",
-        help="Path to folder containing knowledge .md files (default: ../hs-infrastructure/prompts/knowledge)",
+        default="../hs-infrastructure/documents/knowledge",
+        help="Path to folder containing knowledge .md files (default: ../hs-infrastructure/documents/knowledge)",
     )
     args = parser.parse_args()
     asyncio.run(import_knowledge_directory(args.dir))

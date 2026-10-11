@@ -2,13 +2,15 @@ from datetime import datetime, timezone
 from typing import Any
 import uuid
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from fastapi import HTTPException
 
 from homespace_ai.models.knowledge import (
     KnowledgeDocument,
     KnowledgeDocumentVersion,
+    KnowledgeChunk,
 )
 
 
@@ -17,13 +19,43 @@ class DocumentRepository:
         self.session = session
 
     async def get_by_document_id(
-        self, document_id: str, include_versions: bool = True
+        self, document_id: str, include_versions: bool = True, for_update: bool = False
     ) -> KnowledgeDocument | None:
         stmt = select(KnowledgeDocument).where(KnowledgeDocument.document_id == document_id)
         if include_versions:
             stmt = stmt.options(selectinload(KnowledgeDocument.versions))
+        if for_update:
+            stmt = stmt.with_for_update().execution_options(populate_existing=True)
         result = await self.session.execute(stmt)
         return result.scalars().first()
+
+    async def get_by_filename(self, filename: str) -> KnowledgeDocument | None:
+        from homespace_ai.knowledge.filenames import normalize_filename
+
+        # Legacy duplicates deliberately left unmapped by the migration must not be merged silently.
+        docs = (await self.session.execute(
+            select(KnowledgeDocument).options(selectinload(KnowledgeDocument.versions))
+            .where(KnowledgeDocument.source_filename == filename)
+        )).scalars().all()
+        legacy = (await self.session.execute(
+            select(KnowledgeDocument).where(KnowledgeDocument.source_filename.is_(None))
+            .options(selectinload(KnowledgeDocument.versions))
+        )).scalars().all()
+        for doc in legacy:
+            for version in doc.versions:
+                original = version.metadata_snapshot.get("original_filename", "")
+                try:
+                    matches = normalize_filename(original) == filename
+                except HTTPException:
+                    matches = False
+                if matches:
+                    docs.append(doc)
+                    break
+        if len(docs) > 1:
+            raise HTTPException(409, "Multiple legacy documents share this filename; resolve the duplicate names first.")
+        if not docs:
+            return None
+        return await self.get_by_document_id(docs[0].document_id, for_update=True)
 
     async def get_version_by_id(self, version_id: uuid.UUID) -> KnowledgeDocumentVersion | None:
         stmt = (
@@ -91,6 +123,7 @@ class DocumentRepository:
         created_by: str | None,
         category: str | None = None,
         status: str = "DRAFT",
+        source_filename: str | None = None,
     ) -> KnowledgeDocument:
         doc = KnowledgeDocument(
             document_id=document_id,
@@ -101,6 +134,7 @@ class DocumentRepository:
             category=category,
             created_by=created_by,
             status=status,
+            source_filename=source_filename,
         )
         self.session.add(doc)
         await self.session.flush()
@@ -116,10 +150,12 @@ class DocumentRepository:
         embedding_model_id: str,
         chunk_config_version: str,
         status: str = "DRAFT",
+        version_number: int = 1,
     ) -> KnowledgeDocumentVersion:
         ver = KnowledgeDocumentVersion(
             document_id=document_id,
             version=version,
+            version_number=version_number,
             raw_markdown=raw_markdown,
             content_hash=content_hash,
             metadata_snapshot=metadata_snapshot,
@@ -171,12 +207,21 @@ class DocumentRepository:
 
     async def activate_version(
         self, document_id: str, version_id: uuid.UUID
-    ) -> None:
-        """Atomically activates the newly published version."""
+    ) -> bool:
+        """Activate and delete obsolete vectors atomically; an older worker cannot roll back a newer version."""
         now = datetime.now(timezone.utc)
+        document = await self.get_by_document_id(document_id, include_versions=False, for_update=True)
+        if not document or document.status == "ARCHIVED":
+            raise ValueError("Document is archived or unavailable for activation.")
         version = await self.get_version_by_id(version_id)
         if not version or version.document_id != document_id:
             raise ValueError("Version does not belong to this document.")
+        active = await self.get_version_by_id(document.active_version_id) if document.active_version_id else None
+        if active and active.version_number > version.version_number:
+            await self.session.execute(delete(KnowledgeChunk).where(KnowledgeChunk.version_id == version_id))
+            version.status = "ARCHIVED"
+            await self.session.flush()
+            return False
         metadata = version.metadata_snapshot
 
         # Switch both ACL metadata and active version in one transaction.
@@ -193,6 +238,7 @@ class DocumentRepository:
                 visibility=metadata["visibility"],
                 audience=metadata["audience"],
                 locale=metadata["locale"],
+                status="APPROVED",
                 updated_at=now,
             )
         )
@@ -204,7 +250,16 @@ class DocumentRepository:
             .where(KnowledgeDocumentVersion.id == version_id)
             .values(status="PUBLISHED", updated_at=now)
         )
+        await self.session.execute(delete(KnowledgeChunk).where(
+            KnowledgeChunk.document_id == document_id, KnowledgeChunk.version_id != version_id
+        ))
+        await self.session.execute(update(KnowledgeDocumentVersion).where(
+            KnowledgeDocumentVersion.document_id == document_id,
+            KnowledgeDocumentVersion.id != version_id,
+            KnowledgeDocumentVersion.status == "PUBLISHED",
+        ).values(status="ARCHIVED", updated_at=now))
         await self.session.flush()
+        return True
 
     async def archive_document(self, document_id: str) -> None:
         now = datetime.now(timezone.utc)

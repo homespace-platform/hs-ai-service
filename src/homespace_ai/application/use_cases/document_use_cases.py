@@ -1,12 +1,18 @@
 from dataclasses import dataclass
 from typing import Any
+import hashlib
 import uuid
+from datetime import datetime, timezone
+
+import yaml
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
 from homespace_ai.core.config import Settings
 from homespace_ai.knowledge.ingestion.parser import DocumentParser, MarkdownDocumentParser
+from homespace_ai.knowledge.filenames import normalize_filename
 from homespace_ai.models.knowledge import KnowledgeDocument, KnowledgeDocumentVersion, KnowledgeIngestionJob
 from homespace_ai.repositories.document_repo import DocumentRepository
 from homespace_ai.repositories.job_repo import JobRepository
@@ -21,6 +27,8 @@ class UploadResult:
     is_new_version: bool
     title: str
     visibility: str
+    job_id: str
+    source_filename: str
 
 
 class DocumentUseCases:
@@ -41,91 +49,95 @@ class DocumentUseCases:
         filename: str,
         content: bytes,
         created_by: str | None = None,
+        expected_version_id: str | None = None,
+        target_document_id: str | None = None,
     ) -> UploadResult:
-        # Parse file securely
+        filename_key = normalize_filename(filename)
+        if filename_key == "readme.md":
+            raise HTTPException(400, "README.md is a folder guide, not a knowledge document.")
         parsed = self.parser.parse(
             filename=filename,
             content=content,
             max_size_bytes=self.settings.upload_max_size_bytes,
         )
 
-        # Check if document already exists
-        existing_doc = await self.doc_repo.get_by_document_id(parsed.document_id)
-
-        if not existing_doc:
-            # Create new document in DRAFT status
+        # Serialize same-name uploads, including the first insert. Values are bound, never SQL identifiers.
+        await self.session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:filename, 0))"),
+                                   {"filename": "filename:" + filename_key})
+        doc = await self.doc_repo.get_by_filename(filename_key)
+        if target_document_id and (not doc or doc.document_id != target_document_id):
+            raise HTTPException(409, "Document filename changed; reload the editor before updating.")
+        if doc and doc.status == "ARCHIVED":
+            raise HTTPException(409, "This document is archived. It cannot be replaced until restored.")
+        if doc and expected_version_id and (not doc.versions or str(doc.versions[0].id) != expected_version_id):
+            raise HTTPException(409, "A newer version exists. Reload the document before saving your changes.")
+        if not doc:
+            # Preserve a free human-readable ID for existing citations/benchmarks, but never merge by that ID.
+            await self.session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:identity, 0))"),
+                                       {"identity": "document-id:" + parsed.document_id})
+            used_id = await self.doc_repo.get_by_document_id(parsed.document_id, include_versions=False)
+            document_id = ("kb-" + hashlib.sha256(filename_key.encode("utf-8")).hexdigest()[:40]
+                           if used_id else parsed.document_id)
             doc = await self.doc_repo.create_document(
-                document_id=parsed.document_id,
-                title=parsed.title,
-                audience=parsed.audience,
-                visibility=parsed.visibility,
-                locale=parsed.locale,
-                category=parsed.category,
-                created_by=created_by,
-                status="DRAFT",
+                document_id=document_id, title=parsed.title, audience=parsed.audience,
+                visibility=parsed.visibility, locale=parsed.locale, category=parsed.category,
+                created_by=created_by, status="APPROVED", source_filename=filename_key,
             )
-            # Create new version in DRAFT status
-            ver = await self.doc_repo.create_version(
-                document_id=parsed.document_id,
-                version=parsed.version,
-                raw_markdown=parsed.raw_markdown,
-                content_hash=parsed.content_hash,
-                metadata_snapshot=parsed.metadata,
-                embedding_model_id=self.settings.embedding_identity,
-                chunk_config_version=self.settings.chunk_config_version,
-                status="DRAFT",
-            )
-            await self.session.commit()
-            return UploadResult(
-                document_id=doc.document_id,
-                version_id=str(ver.id),
-                version=ver.version,
-                status=ver.status,
-                is_new_version=True,
-                title=doc.title,
-                visibility=doc.visibility,
-            )
-
-        # If document exists, check for duplicate content/model/chunk configuration
-        existing_ver = await self.doc_repo.get_version_by_hash(
-            document_id=parsed.document_id,
-            content_hash=parsed.content_hash,
-            embedding_model_id=self.settings.embedding_identity,
-            chunk_config_version=self.settings.chunk_config_version,
-        )
-        if existing_ver:
-            # Re-upload with same checksum and config: return existing version without re-creating
-            return UploadResult(
-                document_id=existing_doc.document_id,
-                version_id=str(existing_ver.id),
-                version=existing_ver.version,
-                status=existing_ver.status,
-                is_new_version=False,
-                title=existing_doc.title,
-                visibility=existing_doc.visibility,
-            )
-
-        # Content changed: create a new DRAFT version
+            version_number = 1
+        else:
+            version_number = max((version.version_number for version in doc.versions), default=0) + 1
+            doc.source_filename = filename_key
+            # Do not change serving ACL/title before the new version activates.
+            doc.status = "APPROVED"
+            doc.updated_at = datetime.now(timezone.utc)
+        metadata = {**parsed.metadata, "document_id": doc.document_id, "version": str(version_number)}
         ver = await self.doc_repo.create_version(
-            document_id=parsed.document_id,
-            version=parsed.version,
+            document_id=doc.document_id,
+            version=str(version_number),
+            version_number=version_number,
             raw_markdown=parsed.raw_markdown,
             content_hash=parsed.content_hash,
-            metadata_snapshot=parsed.metadata,
+            metadata_snapshot=metadata,
             embedding_model_id=self.settings.embedding_identity,
             chunk_config_version=self.settings.chunk_config_version,
-            status="DRAFT",
+            status="APPROVED",
+        )
+        job = await self.job_repo.create_job(
+            version_id=ver.id, document_id=doc.document_id, job_type="INGEST",
+            max_attempts=self.settings.worker_max_attempts,
         )
         await self.session.commit()
-
         return UploadResult(
-            document_id=existing_doc.document_id,
+            document_id=doc.document_id,
             version_id=str(ver.id),
             version=ver.version,
-            status=ver.status,
+            status=job.status,
             is_new_version=True,
-            title=existing_doc.title,
-            visibility=existing_doc.visibility,
+            title=parsed.title,
+            visibility=parsed.visibility,
+            job_id=str(job.id),
+            source_filename=filename_key,
+        )
+
+    async def get_content(self, document_id: str) -> dict[str, Any]:
+        doc = await self.doc_repo.get_by_document_id(document_id)
+        if not doc or not doc.versions:
+            raise HTTPException(404, "Document not found.")
+        version = doc.versions[0]
+        metadata = {key: value for key, value in version.metadata_snapshot.items()
+                    if key != "original_filename"}
+        metadata.update(document_id=doc.document_id, version=version.version)
+        filename = doc.source_filename or version.metadata_snapshot.get("original_filename") or f"{doc.document_id}.md"
+        markdown = "---\n" + yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False) + "---\n\n" + version.raw_markdown + "\n"
+        return {"documentId": doc.document_id, "sourceFilename": filename,
+                "versionId": str(version.id), "version": version.version, "markdown": markdown}
+
+    async def update_content(self, document_id: str, markdown: str, expected_version_id: str,
+                             created_by: str | None = None) -> UploadResult:
+        current = await self.get_content(document_id)
+        return await self.upload_document(
+            filename=current["sourceFilename"], content=markdown.encode("utf-8"), created_by=created_by,
+            expected_version_id=expected_version_id, target_document_id=document_id,
         )
 
     async def patch_document(

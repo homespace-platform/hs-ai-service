@@ -60,21 +60,21 @@ async def test_full_rag_lifecycle_integration():
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Upload public document as draft
+        # 1. Admin upload automatically queues a managed version.
         res_upload = await client.post(
             "/admin/knowledge/documents",
-            files={"file": ("xylo-study.md", sample_public.encode("utf-8"), "text/markdown")},
+            files={"file": (f"xylo-study-{unique_suffix}.md", sample_public.encode("utf-8"), "text/markdown")},
             headers=admin_headers,
         )
         assert res_upload.status_code == 201
         data = res_upload.json()["result"]
         doc_id = data["documentId"]
-        assert data["status"] == "DRAFT"
+        assert data["status"] == "QUEUED" and data["version"] == "1"
 
-        # 2. Upload admin-only document as draft
+        # 2. Upload admin-only document, preserving its ACL.
         res_admin_upload = await client.post(
             "/admin/knowledge/documents",
-            files={"file": ("xylo-admin-secret.md", sample_admin.encode("utf-8"), "text/markdown")},
+            files={"file": (f"xylo-admin-secret-{unique_suffix}.md", sample_admin.encode("utf-8"), "text/markdown")},
             headers=admin_headers,
         )
         assert res_admin_upload.status_code == 201
@@ -90,20 +90,9 @@ async def test_full_rag_lifecycle_integration():
         assert res_ask_before.status_code == 200
         assert res_ask_before.json()["result"]["status"] == "NO_EVIDENCE"
 
-        # 4. Admin approves both documents
-        res_app_1 = await client.post(f"/admin/knowledge/documents/{doc_id}/approve", headers=admin_headers)
-        assert res_app_1.status_code == 200
-        res_app_2 = await client.post(f"/admin/knowledge/documents/{admin_doc_id}/approve", headers=admin_headers)
-        assert res_app_2.status_code == 200
-
-        # 5. Admin publishes both documents (enqueues jobs)
-        res_pub_1 = await client.post(f"/admin/knowledge/documents/{doc_id}/publish", headers=admin_headers)
-        assert res_pub_1.status_code == 202
-        job_id_1 = res_pub_1.json()["result"]["job_id"]
-
-        res_pub_2 = await client.post(f"/admin/knowledge/documents/{admin_doc_id}/publish", headers=admin_headers)
-        assert res_pub_2.status_code == 202
-        job_id_2 = res_pub_2.json()["result"]["job_id"]
+        # 4/5. Upload already approved and queued both versions; no manual publish needed.
+        job_id_1 = data["jobId"]
+        job_id_2 = res_admin_upload.json()["result"]["jobId"]
 
         # 6. Run Worker to process both jobs
         worker = IngestionWorker()
@@ -140,7 +129,7 @@ async def test_full_rag_lifecycle_integration():
         ).replace("version: 1.0.0", "version: 2.0.0")
         uploaded_restricted = await client.post(
             "/admin/knowledge/documents",
-            files={"file": ("xylo-restricted.md", restricted_version.encode("utf-8"), "text/markdown")},
+            files={"file": (f"xylo-study-{unique_suffix}.md", restricted_version.encode("utf-8"), "text/markdown")},
             headers=admin_headers,
         )
         assert uploaded_restricted.status_code == 201
@@ -148,12 +137,6 @@ async def test_full_rag_lifecycle_integration():
             "/agent/ask", json={"question": test_question}, headers=user_headers
         )
         assert before_activation.json()["result"]["status"] == "ANSWERED"
-        assert (await client.post(
-            f"/admin/knowledge/documents/{doc_id}/approve", headers=admin_headers
-        )).status_code == 200
-        assert (await client.post(
-            f"/admin/knowledge/documents/{doc_id}/publish", headers=admin_headers
-        )).status_code == 202
         assert await worker.process_next_job() is True
         after_activation = await client.post(
             "/agent/ask", json={"question": test_question}, headers=user_headers

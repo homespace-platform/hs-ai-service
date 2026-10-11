@@ -9,6 +9,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -19,6 +20,7 @@ from homespace_ai.core.database import Base
 
 class KnowledgeDocument(Base):
     __tablename__ = "knowledge_documents"
+    __table_args__ = (UniqueConstraint("source_filename", name="uq_knowledge_source_filename"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -26,6 +28,7 @@ class KnowledgeDocument(Base):
     document_id: Mapped[str] = mapped_column(
         String(100), unique=True, index=True, nullable=False
     )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     locale: Mapped[str] = mapped_column(String(20), default="vi-VN", nullable=False)
@@ -54,12 +57,13 @@ class KnowledgeDocument(Base):
         "KnowledgeDocumentVersion",
         back_populates="document",
         cascade="all, delete-orphan",
-        order_by="desc(KnowledgeDocumentVersion.created_at)",
+        order_by="desc(KnowledgeDocumentVersion.version_number)",
     )
 
 
 class KnowledgeDocumentVersion(Base):
     __tablename__ = "knowledge_document_versions"
+    __table_args__ = (UniqueConstraint("document_id", "version_number", name="uq_knowledge_version_number"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -71,6 +75,7 @@ class KnowledgeDocumentVersion(Base):
         nullable=False,
     )
     version: Mapped[str] = mapped_column(String(30), nullable=False)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     raw_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     metadata_snapshot: Mapped[dict[str, Any]] = mapped_column(

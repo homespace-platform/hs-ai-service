@@ -14,6 +14,7 @@
 - Phân bổ model hiện tại ưu tiên tiết kiệm: RAG dùng `gpt-4o-mini`; planner và câu trả lời listing dùng `gpt-4.1-mini`.
 - Giữ nguyên evidence công khai sau whitelist bảo vệ dữ liệu. Không bổ sung bước cắt field/compact JSON listing để giảm payload. Điều này **không có nghĩa** context/output/rate limit của provider là vô hạn.
 - Chưa có tool truy vấn hợp đồng, thanh toán, hóa đơn hoặc lịch hẹn cá nhân; chưa có tool ghi dữ liệu nghiệp vụ.
+- Admin RAG hỗ trợ upload nhiều file và sửa Markdown trên giao diện. Mỗi lần upload/lưu tạo version mới theo tên file, kể cả cùng nội dung; tự queue ingestion. Bản cũ chỉ bị xóa vector khi bản mới kích hoạt thành công; giữ metadata/lịch sử version.
 - Không tự nâng model đắt hơn, không tự chạy test API trả phí, không commit/push secret. Những việc đó cần được đặt trong phạm vi yêu cầu riêng.
 
 ## 2. Sơ đồ tổng thể hiện tại
@@ -33,7 +34,7 @@ flowchart TB
         Router --> RAG["AskUseCases<br/>RAG / greeting / general ADMIN"]
         RAG --> E5["Local E5 CPU<br/>384 chiều"]
         RAG <--> PG["PostgreSQL AI + pgvector<br/>Tài liệu, version, chunks, jobs"]
-        API --> Ingest["Admin Knowledge API<br/>Upload, approve, publish"]
+        API --> Ingest["Admin Knowledge API<br/>Bulk upload, edit, auto ingest"]
         Ingest --> PG
         Worker["Ingestion worker<br/>Process chạy riêng"] <--> PG
         Worker --> E5
@@ -257,14 +258,13 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    MD["Upload .md UTF-8<br/>YAML front matter, tối đa 1 MB mặc định"] --> Draft["Document + version DRAFT<br/>hash + embedding identity + chunk config"]
-    Draft --> Approve["Admin approve<br/>Document/version APPROVED"]
-    Approve --> Publish["Admin publish<br/>enqueue INGEST job QUEUED"]
+    MD["Admin upload nhiều file / sửa Markdown<br/>YAML front matter, tối đa 1 MB/file"] --> Version["Khóa theo filename + document<br/>tạo numeric version N+1, APPROVED<br/>không dedup theo content"]
+    Version --> Publish["Tự enqueue INGEST job QUEUED"]
     Publish --> Worker["Worker claim job<br/>FOR UPDATE SKIP LOCKED + lease"]
     Worker --> Running["Job RUNNING<br/>version mới PUBLISHING"]
     Running --> Chunk["Chunk theo heading/token<br/>target 350, overlap 50, max 450"]
     Chunk --> Emb["E5 CPU<br/>passage: prefix, normalize<br/>384 chiều"]
-    Emb --> Atomic["Lưu chunks + activate_version<br/>complete job trong transaction"]
+    Emb --> Atomic["Lưu chunks + activate_version<br/>xóa vector bản cũ + archive bản cũ<br/>complete job trong transaction"]
     Atomic --> Done["Version PUBLISHED<br/>active_version_id trỏ bản mới<br/>Job COMPLETED"]
     Running -->|"Lỗi"| Failed["Retry theo attempts/lease<br/>FAILED nếu không hoàn thành"]
     Active["Document đang active"] --> Reindex["Admin reindex<br/>enqueue REINDEX"]
@@ -276,12 +276,14 @@ Worker là **process riêng**, API không tự chạy ingestion loop. Job pollin
 
 Publish bản mới không loại bản active cũ trước khi nạp thành công. Nếu đổi model/revision embedding, quy trình hiện tại yêu cầu upload version phù hợp; không trộn vectors khác identity.
 
+Tên file chuẩn hóa NFC/casefold là identity; `document_id/version` trong front matter không quyết định identity/số version. Migration giữ document ID cũ và đánh số lại version 1, 2, ... theo thứ tự tạo. Editor gửi `expectedVersionId` để tránh lost update (409 nếu bản đã thay đổi). Upload batch tối đa 50 file; kết quả/lỗi độc lập từng file. README bị bỏ qua. Chỉ Admin được upload/sửa; thao tác upload/apply là chấp thuận ingest, không dựa vào `status` trong Markdown. Các route approve/publish giữ cho draft cũ/retry. Cặp worker out-of-order được kiểm tra bằng version_number trước activation; bản xử lý cũ không rollback bản active mới.
+
 ### PostgreSQL AI — bảng chính
 
 | Bảng | Vai trò |
 | --- | --- |
-| `knowledge_documents` | Logical document ID, metadata, visibility, status, active_version_id |
-| `knowledge_document_versions` | Raw Markdown, version, hash, embedding identity, config và lifecycle |
+| `knowledge_documents` | Logical document ID, source_filename unique, metadata, visibility, status, active_version_id |
+| `knowledge_document_versions` | Raw Markdown, numeric version_number unique theo document, version, hash, embedding identity, config và lifecycle |
 | `knowledge_chunks` | Content, heading, metadata, chunk index/token count, vector 384 |
 | `knowledge_ingestion_jobs` | INGEST/REINDEX, status, attempts, lease, worker, error |
 | `worker_heartbeats` | Worker registry và heartbeat phục vụ chẩn đoán |
@@ -350,6 +352,8 @@ Các giá trị dưới đây đã đối chiếu `.env` local và defaults conf
 
 Knowledge routes gồm documents CRUD được hỗ trợ, approve/publish/reindex/archive, jobs/{id}, worker-health, search diagnostic, test-ask. `test-ask` có thể dùng generation và phát sinh phí khi provider bật; không gọi tự động chỉ để đọc context.
 
+Admin upload nhiều file: `POST /api/v1/admin/ai/knowledge/documents/batch` (multipart `files[]`, 202). Mở/sửa file: `GET/PUT /api/v1/admin/ai/knowledge/documents/{id}/content`; PUT body gồm `markdown` và `expectedVersionId`, trả version/jobId mới để poll. Không đổi frontend user chat hay contract tool calling listing.
+
 | File/module | Trách nhiệm |
 | --- | --- |
 | `src/homespace_ai/main.py` | Lifespan, preload E5, Mongo init, Eureka, health endpoints |
@@ -384,7 +388,7 @@ Các repo liên quan, tính từ `D:/Workspace/homespace/`:
 - `hs-core-api/hs-listing-service/src/main/java/com/hs/listing/service/AiListingSearchService.java`: whitelist fields, parameterized search.
 - `hs-infrastructure/postgres/`: seed fixtures; chỉ là dữ liệu để đối chiếu test, không thay thế CSDL đang chạy.
 
-Thứ tự ưu tiên khi thông tin mâu thuẫn: **source/config đang dùng → migration/contracts/tests → tài liệu context này → README/đề xuất cũ**. Phần mở đầu README hiện vẫn còn một dòng Gemini/Groq lỗi thời; phần OpenAI mới và source đã chuyển provider.
+Thứ tự ưu tiên khi thông tin mâu thuẫn: **source/config đang dùng → migration/contracts/tests → tài liệu context này → README/đề xuất cũ**.
 
 ## 10. Khởi chạy, kiểm tra và các giới hạn cần nhớ
 
@@ -429,4 +433,4 @@ Default local endpoints: AI 8084, Gateway 8080, Eureka 8761, PostgreSQL AI 5433,
 
 ## 11. Context ngắn để đưa cho AI agent lần sau
 
-> HomeSpace AI hiện là FastAPI service sau Gateway/Eureka. Endpoint hỏi đáp thống nhất `/api/v1/ai/agent/ask` điều phối hybrid regex + native OpenAI tool planner. Listing tools read-only gọi Core qua Gateway bằng JWT người hỏi; Core whitelist field/operator và parameterized SQL, chỉ tin active/PUBLISHED/chưa hết hạn. Hỗ trợ ROOM/APARTMENT/HOUSE, tiện ích, nội thất, phí, địa chỉ và thông tin tiếp khách theo registry; chưa hỗ trợ dữ liệu cá nhân hợp đồng/hóa đơn/thanh toán. RAG dùng tài liệu APPROVED + active PUBLISHED trong PostgreSQL AI/pgvector, E5 multilingual-e5-small local CPU 384 chiều, hybrid vector/FTS/RRF. Worker ingestion chạy riêng, lifecycle approve → publish job → chunk/embed → activate version. MongoDB lưu owned chat history; planner chỉ dùng 8 messages cuối, chưa có structured listing state. OpenAI Responses: RAG gpt-4o-mini; tool/listing gpt-4.1-mini. Không có Gemini/Groq fallback, không chuyển embedding sang OpenAI, không compact public listing evidence. Template có thể tránh lần generation thứ hai; output budgets và retries vẫn hữu hạn. Frontend render Markdown GFM/table, nhận JSON không streaming. Giữ secrets trong env ignored, không chạy paid test/commit/push nếu chưa thuộc yêu cầu. Trước khi sửa, kiểm tra source thực tế và không mô tả tính năng chưa có là đã triển khai.
+> HomeSpace AI hiện là FastAPI service sau Gateway/Eureka. Endpoint hỏi đáp thống nhất `/api/v1/ai/agent/ask` điều phối hybrid regex + native OpenAI tool planner. Listing tools read-only gọi Core qua Gateway bằng JWT người hỏi; Core whitelist field/operator và parameterized SQL, chỉ tin active/PUBLISHED/chưa hết hạn. Hỗ trợ ROOM/APARTMENT/HOUSE, tiện ích, nội thất, phí, địa chỉ và thông tin tiếp khách theo registry; chưa hỗ trợ dữ liệu cá nhân hợp đồng/hóa đơn/thanh toán. RAG dùng tài liệu APPROVED + active PUBLISHED trong PostgreSQL AI/pgvector, E5 multilingual-e5-small local CPU 384 chiều, hybrid vector/FTS/RRF. Admin bulk upload/edit theo filename, mỗi lần tăng version kể cả nội dung trùng; tự enqueue worker job → chunk/embed → activate version và xóa vectors cũ trong cùng transaction, giữ lịch sử version. Worker chạy riêng; lỗi cập nhật không làm mất bản active. MongoDB lưu owned chat history; planner chỉ dùng 8 messages cuối, chưa có structured listing state. OpenAI Responses: RAG gpt-4o-mini; tool/listing gpt-4.1-mini. Không có Gemini/Groq fallback, không chuyển embedding sang OpenAI, không compact public listing evidence. Template có thể tránh lần generation thứ hai; output budgets và retries vẫn hữu hạn. Frontend render Markdown GFM/table, nhận JSON không streaming. Giữ secrets trong env ignored, không chạy paid test/commit/push nếu chưa thuộc yêu cầu. Trước khi sửa, kiểm tra source thực tế và không mô tả tính năng chưa có là đã triển khai.

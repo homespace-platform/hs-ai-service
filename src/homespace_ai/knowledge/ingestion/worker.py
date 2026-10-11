@@ -7,7 +7,8 @@ import uuid
 import structlog
 
 from homespace_ai.core.config import get_settings
-from homespace_ai.core.database import async_session_maker
+from homespace_ai.core.database import async_session_maker, engine
+from homespace_ai.core.schema_health import ensure_schema_ready
 from homespace_ai.knowledge.ingestion.chunker import MarkdownChunker
 from homespace_ai.knowledge.ingestion.embedder import BaseEmbeddingAdapter, LocalE5EmbeddingAdapter
 from homespace_ai.repositories.chunk_repo import ChunkRepository
@@ -33,6 +34,8 @@ class IngestionWorker:
         self.running = False
 
     async def run(self) -> None:
+        # A missing table is a setup error, not a retryable ingestion error.
+        await ensure_schema_ready(engine)
         self.running = True
         hostname = socket.gethostname()
         pid = os.getpid()
@@ -165,6 +168,8 @@ class IngestionWorker:
             document = await document_repo.get_by_document_id(document_id, include_versions=False)
             if not document:
                 raise ValueError(f"Document {document_id} not found.")
+            if document.status == "ARCHIVED":
+                raise ValueError("Document is archived and cannot be ingested.")
 
             # Keep the active version visible while it is being reindexed.
             if document.active_version_id != version_id:
@@ -225,7 +230,7 @@ class IngestionWorker:
                 raise ValueError("Document was archived before ingestion completed.")
 
             # 4. Atomically activate new version (preserves old active version until this point!)
-            await document_repo.activate_version(document_id=document_id, version_id=version_id)
+            activated = await document_repo.activate_version(document_id=document_id, version_id=version_id)
 
             # 5. Mark job completed
             await job_repo.complete_job(job_id, self.worker_id)
@@ -238,6 +243,7 @@ class IngestionWorker:
                 document_id=document_id,
                 version_id=str(version_id),
                 chunk_count=len(chunks),
+                activated=activated,
             )
 
     async def _handle_job_failure(

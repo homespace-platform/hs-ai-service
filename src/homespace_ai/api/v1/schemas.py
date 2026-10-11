@@ -38,6 +38,14 @@ class DocumentSummaryResponse(BaseModel):
     activeVersionId: str | None = None
     createdAt: datetime
     updatedAt: datetime
+    sourceFilename: str | None = None
+    latestVersion: str | None = None
+    latestVersionStatus: str | None = None
+
+
+class UpdateDocumentContentRequest(BaseModel):
+    markdown: str = Field(min_length=1, max_length=1048576)
+    expectedVersionId: str = Field(min_length=1, max_length=36)
 
 
 class DocumentDetailResponse(DocumentSummaryResponse):

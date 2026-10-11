@@ -10,7 +10,7 @@ FastAPI microservice for HomeSpace AI capabilities, local RAG knowledge base, an
 - Validates internal Gateway secret `X-Internal-Secret` to reject untrusted direct traffic on port 8084.
 - Storage: Dedicated PostgreSQL instance with `pgvector` on port `5433`; AI conversation history uses the existing MongoDB container on port `27017` in its own `homespace_ai` database.
 - Local Embedding: `intfloat/multilingual-e5-small` via `sentence-transformers` running on CPU (384-dimensional vector, normalized).
-- Generative Layer: Gemini / Groq / Disabled mode for synthesis with source citations.
+- Generative Layer: OpenAI Responses / Disabled mode for synthesis with source citations.
 
 ---
 
@@ -127,16 +127,25 @@ uv run uvicorn homespace_ai.main:app --app-dir src --host 0.0.0.0 --port 8084 --
 
 ## 2. Ingest Sample Knowledge Documents
 
-Run the idempotent CLI script to import all `.md` files from `hs-infrastructure/prompts/knowledge` into the database as `DRAFT` status:
+Use Admin at `http://localhost:5000/operations/knowledge` to drag/drop or select up to 50 Markdown files (1 MB each). Upload creates the next numeric version and queues a worker job, even when contents are unchanged. `README.md` is excluded. `visibility: admin` remains restricted to admins. You can also use the CLI:
 
 ```powershell
-uv run python -m homespace_ai.knowledge.ingestion.cli_import --dir ../hs-infrastructure/prompts/knowledge
+uv run python -m homespace_ai.knowledge.ingestion.cli_import --dir ../hs-infrastructure/documents/knowledge
 ```
 
-Re-running this command is completely idempotent: files with matching content SHA-256 and configuration versions are recognized as `UNCHANGED` and will not create duplicate versions or duplicate jobs.
-If documents were imported before the embedding model revision was pinned,
-run the import again. It creates a new DRAFT version with the pinned model
-identity; an admin must still approve and publish it explicitly.
+Identity is the normalized filename (Unicode NFC, case-insensitive), not the front-matter document_id. Version numbers are server-managed: 1, 2, 3, ...; migration preserves existing document IDs. Do not re-import after every restart: PostgreSQL persists the documents and vectors.
+
+Choose **Mở và chỉnh sửa Markdown**, edit the full Markdown with YAML metadata, and click **Cập nhật và áp dụng version mới**. Every save increments the version; a stale editor receives 409 rather than overwriting a newer update.
+
+The old active version remains available until replacement succeeds. Activation and deletion of obsolete vector chunks happen in one transaction. Failed ingestion leaves the old vectors intact. Version text/metadata and jobs remain as audit history; retired versions are archived. An older worker cannot roll back a newer active version. Archived documents cannot be edited by this workflow.
+
+Apply the additive migration, then restart both API and worker on the updated code:
+
+```powershell
+uv run alembic upgrade head
+```
+
+Legacy duplicate filenames produce a conflict rather than silently merging documents. Legacy approve/publish routes remain for old drafts and retrying failed ingestion; new uploads/edits do not need those manual steps.
 
 ---
 
@@ -152,6 +161,9 @@ Gateway automatically strips route prefixes:
 | Purpose                    | Gateway Path                                        | Service Internal Path                     | Method             |
 | -------------------------- | --------------------------------------------------- | ----------------------------------------- | ------------------ |
 | Upload Markdown document   | `/api/v1/admin/ai/knowledge/documents`              | `/admin/knowledge/documents`              | `POST` (multipart) |
+| Upload multiple files      | `/api/v1/admin/ai/knowledge/documents/batch`        | `/admin/knowledge/documents/batch`        | `POST` (202, files[]) |
+| Open editable Markdown     | `/api/v1/admin/ai/knowledge/documents/{id}/content` | `/admin/knowledge/documents/{id}/content` | `GET` |
+| Save next Markdown version | `/api/v1/admin/ai/knowledge/documents/{id}/content` | `/admin/knowledge/documents/{id}/content` | `PUT` (202, markdown + expectedVersionId) |
 | List documents (paginated) | `/api/v1/admin/ai/knowledge/documents`              | `/admin/knowledge/documents`              | `GET`              |
 | Document detail & versions | `/api/v1/admin/ai/knowledge/documents/{id}`         | `/admin/knowledge/documents/{id}`         | `GET`              |
 | Patch draft metadata       | `/api/v1/admin/ai/knowledge/documents/{id}`         | `/admin/knowledge/documents/{id}`         | `PATCH`            |
@@ -175,14 +187,12 @@ Gateway automatically strips route prefixes:
 ### Frontend entry points
 
 - Web app: `http://localhost:3000/chat?channel=ai` calls the Gateway ask API.
-  AI sessions are currently kept in browser memory only; the AI Service does
-  not persist conversation history yet.
+  AI sessions are persisted in MongoDB, scoped to the authenticated owner.
 - Admin portal: `http://localhost:5000/operations/knowledge` supports Markdown
-  upload, draft metadata, approval, publishing, job status, reindex, archive,
+  bulk upload, Markdown editing with automatic versioning/ingestion, job status, reindex, archive,
   and diagnostic retrieval. All actions use Gateway URLs and the logged-in
   admin's bearer token.
-- All existing sample Markdown files are drafts. Unless an admin explicitly
-  approves and publishes them, the user chat will return `NO_EVIDENCE`.
+- Sample files are working drafts: Admin must review them before upload/apply. This action now explicitly queues ingestion automatically, irrespective of the file's `status` field.
 
 ---
 
@@ -209,6 +219,12 @@ Gateway automatically strips route prefixes:
 
 ## 6. Testing & Quality Benchmarks
 
+Test managed versions and legacy migration in a new disposable PostgreSQL database (removed afterward; no OpenAI requests or embedding downloads):
+
+```powershell
+uv run python scripts/test_managed_knowledge.py
+```
+
 Run unit and contract tests without changing a database:
 
 ```powershell
@@ -232,3 +248,14 @@ ter2:
 uv run alembic upgrade head
 uv run python -m homespace_ai.knowledge.ingestion.worker
 ```
+
+API and worker validate the RAG tables/columns at startup. If `worker_heartbeats`
+or other knowledge tables are missing, startup stops with a migration instruction
+instead of repeatedly failing or registering an unusable API in Eureka. Run the
+migration in the service folder using the same `AI_DATABASE_URL`, then restart
+both processes. `/health/ready` also rejects an incomplete schema.
+
+In Admin, 100% upload means file bytes have been sent, not that ingestion has
+completed. The UI shows a separate waiting-for-API state and limits batch request
+waiting to 60 seconds. After a timeout, inspect the document list before retrying:
+the server might already have saved some files, and retrying creates new versions.

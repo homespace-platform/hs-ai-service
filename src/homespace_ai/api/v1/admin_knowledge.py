@@ -21,6 +21,7 @@ from homespace_ai.api.v1.schemas import (
     JobSummaryResponse,
     PatchDocumentRequest,
     VersionSummaryResponse,
+    UpdateDocumentContentRequest,
 )
 from homespace_ai.application.use_cases.document_use_cases import DocumentUseCases
 from homespace_ai.core.api_response import ApiResponse
@@ -60,9 +61,7 @@ async def upload_document(
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> ApiResponse[dict[str, Any]]:
-    """Uploads a Markdown document with YAML front matter.
-    Creates document and version in DRAFT state. Never automatically publishes.
-    """
+    """Admin upload always creates the next version and queues local ingestion."""
     content = await file.read(settings.upload_max_size_bytes + 1)
     if len(content) > settings.upload_max_size_bytes:
         raise HTTPException(
@@ -80,17 +79,57 @@ async def upload_document(
 
     return ApiResponse(
         code=1000,
-        message="Document uploaded successfully as DRAFT.",
-        result={
-            "documentId": result.document_id,
-            "versionId": result.version_id,
-            "version": result.version,
-            "status": result.status,
-            "isNewVersion": result.is_new_version,
-            "title": result.title,
-            "visibility": result.visibility,
-        },
+        message="New version queued; the active version remains available until ingestion succeeds.",
+        result=_upload_result(result),
     )
+
+
+def _upload_result(result) -> dict[str, Any]:
+    return {"documentId": result.document_id, "versionId": result.version_id, "version": result.version,
+            "status": result.status, "isNewVersion": result.is_new_version, "title": result.title,
+            "visibility": result.visibility, "jobId": result.job_id, "sourceFilename": result.source_filename}
+
+
+@router.post("/documents/batch", status_code=202, response_model=ApiResponse[dict[str, Any]])
+async def upload_documents_batch(
+    files: list[UploadFile] = File(...),
+    admin: UserContext = Depends(require_admin),
+    session: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> ApiResponse[dict[str, Any]]:
+    if not 1 <= len(files) <= 50:
+        raise HTTPException(400, "Select between 1 and 50 files per batch.")
+    items = []
+    for file in files:
+        filename = file.filename or "document.md"
+        try:
+            content = await file.read(settings.upload_max_size_bytes + 1)
+            result = await DocumentUseCases(session, settings).upload_document(filename, content, admin.user_id)
+            items.append({"filename": filename, "success": True, "result": _upload_result(result)})
+        except HTTPException as error:
+            await session.rollback()
+            items.append({"filename": filename, "success": False, "statusCode": error.status_code, "error": str(error.detail)})
+        except Exception:
+            await session.rollback()
+            items.append({"filename": filename, "success": False, "statusCode": 500, "error": "Unable to save this file; other files continue."})
+        finally:
+            await file.close()
+    return ApiResponse(code=1000, result={"items": items})
+
+
+@router.get("/documents/{document_id}/content", response_model=ApiResponse[dict[str, Any]])
+async def get_document_content(document_id: str, admin: UserContext = Depends(require_admin),
+                               session: AsyncSession = Depends(get_db), settings: Settings = Depends(get_settings)):
+    return ApiResponse(code=1000, result=await DocumentUseCases(session, settings).get_content(document_id))
+
+
+@router.put("/documents/{document_id}/content", status_code=202, response_model=ApiResponse[dict[str, Any]])
+async def update_document_content(document_id: str, body: UpdateDocumentContentRequest,
+                                  admin: UserContext = Depends(require_admin), session: AsyncSession = Depends(get_db),
+                                  settings: Settings = Depends(get_settings)):
+    result = await DocumentUseCases(session, settings).update_content(
+        document_id, body.markdown, body.expectedVersionId, admin.user_id)
+    return ApiResponse(code=1000, result=_upload_result(result))
 
 
 @router.get(
@@ -126,6 +165,9 @@ async def list_documents(
             activeVersionId=str(d.active_version_id) if d.active_version_id else None,
             createdAt=d.created_at,
             updatedAt=d.updated_at,
+            sourceFilename=d.source_filename,
+            latestVersion=d.versions[0].version if d.versions else None,
+            latestVersionStatus=d.versions[0].status if d.versions else None,
         )
         for d in docs
     ]
@@ -210,6 +252,9 @@ async def get_document_detail(
         activeVersionId=str(doc.active_version_id) if doc.active_version_id else None,
         createdAt=doc.created_at,
         updatedAt=doc.updated_at,
+        sourceFilename=doc.source_filename,
+        latestVersion=doc.versions[0].version if doc.versions else None,
+        latestVersionStatus=doc.versions[0].status if doc.versions else None,
         versions=version_items,
         activeVersion=active_version,
         latestJob=latest_job_summary,
