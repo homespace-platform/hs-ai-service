@@ -97,7 +97,7 @@ Output budgets (not input payload caps) default to 4096 tokens for RAG/planning 
 the budget (maximum 32768), never present a partial answer. Retries can incur extra
 cost. HTTP 429/transient network/5xx failures are retried once; exhausted billing
 quota, auth failures and invalid requests are not retried. Restart AI service after
-changing `.env`; there is no frontend API-contract change.
+changing `.env`.
 
 Listing follow-ups persist internal `listingContext` (displayed IDs in their original order)
 on assistant messages in the existing owner-scoped Mongo history. No Mongo migration is
@@ -108,6 +108,17 @@ The answer prompt allows grounded ranking/calculations and distinguishes rent fr
 Missing tool plans ask for clarification rather than claiming an API outage. Diagnostic events
 `listing_tool_selected`, `listing_plan_missing`, and `listing_request_failed` include request ID
 and failure stage/type/status, never prompt/history, bearer tokens, or response bodies.
+
+Listing presentation: ask responses and saved assistant messages expose `listingIds` and
+`listingPositions`. Browse returns a short introduction plus verified IDs, not Markdown links
+or card facts. Generated listing answers use strict OpenAI Structured Outputs (`answer`,
+`listingIds` with an enum of fresh tool-result IDs), validated again by the application.
+Recommendation IDs are separate from the full internal follow-up scope. Web hydrates each
+card through the existing public Core listing-detail API, using a dedicated compact chat card; clicks open
+a new tab with `noopener noreferrer`, preserving the conversation. Reads are lazy, deduplicated
+in flight, limited to three concurrent requests, and not cached across reopens. Hidden/expired
+listings render unavailable; transient read errors can retry. Old saved messages default to no
+cards (their existing links also open new tabs). No Mongo migration or paid live test is required.
 
 Verification (unit tests do not call the paid API):
 

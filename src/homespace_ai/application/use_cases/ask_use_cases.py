@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 from typing import Any
 import uuid
@@ -30,6 +30,12 @@ class AskResult:
     citations: list[dict[str, Any]]
     request_id: str
     listing_context: dict[str, Any] | None = None
+    listing_ids: list[str] = field(default_factory=list)
+
+    @property
+    def listing_positions(self) -> dict[str, int]:
+        scope = (self.listing_context or {}).get("listingIds", [])
+        return {value: scope.index(value) + 1 for value in self.listing_ids if value in scope}
 
 
 # Patterns detecting requests for personal / real-time / dynamic account data

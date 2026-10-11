@@ -115,6 +115,8 @@ class AskResponse(BaseModel):
     status: str  # ANSWERED, GENERAL_ANSWER, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE
     citations: list[CitationItem] = Field(default_factory=list)
     requestId: str
+    listingIds: list[str] = Field(default_factory=list)
+    listingPositions: dict[str, int] = Field(default_factory=dict)
 
 
 class ConversationMessage(BaseModel):
@@ -123,6 +125,8 @@ class ConversationMessage(BaseModel):
     content: str
     status: str | None = None
     createdAt: datetime
+    listingIds: list[str] = Field(default_factory=list)
+    listingPositions: dict[str, int] = Field(default_factory=dict)
 
 
 class ConversationSummary(BaseModel):

@@ -1,9 +1,10 @@
 from types import SimpleNamespace
+import json
 
 import pytest
 
 from homespace_ai.application.use_cases.listing_ask import ListingAsk
-from homespace_ai.clients.generative import GenerationUnavailableError
+from homespace_ai.clients.generative import GenerationUnavailableError, ListingGeneratedAnswer
 from homespace_ai.clients.listing_tool_planner import ToolPlan
 
 
@@ -42,6 +43,11 @@ class FakeGenerator:
         self.kwargs = kwargs
         return "Phòng này có chỗ gửi xe có phí 80.000 đ/tháng."
 
+    async def generate_listing_answer(self, question, evidence):
+        answer = await self.generate_answer(question=question,
+            context_chunks=[{"content": json.dumps(evidence, ensure_ascii=False)}], audience="USER", mode="listing")
+        return ListingGeneratedAnswer(answer, [item["id"] for item in evidence["listings"]])
+
 
 def make_assistant(plan, ids=None):
     assistant = ListingAsk.__new__(ListingAsk)
@@ -59,7 +65,8 @@ async def test_listing_question_uses_core_data_and_preserves_history():
     history = [{"role": "assistant", "content": "Mình vừa tìm được một phòng."}]
     result = await assistant.try_answer("Phòng đó gửi xe có phí không?", history, "req-1")
     assert result.status == "ANSWERED"
-    assert "/rent/00000000-0000-0000-0000-000000000001" in result.answer
+    assert result.listing_ids == ["00000000-0000-0000-0000-000000000001"]
+    assert "/rent/" not in result.answer
     assert "có thu phí" in result.answer
     assert "80.000" in result.answer
     assert "miễn phí" not in result.answer
@@ -106,7 +113,7 @@ async def test_related_suggestion_is_explicitly_not_exact_match():
 
 
 @pytest.mark.asyncio
-async def test_browse_answer_only_links_matching_category_and_skips_unasked_fields():
+async def test_browse_answer_only_returns_matching_category_ids_and_skips_card_facts():
     room_id = "00000000-0000-0000-0000-000000000001"
     house_id = "00000000-0000-0000-0000-000000000002"
     assistant = make_assistant(ToolPlan("search_listings", {"filters": [
@@ -123,10 +130,10 @@ async def test_browse_answer_only_links_matching_category_and_skips_unasked_fiel
     assistant.tools = MixedTools([room_id, house_id])
     result = await assistant.try_answer("Tìm phòng khu vực Phú Lợi", [], "req-browse")
     assert result.status == "ANSWERED"
-    assert "/rent/" + room_id in result.answer
-    assert "/rent/" + house_id not in result.answer
-    assert "3.360.000 đ/phòng/tháng" in result.answer
-    assert "23 m²" in result.answer
+    assert result.listing_ids == [room_id]
+    assert "/rent/" not in result.answer
+    assert "3.360.000" not in result.answer
+    assert "23 m²" not in result.answer
     assert "đặt cọc" not in result.answer.lower()
     assert "Tiện ích:" not in result.answer
     assert assistant.generative_client.kwargs is None
@@ -162,7 +169,8 @@ async def test_general_room_comparison_is_complete_compact_markdown_table():
     assert "| Ban công |" in result.answer
     assert "không thu phí riêng" in result.answer
     assert "90.000 đ/xe/tháng" in result.answer
-    assert all(f"/rent/{listing_id}" in result.answer for listing_id in ids)
+    assert result.listing_ids == ids
+    assert "/rent/" not in result.answer
     assert "ID:" not in result.answer
     assert assistant.generative_client.kwargs is None
 
@@ -182,7 +190,7 @@ async def test_generation_failure_after_successful_tool_read_does_not_claim_tool
         "listingId": "00000000-0000-0000-0000-000000000001"}))
 
     class FailedGenerator:
-        async def generate_answer(self, **kwargs):
+        async def generate_listing_answer(self, **kwargs):
             raise GenerationUnavailableError("answer was cut off")
 
     assistant.generative_client = FailedGenerator()

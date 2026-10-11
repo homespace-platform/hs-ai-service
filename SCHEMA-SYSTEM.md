@@ -72,10 +72,10 @@ flowchart TD
     Planner -->|"Không chọn tool nhưng hỏi listing"| Clarify["Hỏi làm rõ, không báo Core bị lỗi"]
     Execute -->|"Không có kết quả sau thử nới"| NR["NO_RESULTS"]
     Execute -->|"Có evidence"| Template{"Khớp template browse,<br/>so sánh ROOM hoặc gửi xe?"}
-    Template -->|"Có"| Direct["Markdown từ code + facts"]
+    Template -->|"Có"| Direct["Tư vấn/Markdown từ code + verified IDs"]
     Template -->|"Không"| Generate["OpenAI listing_answer<br/>question + toàn bộ public evidence"]
     Generate -->|"Không tạo được câu hoàn chỉnh"| GU["GENERATION_UNAVAILABLE"]
-    Generate -->|"Hoàn thành"| Answer["ANSWERED + link /rent/UUID"]
+    Generate -->|"Hoàn thành"| Answer["ANSWERED + answer + listingIds<br/>strict JSON + xác thực IDs từ evidence"]
     Direct --> Answer
     Knowledge --> KR["Greeting / RAG / general ADMIN<br/>hoặc NO_EVIDENCE / OUT_OF_SCOPE / lỗi"]
     Fixed --> Save["Lưu assistant message nếu có conversation<br/>trả JSON về frontend"]
@@ -85,6 +85,9 @@ flowchart TD
     GU --> Save
     Answer --> Save
     KR --> Save
+    Save --> Web["Web nhận listingIds + listingPositions"]
+    Web --> Hydrate["Public Core API lấy detail theo ID<br/>lazy + dedup in-flight, tối đa 3 request đồng thời"]
+    Hydrate --> Cards["Listing Cards + Markdown tư vấn<br/>bấm mở tab mới, giữ chat"]
 ```
 
 ### Phân luồng thực tế, không phải router hoàn toàn do model
@@ -117,7 +120,9 @@ Gateway endpoint: `POST /api/v1/ai/agent/ask`; endpoint bên trong AI: `POST /ag
     "answer": "<Markdown câu trả lời>",
     "status": "ANSWERED",
     "citations": [],
-    "requestId": "<request-id>"
+    "requestId": "<request-id>",
+    "listingIds": ["<verified-listing-uuid>"],
+    "listingPositions": {"<verified-listing-uuid>": 3}
   }
 }
 ```
@@ -134,7 +139,11 @@ Gateway endpoint: `POST /api/v1/ai/agent/ask`; endpoint bên trong AI: `POST /ag
 
 Không dùng “không có phòng” để thay cho lỗi provider/tool. Các lỗi HTTP xác thực, validation, conversation không tồn tại vẫn có thể xảy ra ngoài các status nghiệp vụ trên.
 
-Frontend hiện nhận **một JSON hoàn chỉnh**, chưa dùng SSE/token streaming. `AiMarkdownMessage.tsx` dùng `react-markdown` + `remark-gfm`, hỗ trợ table có cuộn ngang và link nội bộ `/rent/UUID`; không bật parser raw HTML.
+Frontend hiện nhận **một JSON hoàn chỉnh**, chưa dùng SSE/token streaming. `AiMarkdownMessage.tsx` dùng `react-markdown` + `remark-gfm`, hỗ trợ table cuộn ngang, không bật raw HTML. Listing cards được render riêng bằng `AiListingCards` + `AiListingCompactCard`, không do model dựng HTML/link/facts. Card chat dạng hàng ngang một cột: số thứ tự, tiêu đề, giá đúng đơn vị, loại hình, diện tích, sức chứa/số phòng ngủ khi có và phường/tỉnh. Không có ảnh lớn, owner/footer, favorite hay lượt xem; skeleton cũng nhỏ. Không đổi card ở trang rent. Ảnh bìa thumbnail bên trái (80px mobile/112px desktop), nội dung bên phải; ưu tiên media IMAGE có cover=true rồi sortOrder. Chỉ một ảnh, lazy-load; thiếu/lỗi ảnh dùng placeholder, không lấy VIDEO làm ảnh bìa.
+
+`listingIds` là các tin cần hiển thị (đề xuất một phòng có thể chỉ trả một ID), khác internal scope của toàn nhóm. `listingPositions` giữ số thứ tự gốc để card của Phòng 3 không bị đổi thành Phòng 1. RAG/no-results/lỗi trả IDs rỗng. Generated answers dùng OpenAI strict Structured Outputs, enum IDs từ evidence mới và application kiểm tra lần nữa. Không phát sinh paid call riêng để chọn ID. Browse/ROOM comparison/parking templates không gọi model.
+
+Web gọi `GET /api/v1/public/listings/{id}` qua Gateway, chỉ hiển thị PUBLISHED + active + chưa hết hạn, không gọi API ghi nhận view khi hydrate. Lazy-load khi gần viewport, gộp request trùng đang chạy và tối đa 3 request đồng thời; không cache facts sau khi mở lại lịch sử. Tin không còn public có placeholder; lỗi mạng có nút thử lại, không xóa tư vấn. Card và link legacy mở tab mới (`target=_blank`, `noopener noreferrer`, tắt prefetch), không redirect chat. ID/position lưu cùng assistant message; lịch sử mới mở lại vẫn có thẻ. Lịch sử cũ chưa có field này vẫn dùng Markdown, không cần migration.
 
 ## 4. Tool calling listing và truy vấn realtime
 
@@ -229,7 +238,7 @@ Nội thất theo mã: `BED`, `WARDROBE`, `WORK_DESK`, `KITCHEN_SHELF`, `REFRIGE
 - Một số câu browse, so sánh ROOM tổng quát và hỏi gửi xe có template deterministic. Câu hỏi cụ thể khác dùng listing model với JSON evidence không compact.
 - Browse template còn kiểm tra câu bắt đầu “Tìm”, “Kiếm”, “Cho tôi/mình xem”; cách diễn đạt “Tôi cần tìm…” có thể dùng generation thay vì template. Không nhầm điều này với thiếu dữ liệu search.
 - Chính sách ROOM `NONE/FREE/PAID`, sức chứa xe và khoản `MOTORBIKE_PARKING` là các facts khác nhau. “Có chỗ gửi xe” không đồng nghĩa “miễn phí”; “includedInRent” không đồng nghĩa khoản phí không tồn tại.
-- Listing response có link `/rent/{UUID}`, không dùng citations tài liệu RAG. Code bổ sung link của evidence nếu model quên.
+- Listing response trả ID cho web render cards, không dùng citations RAG và không bổ sung danh sách link Markdown. Model chỉ viết tư vấn/so sánh; không lặp toàn bộ card facts. Input evidence vẫn đầy đủ, tiết kiệm ở phần output trình bày.
 
 ## 5. RAG: retrieval và tài liệu đã duyệt
 
@@ -303,12 +312,12 @@ Collection: `ai_conversations`, database mặc định `homespace_ai`.
 conversation
 ├── _id, ownerId, title, isPinned, createdAt, updatedAt
 └── messages[]
-    └── id, role, content, status, createdAt, listingContext? {version, listingIds[]}
+    └── id, role, content, status, createdAt, listingIds[], listingPositions{}, listingContext? {version, listingIds[]}
 ```
 
 - Đọc/sửa/pin/xóa đều scope theo `ownerId`; index hiện có `ownerId + updatedAt`.
 - Lượt hỏi lấy 8 messages trước đó cùng internal `listingContext`. Planner cắt text mỗi message tối đa 1.200 ký tự, nhưng ID/thứ tự được truyền riêng, không mất do cắt text.
-- `listingContext` của assistant chỉ lưu ID/thứ tự các tin đã hiển thị, không lưu giá hay facts realtime, không đổi response contract frontend. Browse hiển thị 4/5 tin thì context chỉ có 4 tin. Câu legacy chưa có state khôi phục ID từ toàn bộ Markdown assistant trước truncation; không dùng link user để tự tạo selection.
+- `listingContext` của assistant chỉ lưu ID/thứ tự scope đang xét, không lưu giá/facts realtime và không expose frontend. `listingIds`/`listingPositions` public lưu riêng cho các thẻ của message; đề xuất một tin không làm mất scope cả nhóm. Browse hiển thị 4/5 tin thì context chỉ có 4 tin. Câu legacy chưa có state khôi phục ID từ toàn bộ Markdown assistant trước truncation; không dùng link user để tự tạo selection.
 - Hỏi riêng phòng 3 không đổi số thứ tự toàn tập; đổi tìm kiếm tạo tập mới. Trả lời RAG thành công hoặc tìm không có kết quả xóa scope; lỗi tạm thời không xóa scope. Facts luôn đọc lại Core và tin không còn công khai không được dùng dữ liệu cũ để tư vấn. Không có lưu filter/nhu cầu có cấu trúc dài hạn: model nhận các yêu cầu user gần đây và câu hiện tại. Chưa serialize các lượt hỏi đồng thời.
 - Messages array chưa có TTL/giới hạn tổng kích thước trong repository hiện tại.
 - File `SCHEMA-SYSTEM.md` này là **memory context cho kỹ sư/AI coding agent**, không phải collection chat hay nguồn facts listing của trợ lý người thuê.
@@ -439,4 +448,4 @@ Default local endpoints: AI 8084, Gateway 8080, Eureka 8761, PostgreSQL AI 5433,
 
 ## 11. Context ngắn để đưa cho AI agent lần sau
 
-> HomeSpace AI là FastAPI sau Gateway/Eureka. `/api/v1/ai/agent/ask` điều phối hybrid heuristic + native OpenAI planner. Listing tools read-only gọi Core qua Gateway/JWT; Core whitelist field/operator, parameterized SQL, chỉ active/PUBLISHED/chưa hết hạn; không có personal contract/payment tools. Mongo lưu owned history và `listingContext` của assistant gồm ID/thứ tự tin đã hiển thị, không lưu facts. Follow-up rõ ràng đọc lại đúng ID từ Core, không cần planner call; tìm mới dùng planner. Legacy chat khôi phục references từ Markdown trước truncation. Model nhận selectionScope + yêu cầu user gần đây; cho phép ranking/tính toán có căn cứ, không đánh đồng tiền thuê với tổng chi phí, không bịa missing fields. Logs phân biệt catalog/planning/execution/generation bằng request_id, không log nội dung/secret. RAG: tài liệu APPROVED + active PUBLISHED, PostgreSQL AI/pgvector, E5 local CPU 384 chiều. Admin upload/edit theo filename luôn tăng version, worker activate thành công mới xóa vectors cũ, giữ lịch sử. OpenAI Responses: RAG gpt-4o-mini; planner/listing gpt-4.1-mini. Không Gemini/Groq, không OpenAI embedding, không compact public listing evidence. Scope và text bị giới hạn lịch sử 8 messages, chưa có structured preferences dài hạn/concurrency serialization. Frontend Markdown GFM, JSON không streaming; contract không đổi. Giữ secrets trong env ignored; không chạy paid test/commit/push ngoài yêu cầu. Đối chiếu code/config trước khi tiếp tục, không coi tính năng chưa có là đã triển khai.
+> HomeSpace AI là FastAPI sau Gateway/Eureka. `/api/v1/ai/agent/ask` điều phối hybrid heuristic + native OpenAI planner. Listing tools read-only gọi Core qua Gateway/JWT; Core whitelist field/operator, parameterized SQL, chỉ active/PUBLISHED/chưa hết hạn; không có personal contract/payment tools. Mongo lưu owned history và internal `listingContext` gồm scope ID/thứ tự, không lưu facts. Follow-up rõ ràng đọc lại Core, không cần planner call; tìm mới dùng planner. Legacy chat khôi phục scope từ Markdown trước truncation. Model nhận selectionScope + nhu cầu gần đây; ranking/tính toán có căn cứ, không đánh đồng tiền thuê với tổng chi phí, không bịa missing fields. Generated listing answers dùng strict JSON `answer` + enum `listingIds` từ evidence, backend kiểm tra lại. Public response/history có listingIds/listingPositions cho card, riêng với scope cả nhóm. Web hydrate public detail, lazy + dedup in-flight + tối đa 3 concurrent; tin ẩn/hết hạn có placeholder, lỗi mạng retry; không cache facts giữa lần mở lại. AiListingCompactCard (hàng ngang, không ảnh lớn/footer) và link legacy mở tab mới, giữ chat. Templates không viết danh sách link/card facts, so sánh vẫn Markdown GFM. Logs phân biệt catalog/planning/execution/generation bằng request_id, không log nội dung/secret. RAG: APPROVED + active PUBLISHED, PostgreSQL AI/pgvector, E5 local CPU 384. Admin upload/edit theo filename tăng version, activate thành công mới xóa vectors cũ. OpenAI Responses: RAG gpt-4o-mini; planner/listing gpt-4.1-mini. Không Gemini/Groq, không OpenAI embedding, không compact public listing evidence. Context 8 messages, chưa có structured preferences dài hạn/concurrency serialization. JSON không streaming. Giữ secrets trong env ignored; không chạy paid test/commit/push ngoài yêu cầu. Đối chiếu code/config trước khi tiếp tục.

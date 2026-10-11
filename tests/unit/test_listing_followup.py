@@ -78,7 +78,8 @@ async def test_search_compare_recommend_changed_preference_and_new_search_flow()
     found = await ask("Tìm phòng tại Phường Phú Lợi")
     assert found.listing_context == context_for(IDS[:4])  # Fifth fetched room not displayed.
     compared = await ask("So sánh 4 phòng này")
-    assert all(f"[Phòng {i}]" in compared.answer for i in range(1, 5))
+    assert all(f"Phòng {i}" in compared.answer for i in range(1, 5))
+    assert compared.listing_ids == IDS[:4]
     assistant.tools.prices[2] = 4000000  # Database update; old comparison is NOT evidence.
     recommended = await ask("Ở 1 mình, phòng nào rẻ nhất?")
     assert recommended.status == "ANSWERED"
@@ -149,8 +150,9 @@ async def test_ordinal_keeps_original_positions_and_not_whole_set_read():
     assistant.tools = CurrentTools()
     result = await assistant.try_answer("So sánh phòng 2 và phòng 4", previous(), "positions")
     assert assistant.tools.read == [IDS[1], IDS[3]]
-    assert "[Phòng 2]" in result.answer and "[Phòng 4]" in result.answer
-    assert "[Phòng 1]" not in result.answer
+    assert "Phòng 2" in result.answer and "Phòng 4" in result.answer
+    assert "Phòng 1" not in result.answer
+    assert result.listing_positions == {IDS[1]: 2, IDS[3]: 4}
     assert result.listing_context == context_for(IDS[:4])
 
 

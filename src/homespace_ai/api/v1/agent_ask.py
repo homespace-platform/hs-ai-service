@@ -99,6 +99,8 @@ async def ask_agent(
             user.user_id, conversation_id, role="assistant",
             content=result.answer, status=result.status,
             listing_context=result.listing_context,
+            listing_ids=result.listing_ids,
+            listing_positions=result.listing_positions,
         )
 
     citations = [
@@ -119,5 +121,7 @@ async def ask_agent(
             status=result.status,
             citations=citations,
             requestId=result.request_id,
+            listingIds=result.listing_ids,
+            listingPositions=result.listing_positions,
         ),
     )

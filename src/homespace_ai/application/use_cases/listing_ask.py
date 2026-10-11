@@ -1,6 +1,5 @@
 """Select RAG or realtime listing tools and ground listing answers in Core API data."""
 
-import json
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -128,28 +127,33 @@ class ListingAsk:
 
         if plan.name == "search_listings" and self._is_browse_query(question):
             return AskResult(answer=self._browse_answer(question, evidence), status="ANSWERED",
-                             citations=[], request_id=request_id, listing_context=context_for(ids[:4]))
+                             citations=[], request_id=request_id, listing_context=context_for(ids[:4]),
+                             listing_ids=ids[:4])
 
         if self._is_room_comparison(question, evidence["listings"]):
             return AskResult(answer=self._room_comparison_answer(evidence["listings"], references),
                              status="ANSWERED", citations=[], request_id=request_id,
-                             listing_context=result_context)
+                             listing_context=result_context, listing_ids=ids)
 
         # A recommendation mentioning parking must not be reduced to a parking-only template.
-        parking_answer = None if RECOMMENDATION.search(question) else self._parking_answer(question, evidence["listings"])
+        parking_answer = None if RECOMMENDATION.search(question) else self._parking_answer(question, evidence["listings"], references)
         if parking_answer is not None:
             if evidence.get("relaxedFilters"):
                 parking_answer = ("Chưa có tin khớp toàn bộ điều kiện. Những tin dưới đây chỉ là gợi ý sau khi bỏ tiêu chí "
                                   + ", ".join(evidence["relaxedFilters"]) + ".\n" + parking_answer)
             return AskResult(answer=parking_answer, status="ANSWERED", citations=[], request_id=request_id,
-                             listing_context=result_context)
+                             listing_context=result_context, listing_ids=ids)
 
         try:
-            raw = await self.generative_client.generate_answer(
-                question=question,
-                context_chunks=[{"content": json.dumps(evidence, ensure_ascii=False, default=str)}],
-                audience="USER", mode="listing",
-            )
+            generated = await self.generative_client.generate_listing_answer(question=question, evidence=evidence)
+            # Defense in depth: never expose a generated reference outside fresh public tool evidence.
+            if any(value not in ids for value in generated.listing_ids):
+                raise GenerationUnavailableError("Unknown listing reference.", retryable=False)
+            raw = generated.answer
+            selected_ids = list(dict.fromkeys(generated.listing_ids))
+            # Enforce the no-link contract even if prose ignores the presentation instruction.
+            raw = re.sub(r"\[([^\]]+)\]\(/rent/[0-9a-fA-F-]{36}\)", r"\1", raw)
+            raw = re.sub(r"(?:https?://[^\s/]+)?/rent/[0-9a-fA-F-]{36}", "", raw)
         except GenerationUnavailableError as error:
             self._log_failure(request_id, "answer_generation", error, plan.name)
             return AskResult(
@@ -159,17 +163,12 @@ class ListingAsk:
                 listing_context=result_context,
             )
 
-        # Keep listing references resolvable even if the model omits links.
-        missing_links = [item for item in evidence["listings"] if f"/rent/{item['id']}" not in raw]
         if evidence.get("relaxedFilters"):
             raw = ("Chưa có tin khớp toàn bộ điều kiện. Mình đã nới tiêu chí "
                    + ", ".join(evidence["relaxedFilters"]) + " để gợi ý các tin liên quan:\n" + raw)
-        if missing_links:
-            raw = raw.strip() + "\n\nXem tin: " + ", ".join(
-                f"[{item.get('title') or 'Chi tiết'}](/rent/{item['id']})" for item in missing_links)
         return AskResult(answer=raw.strip(),
                          status="ANSWERED", citations=[], request_id=request_id,
-                         listing_context=result_context)
+                         listing_context=result_context, listing_ids=selected_ids)
 
     @staticmethod
     def _clarify(request_id: str, scope: list[str]) -> AskResult:
@@ -258,7 +257,7 @@ class ListingAsk:
             return prefix + "có phí, chưa rõ mức"
 
         references = references or [item["id"] for item in listings]
-        columns = [f"[Phòng {references.index(item['id']) + 1}](/rent/{item['id']})" for item in listings]
+        columns = [f"Phòng {references.index(item['id']) + 1}" for item in listings]
         rows: list[tuple[str, list[str]]] = []
         unit_labels = {"ROOM_MONTH": "phòng/tháng", "PERSON_MONTH": "người/tháng", "MONTH": "tháng"}
         prices = []
@@ -294,9 +293,6 @@ class ListingAsk:
                  "| Tiêu chí | " + " | ".join(columns) + " |",
                  "| --- | " + " | ".join("---" for _ in listings) + " |"]
         lines.extend("| " + label + " | " + " | ".join(values) + " |" for label, values in rows)
-        lines.append("")
-        lines.extend(f"- Phòng {references.index(item['id']) + 1}: {item.get('title') or 'Tin đăng'}"
-                     for item in listings)
         return "\n".join(lines)
 
     @staticmethod
@@ -318,33 +314,7 @@ class ListingAsk:
             intro = f"Mình tìm thấy {total} {category_name} đang hiển thị" + (f" tại {ward}" if ward else "") + ":"
         lines = [intro]
         shown = listings[:4]
-        for item in shown:
-            pricing = item.get("pricing") or {}
-            facts = []
-            if pricing.get("amount") is not None:
-                try:
-                    amount = f"{int(Decimal(str(pricing['amount']))):,}".replace(",", ".")
-                    unit = {"PERSON_MONTH": "người/tháng", "ROOM_MONTH": "phòng/tháng"}.get(
-                        pricing.get("unit"), "tháng")
-                    facts.append(f"{amount} đ/{unit}")
-                except (InvalidOperation, ValueError):
-                    pass
-            if item.get("areaM2") is not None:
-                try:
-                    facts.append(f"{Decimal(str(item['areaM2'])).normalize():f} m²")
-                except (InvalidOperation, ValueError):
-                    pass
-            room = item.get("roomDetail") or {}
-            if "ban công" in question.lower() and room.get("balconyType") in {"PRIVATE", "SHARED"}:
-                facts.append("ban công riêng" if room["balconyType"] == "PRIVATE" else "ban công chung")
-            if re.search(r"gửi xe|để xe", question, re.IGNORECASE):
-                policy = room.get("parkingPolicy")
-                if policy == "FREE":
-                    facts.append("gửi xe máy không thu phí riêng")
-                elif policy == "PAID":
-                    facts.append("có chỗ gửi xe máy (thu phí)")
-            suffix = " — " + " · ".join(facts) if facts else ""
-            lines.append(f"- [{item.get('title') or 'Xem tin'}](/rent/{item['id']}){suffix}")
+        lines.append(f"Bạn xem {len(shown)} lựa chọn bên dưới nhé; bấm vào thẻ sẽ mở chi tiết ở tab mới.")
         lines.append("")
         if total > len(shown):
             lines.append(f"Còn {total - len(shown)} tin khác; mình có thể lọc tiếp nếu bạn cho biết ngân sách hoặc tiện ích ưu tiên.")
@@ -361,13 +331,13 @@ class ListingAsk:
                          listing_context=context_for(scope) if scope else None)
 
     @staticmethod
-    def _parking_answer(question: str, listings: list[dict[str, Any]]) -> str | None:
+    def _parking_answer(question: str, listings: list[dict[str, Any]], references: list[str] | None = None) -> str | None:
         if not re.search(r"(gửi xe|để xe|đỗ xe|gara)", question, re.IGNORECASE):
             return None
         lines = ["Mình vừa kiểm tra thông tin chỗ để xe trong các tin này:"]
+        references = references or [item["id"] for item in listings]
         for item in listings:
-            name = item.get("title") or "Tin đăng"
-            listing_id = item["id"]
+            name = f"Tin {references.index(item['id']) + 1}"
             room = item.get("roomDetail") or {}
             house = item.get("houseDetail") or {}
             charges = item.get("charges") or []
@@ -407,6 +377,6 @@ class ListingAsk:
                         facts.append(f"phí ô tô {amount} đ/{car.get('unit') or 'xe/tháng'}")
                     except (InvalidOperation, ValueError):
                         facts.append("tin chưa có mức phí gửi ô tô hợp lệ")
-            lines.append(f"- [{name}](/rent/{listing_id}): " + "; ".join(facts) + ".")
+            lines.append(f"- {name}: " + "; ".join(facts) + ".")
         lines.append("Nếu bạn cần, mình có thể lọc tiếp theo mức phí hoặc số xe bạn muốn gửi nhé.")
         return "\n".join(lines)

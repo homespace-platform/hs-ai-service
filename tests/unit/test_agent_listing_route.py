@@ -58,7 +58,8 @@ async def test_listing_followup_receives_previous_conversation_messages(monkeypa
     async def fake_listing_answer(self, question, history, request_id):
         observed["history"] = history
         return AskResult(answer="Có thu phí gửi xe.", status="ANSWERED", citations=[], request_id=request_id,
-                         listing_context=history[-1]["listingContext"])
+                         listing_context=history[-1]["listingContext"],
+                         listing_ids=["00000000-0000-0000-0000-000000000001"])
 
     app.dependency_overrides[get_db] = fake_db
     app.dependency_overrides[get_embedder] = lambda: None
@@ -74,6 +75,8 @@ async def test_listing_followup_receives_previous_conversation_messages(monkeypa
         assert observed["history"][1]["role"] == "assistant"
         assert [message["role"] for message in repository.appended] == ["user", "assistant"]
         assert repository.appended[-1]["listing_context"] == observed["history"][-1]["listingContext"]
+        assert repository.appended[-1]["listing_ids"] == response.json()["result"]["listingIds"]
+        assert response.json()["result"]["listingPositions"] == {"00000000-0000-0000-0000-000000000001": 1}
         assert "listingContext" not in response.json()["result"]  # Internal state isn't a new frontend contract.
     finally:
         app.dependency_overrides.clear()
