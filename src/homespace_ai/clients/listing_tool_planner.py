@@ -5,9 +5,11 @@ import re
 from dataclasses import dataclass
 from copy import deepcopy
 from typing import Any
+from uuid import UUID
 
 from homespace_ai.clients.generative import GenerationUnavailableError, OpenAIResponsesClient
 from homespace_ai.core.config import Settings
+from homespace_ai.application.listing_context import current_scope, History
 
 
 @dataclass(frozen=True)
@@ -43,9 +45,9 @@ _MULTI_DETAIL_PARAMETERS: dict[str, Any] = {
 }
 
 _DESCRIPTIONS = {
-    "search_listings": "Search current published rental listings using exact typed field predicates. Use for finding, filtering, counting, comparing, or follow-up questions about listings.",
+    "search_listings": "Find NEW current published rental listings using exact typed field predicates. Do not use for choosing among the displayed selection; read the known IDs instead.",
     "get_listing_detail": "Read all current public fields of one listing by its UUID, including prices, charges, amenities and furnishing assets.",
-    "get_listing_details": "Read two to five known listing UUIDs together to compare their current public fields. Use for follow-up comparisons of previously returned listings.",
+    "get_listing_details": "Read two to five known listing UUIDs together for follow-up comparison, recommendation, or evaluating changed preferences WITHIN the displayed selection. Re-read facts; do not run a new search.",
 }
 
 
@@ -59,7 +61,7 @@ class ListingToolPlanner:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
 
-    async def plan(self, question: str, history: list[dict[str, str]], fields: dict[str, str]) -> ToolPlan | None:
+    async def plan(self, question: str, history: History, fields: dict[str, str]) -> ToolPlan | None:
         if self.settings.generation_provider != "openai":
             raise GenerationUnavailableError("Listing tool planning requires OpenAI.", retryable=False)
         plan = await self._openai(question, history, fields)
@@ -67,7 +69,7 @@ class ListingToolPlanner:
 
     @staticmethod
     def _normalize_search(question: str, plan: ToolPlan | None, fields: dict[str, str],
-                          history: list[dict[str, str]] | None = None) -> ToolPlan | None:
+                          history: History | None = None) -> ToolPlan | None:
         if plan is None or plan.name != "search_listings":
             return plan
         raw_filters = plan.arguments.get("filters")
@@ -99,6 +101,10 @@ class ListingToolPlanner:
             value = str(value).strip()
             if field == "category" and category:
                 value, op = category, "eq"
+            occupants = re.search(r"(?:ở|cho|nhóm)\s+(\d+)\s*(?:người|mình)\b", question, re.IGNORECASE)
+            if field.endswith(".max_occupants") and occupants and op == "eq" and not re.search(
+                    r"tối đa|sức chứa|chỉ cho", question, re.IGNORECASE):
+                value, op = occupants[1], "gte"
             if field in {"ward_name", "province_name"} and op == "eq":
                 prefixes = r"Phường|Xã|Đặc khu" if field == "ward_name" else r"Thành phố|Tỉnh"
                 if not re.match(rf"(?:{prefixes})\s", value, re.IGNORECASE):
@@ -146,14 +152,22 @@ class ListingToolPlanner:
     def _instructions(fields: dict[str, str]) -> str:
         catalog = ", ".join(f"{name}:{kind}" for name, kind in sorted(fields.items()))
         return (
-            "You route HomeSpace Vietnamese messages. Call search_listings for any request about current "
-            "rental listings, their fields, costs, amenities, furnishings, availability, or comparisons. "
-            "Call get_listing_detail when one listing UUID is known from this conversation. "
-            "Call get_listing_details for comparisons of previously returned listings with known UUIDs. "
+            "You route HomeSpace Vietnamese messages. Call search_listings to find NEW rental listings. "
+            "For details of one known listing call get_listing_detail. For comparing, recommending, "
+            "ranking or changed preferences within the displayed selection, call get_listing_details "
+            "with its known UUIDs; get_listing_detail if the selection has only one listing. "
+            "'Ở một mình, nên chọn phòng nào?', 'rẻ nhất trong các phòng trên' and 'có phí gửi xe "
+            "thì chọn phòng nào?' are listing recommendations, NOT RAG and NOT new searches. "
+            "Only search elsewhere when the user requests more/new listings or a new area/category. "
+            "The DISPLAYED_SELECTION preserves ordinal references, e.g. phòng 3 is position 3, "
+            "not the third item in a reordered search. Never include undisplayed IDs. "
             "For general HomeSpace help, policies, contracts, payments, or greetings, do not call a tool; "
             "those questions use RAG. Never invent a listing ID, location code or field. "
             "Use only these field names; field operators are exact, contains, or numeric/date comparisons. "
             "For a user's changed preference, use the latest preference, not an obsolete one. "
+            "For N occupants use max_occupants >= N, never equality: a room for up to 3 can host 1. "
+            "'Chi phí rẻ nhất' is a ranking objective, not a made-up budget filter. "
+            "For NEW searches requesting cheapest rent use sort=price_asc, not sort=newest. "
             "Boolean false is a real filter, not an omitted filter. "
             "For charge fields, check amount and included_in_rent separately. "
             "Category values are HOUSE, APARTMENT, ROOM. Room parking_policy values are NONE, FREE, PAID; "
@@ -170,13 +184,16 @@ class ListingToolPlanner:
         )
 
     @staticmethod
-    def _dialog(question: str, history: list[dict[str, str]]) -> str:
+    def _dialog(question: str, history: History) -> str:
         recent = history[-8:]
-        lines = [f"{item.get('role', 'user')}: {item.get('content', '')[:1200]}" for item in recent]
+        scope = current_scope(history)
+        lines = ["DISPLAYED_SELECTION (references only, NOT current facts): " + json.dumps(
+            [{"position": index, "listingId": value} for index, value in enumerate(scope, 1)])]
+        lines.extend(f"{item.get('role', 'user')}: {item.get('content', '')[:1200]}" for item in recent)
         lines.append("user: " + question)
         return "\n".join(lines)
 
-    async def _openai(self, question: str, history: list[dict[str, str]], fields: dict[str, str]) -> ToolPlan | None:
+    async def _openai(self, question: str, history: History, fields: dict[str, str]) -> ToolPlan | None:
         tools = []
         for name, description in _DESCRIPTIONS.items():
             parameters = (_search_parameters(fields) if name == "search_listings" else
@@ -212,7 +229,16 @@ class ListingToolPlanner:
                 return None
             if len(calls) != 1:
                 raise ValueError("Expected one tool call")
-            return self._validated(calls[0]["name"], json.loads(calls[0]["arguments"]))
+            plan = self._validated(calls[0]["name"], json.loads(calls[0]["arguments"]))
+            if plan.name != "search_listings":
+                known_ids = set(current_scope(history))
+                known_ids.update(match.lower() for match in re.findall(
+                    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", question))
+                ids = ([plan.arguments["listingId"]] if plan.name == "get_listing_detail"
+                       else plan.arguments["listingIds"])
+                if not ids or any(str(UUID(str(value))) not in known_ids for value in ids):
+                    raise ValueError("Unknown listing reference")
+            return plan
         except (KeyError, IndexError, TypeError, ValueError):
             raise GenerationUnavailableError("Malformed OpenAI tool call.", retryable=False) from None
 

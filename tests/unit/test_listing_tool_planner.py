@@ -47,7 +47,18 @@ async def test_openai_detail_tool_call(monkeypatch):
     async def fake_post(payload):
         return call("get_listing_detail", {"listingId": "00000000-0000-0000-0000-000000000001"})
     monkeypatch.setattr(planner, "_post", fake_post)
-    assert (await planner.plan("Căn này có máy lạnh không?", [], {})).name == "get_listing_detail"
+    assert (await planner.plan("Căn 00000000-0000-0000-0000-000000000001 có máy lạnh không?", [], {})).name == "get_listing_detail"
+
+
+@pytest.mark.asyncio
+async def test_planner_cannot_invent_a_known_listing_id(monkeypatch):
+    planner = ListingToolPlanner(config())
+    async def fake_post(payload):
+        return call("get_listing_detail", {"listingId": "00000000-0000-0000-0000-000000000009"})
+    monkeypatch.setattr(planner, "_post", fake_post)
+    with pytest.raises(GenerationUnavailableError):
+        await planner.plan("Căn này có máy lạnh không?", [{"role": "assistant", "content":
+            "[Căn 1](/rent/00000000-0000-0000-0000-000000000001)"}], {})
 
 
 @pytest.mark.asyncio
@@ -139,3 +150,10 @@ def test_generic_phong_search_is_room_not_house():
             {"field": "ward_name", "op": "eq", "value": "Phú Lợi"}
         ]}), {"ward_name": "TEXT", "category": "TEXT"})
     assert {"field": "category", "op": "eq", "value": "ROOM"} in result.arguments["filters"]
+
+
+def test_occupant_need_is_minimum_capacity_not_exact_maximum():
+    result = ListingToolPlanner._normalize_search("Tìm phòng cho 1 người", ToolPlan("search_listings", {
+        "filters": [{"field": "room.max_occupants", "op": "eq", "value": "1"}]}),
+        {"room.max_occupants": "NUMBER", "category": "TEXT"})
+    assert {"field": "room.max_occupants", "op": "gte", "value": "1"} in result.arguments["filters"]

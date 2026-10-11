@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,13 +50,14 @@ async def ask_agent(
 
     conversation_id = body.effective_conversation_id
     conversation_repository = None
-    history: list[dict[str, str]] = []
+    history: list[dict[str, Any]] = []
     if conversation_id:
         conversation_repository = get_conversation_repository()
         conversation = await conversation_repository.get(user.user_id, conversation_id)
         if conversation is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
-        history = [{"role": message.get("role", "user"), "content": message.get("content", "")}
+        history = [{"role": message.get("role", "user"), "content": message.get("content", ""),
+                    "status": message.get("status"), "listingContext": message.get("listingContext")}
                    for message in conversation.get("messages", [])[-8:]]
         saved = await conversation_repository.append_message(
             user.user_id, conversation_id, role="user", content=question
@@ -96,6 +98,7 @@ async def ask_agent(
         await conversation_repository.append_message(
             user.user_id, conversation_id, role="assistant",
             content=result.answer, status=result.status,
+            listing_context=result.listing_context,
         )
 
     citations = [

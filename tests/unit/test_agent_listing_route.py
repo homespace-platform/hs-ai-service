@@ -7,6 +7,7 @@ from homespace_ai.application.use_cases.ask_use_cases import AskResult
 from homespace_ai.core.database import get_db
 from homespace_ai.core.security import UserContext, get_current_user
 from homespace_ai.main import app
+from homespace_ai.application.listing_context import context_for
 
 
 @pytest.mark.asyncio
@@ -46,7 +47,8 @@ async def test_listing_followup_receives_previous_conversation_messages(monkeypa
         async def get(self, owner_id, conversation_id):
             assert owner_id == "tenant"
             return {"messages": [{"role": "user", "content": "Tìm phòng trọ"},
-                                  {"role": "assistant", "content": "[Phòng A](/rent/00000000-0000-0000-0000-000000000001)"}]}
+                                  {"role": "assistant", "content": "[Phòng A](/rent/00000000-0000-0000-0000-000000000001)",
+                                   "listingContext": context_for(["00000000-0000-0000-0000-000000000001"])}]}
         async def append_message(self, owner_id, conversation_id, **message):
             self.appended.append(message)
             return True
@@ -55,7 +57,8 @@ async def test_listing_followup_receives_previous_conversation_messages(monkeypa
     observed = {}
     async def fake_listing_answer(self, question, history, request_id):
         observed["history"] = history
-        return AskResult(answer="Có thu phí gửi xe.", status="ANSWERED", citations=[], request_id=request_id)
+        return AskResult(answer="Có thu phí gửi xe.", status="ANSWERED", citations=[], request_id=request_id,
+                         listing_context=history[-1]["listingContext"])
 
     app.dependency_overrides[get_db] = fake_db
     app.dependency_overrides[get_embedder] = lambda: None
@@ -70,5 +73,7 @@ async def test_listing_followup_receives_previous_conversation_messages(monkeypa
         assert len(observed["history"]) == 2
         assert observed["history"][1]["role"] == "assistant"
         assert [message["role"] for message in repository.appended] == ["user", "assistant"]
+        assert repository.appended[-1]["listing_context"] == observed["history"][-1]["listingContext"]
+        assert "listingContext" not in response.json()["result"]  # Internal state isn't a new frontend contract.
     finally:
         app.dependency_overrides.clear()

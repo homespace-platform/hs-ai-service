@@ -9,7 +9,9 @@ from homespace_ai.clients.gateway import GatewayApiClient
 
 
 class ListingToolError(Exception):
-    pass
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class ListingTools:
@@ -58,7 +60,8 @@ class ListingTools:
     @staticmethod
     def _result(response: Any) -> Any:
         if response.status_code != 200:
-            raise ListingToolError(f"Core listing tool returned HTTP {response.status_code}")
+            raise ListingToolError(f"Core listing tool returned HTTP {response.status_code}",
+                                   status_code=response.status_code)
         data = response.json()
         if not isinstance(data, dict) or not isinstance(data.get("result"), dict):
             raise ListingToolError("Invalid Core listing tool response")

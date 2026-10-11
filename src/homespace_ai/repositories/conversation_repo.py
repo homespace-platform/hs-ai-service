@@ -57,7 +57,7 @@ class ConversationRepository:
 
     async def append_message(
         self, owner_id: str, conversation_id: str, *, role: str,
-        content: str, status: str | None = None,
+        content: str, status: str | None = None, listing_context: dict[str, Any] | None = None,
     ) -> bool:
         now = _now()
         message = {
@@ -67,6 +67,8 @@ class ConversationRepository:
             "createdAt": now,
             "status": status,
         }
+        if role == "assistant" and listing_context is not None:
+            message["listingContext"] = listing_context
         result = await self.collection.update_one(
             {"_id": conversation_id, "ownerId": owner_id},
             {"$push": {"messages": message}, "$set": {"updatedAt": now}},

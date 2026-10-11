@@ -29,6 +29,7 @@ class AskResult:
     status: str  # ANSWERED, GENERAL_ANSWER, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE
     citations: list[dict[str, Any]]
     request_id: str
+    listing_context: dict[str, Any] | None = None
 
 
 # Patterns detecting requests for personal / real-time / dynamic account data

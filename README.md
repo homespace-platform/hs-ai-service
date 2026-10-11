@@ -99,6 +99,16 @@ cost. HTTP 429/transient network/5xx failures are retried once; exhausted billin
 quota, auth failures and invalid requests are not retried. Restart AI service after
 changing `.env`; there is no frontend API-contract change.
 
+Listing follow-ups persist internal `listingContext` (displayed IDs in their original order)
+on assistant messages in the existing owner-scoped Mongo history. No Mongo migration is
+required. Legacy conversations recover references from assistant Markdown. Unambiguous
+comparisons/recommendations/ordinals re-read these IDs from Core without a paid planner call;
+new searches still use the native tool planner. This state is not a cache of prices or availability.
+The answer prompt allows grounded ranking/calculations and distinguishes rent from total costs.
+Missing tool plans ask for clarification rather than claiming an API outage. Diagnostic events
+`listing_tool_selected`, `listing_plan_missing`, and `listing_request_failed` include request ID
+and failure stage/type/status, never prompt/history, bearer tokens, or response bodies.
+
 Verification (unit tests do not call the paid API):
 
 ```powershell

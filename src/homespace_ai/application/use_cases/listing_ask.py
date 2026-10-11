@@ -6,19 +6,21 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import HTTPException, Request
+import structlog
 
+from homespace_ai.application.listing_context import context_for, current_scope, RECOMMENDATION, scoped_selection
 from homespace_ai.application.use_cases.ask_use_cases import AskResult
 from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnavailableError
 from homespace_ai.clients.gateway import GatewayApiClient
-from homespace_ai.clients.listing_tool_planner import ListingToolPlanner
+from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
 from homespace_ai.core.config import Settings
 from homespace_ai.tools.listings import ListingToolError, ListingTools
 
 
 LISTING_SIGNAL = re.compile(r"(tìm|kiếm|còn|so sánh|phòng|căn hộ|nhà|tin đăng|bài đăng|gửi xe|nội thất|tiện ích)", re.IGNORECASE)
 SEARCH_INTENT = re.compile(r"(tìm|kiếm|còn phòng|phòng nào|căn nào|nhà nào|so sánh)", re.IGNORECASE)
-LISTING_ID_IN_HISTORY = re.compile(r"/rent/[0-9a-fA-F-]{36}")
 SUPPORT_INTENT = re.compile(r"(homespace là|cách đăng tin|hướng dẫn đăng tin|cách đặt lịch|cách thanh toán|điều khoản sử dụng|chính sách homespace|hợp đồng điện tử)", re.IGNORECASE)
+logger = structlog.get_logger(__name__)
 
 
 class ListingAsk:
@@ -29,25 +31,42 @@ class ListingAsk:
         self.tools = ListingTools(gateway, request)
         self.planner = ListingToolPlanner(settings)
 
-    async def try_answer(self, question: str, history: list[dict[str, str]], request_id: str) -> AskResult | None:
+    async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
         if SUPPORT_INTENT.search(question) and not SEARCH_INTENT.search(question):
             return None
-        if not LISTING_SIGNAL.search(question) and not any(
+        scope = current_scope(history)
+        selection = scoped_selection(question, history)
+        if selection == []:
+            return self._clarify(request_id, scope)
+        if selection is None and not LISTING_SIGNAL.search(question) and not any(
                 LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
             return None
+        stage = "field_catalog"
         try:
-            fields = await self.tools.fields()
-            plan = await self.planner.plan(question, history, fields)
-        except (ListingToolError, GenerationUnavailableError, HTTPException):
+            if selection:
+                # References already known by the application need neither a field catalog nor a
+                # paid planner call. Still read every selected listing from Core, never old facts.
+                plan = ToolPlan("get_listing_detail", {"listingId": selection[0]}) if len(selection) == 1 else (
+                    ToolPlan("get_listing_details", {"listingIds": selection}))
+            else:
+                fields = await self.tools.fields()
+                stage = "tool_planning"
+                plan = await self.planner.plan(question, history, fields)
+        except (ListingToolError, GenerationUnavailableError, HTTPException) as error:
+            self._log_failure(request_id, stage, error)
             if LISTING_SIGNAL.search(question) or any(LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
-                return self._unavailable(request_id)
+                return self._unavailable(request_id, scope)
             return None
         if plan is None:
-            if SEARCH_INTENT.search(question) or any(
-                    LISTING_ID_IN_HISTORY.search(item.get("content", "")) for item in history[-4:]):
-                return self._unavailable(request_id)
+            logger.warning("listing_plan_missing", request_id=request_id, scope_count=len(scope))
+            if SEARCH_INTENT.search(question) or (scope and LISTING_SIGNAL.search(question)):
+                # No function call is not evidence of a Core outage.
+                return self._clarify(request_id, scope)
             return None  # Knowledge question: preserve the existing RAG behavior.
 
+        logger.info("listing_tool_selected", request_id=request_id, tool=plan.name,
+                    scope_count=len(scope), scoped_followup=bool(selection))
+        stage = "tool_execution"
         try:
             if plan.name == "search_listings":
                 search = await self.tools.search(plan.arguments)
@@ -71,7 +90,8 @@ class ListingAsk:
                             break
                 if not ids:
                     return AskResult(answer="Mình chưa thấy tin đang hiển thị nào khớp đủ các điều kiện bạn vừa nêu. Bạn muốn nới tiêu chí nào (giá, khu vực hay tiện ích) để mình tìm tiếp?",
-                                     status="NO_RESULTS", citations=[], request_id=request_id)
+                                     status="NO_RESULTS", citations=[], request_id=request_id,
+                                     listing_context=context_for([]))
                 listings = [await self.tools.detail(listing_id) for listing_id in ids[:5]]
                 requested_category = next((item.get("value") for item in plan.arguments.get("filters", [])
                                            if isinstance(item, dict) and item.get("field") == "category"
@@ -91,23 +111,38 @@ class ListingAsk:
                 if not 2 <= len(ids) <= 5:
                     raise ListingToolError("Comparison requires two to five listing IDs")
                 evidence = {"readAt": "now", "listings": [await self.tools.detail(item) for item in ids]}
-        except (ListingToolError, HTTPException, ValueError, TypeError):
-            return self._unavailable(request_id)
+        except (ListingToolError, HTTPException, ValueError, TypeError, KeyError) as error:
+            self._log_failure(request_id, stage, error, plan.name)
+            return self._unavailable(request_id, scope)
+
+        ids = [item["id"] for item in evidence["listings"]]
+        is_known_selection = bool(scope) and plan.name != "search_listings" and all(value in scope for value in ids)
+        references = scope if is_known_selection else ids
+        # Current API facts and stable display positions are separate from past user preferences.
+        evidence["selectionScope"] = [{"listingId": value, "position": index}
+                                      for index, value in enumerate(references, 1)]
+        evidence["recentUserRequests"] = [item["content"] for item in history[-8:]
+                                         if item.get("role") == "user"]
+        evidence["scopeOnly"] = is_known_selection
+        result_context = context_for(references)
 
         if plan.name == "search_listings" and self._is_browse_query(question):
             return AskResult(answer=self._browse_answer(question, evidence), status="ANSWERED",
-                             citations=[], request_id=request_id)
+                             citations=[], request_id=request_id, listing_context=context_for(ids[:4]))
 
         if self._is_room_comparison(question, evidence["listings"]):
-            return AskResult(answer=self._room_comparison_answer(evidence["listings"]),
-                             status="ANSWERED", citations=[], request_id=request_id)
+            return AskResult(answer=self._room_comparison_answer(evidence["listings"], references),
+                             status="ANSWERED", citations=[], request_id=request_id,
+                             listing_context=result_context)
 
-        parking_answer = self._parking_answer(question, evidence["listings"])
+        # A recommendation mentioning parking must not be reduced to a parking-only template.
+        parking_answer = None if RECOMMENDATION.search(question) else self._parking_answer(question, evidence["listings"])
         if parking_answer is not None:
             if evidence.get("relaxedFilters"):
                 parking_answer = ("Chưa có tin khớp toàn bộ điều kiện. Những tin dưới đây chỉ là gợi ý sau khi bỏ tiêu chí "
                                   + ", ".join(evidence["relaxedFilters"]) + ".\n" + parking_answer)
-            return AskResult(answer=parking_answer, status="ANSWERED", citations=[], request_id=request_id)
+            return AskResult(answer=parking_answer, status="ANSWERED", citations=[], request_id=request_id,
+                             listing_context=result_context)
 
         try:
             raw = await self.generative_client.generate_answer(
@@ -115,11 +150,13 @@ class ListingAsk:
                 context_chunks=[{"content": json.dumps(evidence, ensure_ascii=False, default=str)}],
                 audience="USER", mode="listing",
             )
-        except GenerationUnavailableError:
+        except GenerationUnavailableError as error:
+            self._log_failure(request_id, "answer_generation", error, plan.name)
             return AskResult(
                 answer="Mình đã kiểm tra tin đăng, nhưng chưa thể tạo câu trả lời trọn vẹn lúc này. "
                        "Bạn thử lại hoặc hỏi ít tiêu chí hơn nhé.",
                 status="GENERATION_UNAVAILABLE", citations=[], request_id=request_id,
+                listing_context=result_context,
             )
 
         # Keep listing references resolvable even if the model omits links.
@@ -131,7 +168,23 @@ class ListingAsk:
             raw = raw.strip() + "\n\nXem tin: " + ", ".join(
                 f"[{item.get('title') or 'Chi tiết'}](/rent/{item['id']})" for item in missing_links)
         return AskResult(answer=raw.strip(),
-                         status="ANSWERED", citations=[], request_id=request_id)
+                         status="ANSWERED", citations=[], request_id=request_id,
+                         listing_context=result_context)
+
+    @staticmethod
+    def _clarify(request_id: str, scope: list[str]) -> AskResult:
+        answer = (f"Bạn đang muốn chọn trong {len(scope)} tin vừa xem, hay tìm thêm tin mới? "
+                  "Nếu hỏi một tin cụ thể, bạn cho mình số thứ tự trong danh sách nhé." if scope else
+                  "Bạn cho mình biết loại nhà/phòng và khu vực muốn tìm nhé, để mình kiểm tra đúng nhu cầu của bạn.")
+        return AskResult(answer=answer, status="ANSWERED", citations=[], request_id=request_id,
+                         listing_context=context_for(scope))
+
+    @staticmethod
+    def _log_failure(request_id: str, stage: str, error: Exception, tool: str | None = None) -> None:
+        # Do not log prompts, bearer tokens, provider bodies, user history or public listing data.
+        logger.warning("listing_request_failed", request_id=request_id, stage=stage,
+                       error_type=type(error).__name__, tool=tool,
+                       http_status=getattr(error, "status_code", None))
 
     @staticmethod
     def _is_browse_query(question: str) -> bool:
@@ -145,6 +198,7 @@ class ListingAsk:
         # particular field still go to the grounded generator so every listing field remains askable.
         return (2 <= len(listings) <= 5
                 and all(item.get("category") == "ROOM" for item in listings)
+                and not RECOMMENDATION.search(question)
                 and bool(re.search(r"so sánh", question, re.IGNORECASE))
                 and not bool(re.search(
                     r"giá|phí|điện|nước|cọc|diện tích|nội thất|tiện ích|ban công|gác|"
@@ -152,7 +206,7 @@ class ListingAsk:
                     question, re.IGNORECASE)))
 
     @staticmethod
-    def _room_comparison_answer(listings: list[dict[str, Any]]) -> str:
+    def _room_comparison_answer(listings: list[dict[str, Any]], references: list[str] | None = None) -> str:
         def amount(value: Any) -> str:
             try:
                 return f"{int(Decimal(str(value))):,}".replace(",", ".")
@@ -203,8 +257,8 @@ class ListingAsk:
                                  else "có phí, chưa rõ mức hoặc kỳ tính")
             return prefix + "có phí, chưa rõ mức"
 
-        columns = [f"[Phòng {index}](/rent/{item['id']})"
-                   for index, item in enumerate(listings, 1)]
+        references = references or [item["id"] for item in listings]
+        columns = [f"[Phòng {references.index(item['id']) + 1}](/rent/{item['id']})" for item in listings]
         rows: list[tuple[str, list[str]]] = []
         unit_labels = {"ROOM_MONTH": "phòng/tháng", "PERSON_MONTH": "người/tháng", "MONTH": "tháng"}
         prices = []
@@ -241,8 +295,8 @@ class ListingAsk:
                  "| --- | " + " | ".join("---" for _ in listings) + " |"]
         lines.extend("| " + label + " | " + " | ".join(values) + " |" for label, values in rows)
         lines.append("")
-        lines.extend(f"- Phòng {index}: {item.get('title') or 'Tin đăng'}"
-                     for index, item in enumerate(listings, 1))
+        lines.extend(f"- Phòng {references.index(item['id']) + 1}: {item.get('title') or 'Tin đăng'}"
+                     for item in listings)
         return "\n".join(lines)
 
     @staticmethod
@@ -301,9 +355,10 @@ class ListingAsk:
         return "\n".join(lines)
 
     @staticmethod
-    def _unavailable(request_id: str) -> AskResult:
+    def _unavailable(request_id: str, scope: list[str] | None = None) -> AskResult:
         return AskResult(answer="Mình chưa kiểm tra được tin đăng trực tiếp lúc này, nên không muốn đoán thông tin cho bạn. Bạn thử lại sau ít phút nhé.",
-                         status="TOOL_UNAVAILABLE", citations=[], request_id=request_id)
+                         status="TOOL_UNAVAILABLE", citations=[], request_id=request_id,
+                         listing_context=context_for(scope) if scope else None)
 
     @staticmethod
     def _parking_answer(question: str, listings: list[dict[str, Any]]) -> str | None:

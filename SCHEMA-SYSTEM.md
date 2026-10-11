@@ -62,11 +62,14 @@ flowchart TD
     Greeting -->|"Có"| Fixed["Trả lời chào bằng template"]
     Greeting -->|"Không"| Gate["ListingAsk:<br/>regex support / search / listing signal<br/>+ tín hiệu lịch sử"]
     Gate -->|"Không thuộc listing"| Knowledge["AskUseCases"]
-    Gate -->|"Có thể thuộc listing"| Catalog["GET Core field catalog"]
+    Gate -->|"Có thể thuộc listing"| Scope["Khôi phục displayed listing IDs<br/>và số thứ tự từ owned history"]
+    Scope -->|"Follow-up rõ ràng trong tập đang xét"| Execute
+    Scope -->|"Tìm mới / chưa rõ ngữ nghĩa"| Catalog["GET Core field catalog"]
     Catalog --> Planner["OpenAI planner<br/>strict function calling"]
     Planner -->|"Chọn tool"| Execute["Thực thi HTTP tools<br/>đọc facts mới từ Core"]
     Planner -->|"Không chọn tool; đủ điều kiện fallback"| Knowledge
-    Planner -->|"Lỗi hoặc không chọn tool<br/>nhưng rõ là listing/follow-up"| TU["TOOL_UNAVAILABLE"]
+    Planner -->|"Lỗi"| TU["TOOL_UNAVAILABLE"]
+    Planner -->|"Không chọn tool nhưng hỏi listing"| Clarify["Hỏi làm rõ, không báo Core bị lỗi"]
     Execute -->|"Không có kết quả sau thử nới"| NR["NO_RESULTS"]
     Execute -->|"Có evidence"| Template{"Khớp template browse,<br/>so sánh ROOM hoặc gửi xe?"}
     Template -->|"Có"| Direct["Markdown từ code + facts"]
@@ -77,6 +80,7 @@ flowchart TD
     Knowledge --> KR["Greeting / RAG / general ADMIN<br/>hoặc NO_EVIDENCE / OUT_OF_SCOPE / lỗi"]
     Fixed --> Save["Lưu assistant message nếu có conversation<br/>trả JSON về frontend"]
     TU --> Save
+    Clarify --> Save
     NR --> Save
     GU --> Save
     Answer --> Save
@@ -87,8 +91,9 @@ flowchart TD
 
 - `agent_ask.py` thử `ListingAsk` trước, trừ lời chào chính xác.
 - Câu hỗ trợ như “HomeSpace là gì”, “cách đăng tin”, “cách đặt lịch”, “cách thanh toán”, “điều khoản sử dụng” có nhánh regex ưu tiên RAG nếu không đồng thời có tín hiệu tìm kiếm.
-- Tín hiệu listing được nhận diện từ câu hiện tại hoặc hai message lịch sử gần nhất. Planner tiếp tục quyết định có chọn tool hay không.
-- Nếu planner không chọn tool nhưng câu có search intent hoặc lịch sử gần có link `/rent/UUID`, trả lỗi tool an toàn thay vì lấy RAG bịa facts listing.
+- Follow-up rõ ràng (chọn phòng phù hợp/rẻ nhất, so sánh tập đang xét, phòng theo số thứ tự) dùng ID đã biết để đọc lại Core, bỏ qua catalog/planner. Câu tìm mới vẫn qua planner; câu hỏi ngữ nghĩa khác nhận thêm `DISPLAYED_SELECTION` ngoài text history để model định tuyến.
+- Không chọn tool khác với lỗi API: hỏi làm rõ khi cần, không dùng RAG bịa facts listing. Log `listing_plan_missing` hoặc `listing_request_failed` kèm request_id/stage/error_type/http_status; không log prompt, token, body hay hội thoại.
+- Prompt cho phép suy luận, xếp hạng và tính toán từ facts mới. N người cần sức chứa >=N; không so sánh tiền thuê như tổng chi phí nếu thiếu điện/nước/phí. Nhu cầu hiện tại ưu tiên hơn nhu cầu cũ; recommendation hỏi gửi xe không bị template chỉ trả phí chiếm mất.
 - Phân luồng còn phụ thuộc regex và cách diễn đạt; không được gọi đây là phân loại intent đảm bảo đúng cho mọi câu tiếng Việt.
 - `GENERATION_PROVIDER=disabled` dùng disabled client: không có OpenAI generation thành công; RAG có thể retrieval nhưng trả trạng thái gián đoạn khi cần sinh đáp án.
 
@@ -164,13 +169,13 @@ sequenceDiagram
     A-->>W: Qua Gateway: Markdown + status + requestId
 ```
 
-Đây là sequence cho tìm kiếm. Với hỏi chi tiết/so sánh UUID đã biết, sau planner sẽ đọc detail trực tiếp, không bắt buộc có bước search.
+Đây là sequence cho tìm kiếm. Với follow-up rõ ràng/UUID và số thứ tự đã biết từ selection, code đọc detail trực tiếp, không cần planner hoặc search. Với câu ngữ nghĩa chưa rõ, planner nhận ID/thứ tự riêng rồi chọn detail hoặc search; không được tự tạo UUID mới.
 
 ### Tool model được phép chọn
 
 | Native function | Gateway Core endpoint | Chức năng |
 | --- | --- | --- |
-| Catalog do code lấy trước planner | `GET /api/v1/public/listings/ai/fields` | Danh sách field filter hợp lệ và kiểu dữ liệu |
+| Catalog do code lấy khi cần planner | `GET /api/v1/public/listings/ai/fields` | Danh sách field filter hợp lệ và kiểu dữ liệu |
 | `search_listings` | `POST /api/v1/public/listings/ai/search` | Tìm theo filters, sort, limit |
 | `get_listing_detail` | `GET /api/v1/public/listings/ai/{listingId}` | Đọc một UUID đã biết |
 | `get_listing_details` | Lặp endpoint detail | Đọc 2–5 UUID để so sánh |
@@ -298,12 +303,13 @@ Collection: `ai_conversations`, database mặc định `homespace_ai`.
 conversation
 ├── _id, ownerId, title, isPinned, createdAt, updatedAt
 └── messages[]
-    └── id, role, content, status, createdAt
+    └── id, role, content, status, createdAt, listingContext? {version, listingIds[]}
 ```
 
 - Đọc/sửa/pin/xóa đều scope theo `ownerId`; index hiện có `ownerId + updatedAt`.
-- Lượt hỏi lấy 8 messages trước đó; planner cắt mỗi message lịch sử tối đa 1.200 ký tự rồi thêm câu hỏi hiện tại.
-- Chưa lưu structured state riêng cho filters/selectedListingIds; follow-up dựa trên text và links lịch sử. Đây không phải long-term semantic memory.
+- Lượt hỏi lấy 8 messages trước đó cùng internal `listingContext`. Planner cắt text mỗi message tối đa 1.200 ký tự, nhưng ID/thứ tự được truyền riêng, không mất do cắt text.
+- `listingContext` của assistant chỉ lưu ID/thứ tự các tin đã hiển thị, không lưu giá hay facts realtime, không đổi response contract frontend. Browse hiển thị 4/5 tin thì context chỉ có 4 tin. Câu legacy chưa có state khôi phục ID từ toàn bộ Markdown assistant trước truncation; không dùng link user để tự tạo selection.
+- Hỏi riêng phòng 3 không đổi số thứ tự toàn tập; đổi tìm kiếm tạo tập mới. Trả lời RAG thành công hoặc tìm không có kết quả xóa scope; lỗi tạm thời không xóa scope. Facts luôn đọc lại Core và tin không còn công khai không được dùng dữ liệu cũ để tư vấn. Không có lưu filter/nhu cầu có cấu trúc dài hạn: model nhận các yêu cầu user gần đây và câu hiện tại. Chưa serialize các lượt hỏi đồng thời.
 - Messages array chưa có TTL/giới hạn tổng kích thước trong repository hiện tại.
 - File `SCHEMA-SYSTEM.md` này là **memory context cho kỹ sư/AI coding agent**, không phải collection chat hay nguồn facts listing của trợ lý người thuê.
 
@@ -421,7 +427,7 @@ Default local endpoints: AI 8084, Gateway 8080, Eureka 8761, PostgreSQL AI 5433,
 ### Chưa hoàn chỉnh / không được tự suy diễn đã có
 
 1. Intent routing, filter normalization và template detection còn heuristic; phải test đổi chủ đề, phủ định, thay đổi sở thích và follow-up mơ hồ.
-2. Chưa có structured conversation state; nhiều lượt hoặc nhiều request đồng thời có thể làm context lựa chọn listing không rõ.
+2. Đã có structured displayed listing references nhưng chưa có structured filter/preferences dài hạn hay serialization cho request đồng thời. Context text chỉ có 8 messages gần nhất.
 3. Một function mỗi lượt, tối đa 5 detail; chưa có pagination tool hoặc tự lặp lấy toàn bộ kết quả.
 4. Nới điều kiện chỉ bỏ một filter, không có tính khoảng cách “quanh tôi”, không có thuật toán xếp hạng nearest match.
 5. Không phải mọi field detail đều searchable; không có filter district hoặc OR tree.
@@ -433,4 +439,4 @@ Default local endpoints: AI 8084, Gateway 8080, Eureka 8761, PostgreSQL AI 5433,
 
 ## 11. Context ngắn để đưa cho AI agent lần sau
 
-> HomeSpace AI hiện là FastAPI service sau Gateway/Eureka. Endpoint hỏi đáp thống nhất `/api/v1/ai/agent/ask` điều phối hybrid regex + native OpenAI tool planner. Listing tools read-only gọi Core qua Gateway bằng JWT người hỏi; Core whitelist field/operator và parameterized SQL, chỉ tin active/PUBLISHED/chưa hết hạn. Hỗ trợ ROOM/APARTMENT/HOUSE, tiện ích, nội thất, phí, địa chỉ và thông tin tiếp khách theo registry; chưa hỗ trợ dữ liệu cá nhân hợp đồng/hóa đơn/thanh toán. RAG dùng tài liệu APPROVED + active PUBLISHED trong PostgreSQL AI/pgvector, E5 multilingual-e5-small local CPU 384 chiều, hybrid vector/FTS/RRF. Admin bulk upload/edit theo filename, mỗi lần tăng version kể cả nội dung trùng; tự enqueue worker job → chunk/embed → activate version và xóa vectors cũ trong cùng transaction, giữ lịch sử version. Worker chạy riêng; lỗi cập nhật không làm mất bản active. MongoDB lưu owned chat history; planner chỉ dùng 8 messages cuối, chưa có structured listing state. OpenAI Responses: RAG gpt-4o-mini; tool/listing gpt-4.1-mini. Không có Gemini/Groq fallback, không chuyển embedding sang OpenAI, không compact public listing evidence. Template có thể tránh lần generation thứ hai; output budgets và retries vẫn hữu hạn. Frontend render Markdown GFM/table, nhận JSON không streaming. Giữ secrets trong env ignored, không chạy paid test/commit/push nếu chưa thuộc yêu cầu. Trước khi sửa, kiểm tra source thực tế và không mô tả tính năng chưa có là đã triển khai.
+> HomeSpace AI là FastAPI sau Gateway/Eureka. `/api/v1/ai/agent/ask` điều phối hybrid heuristic + native OpenAI planner. Listing tools read-only gọi Core qua Gateway/JWT; Core whitelist field/operator, parameterized SQL, chỉ active/PUBLISHED/chưa hết hạn; không có personal contract/payment tools. Mongo lưu owned history và `listingContext` của assistant gồm ID/thứ tự tin đã hiển thị, không lưu facts. Follow-up rõ ràng đọc lại đúng ID từ Core, không cần planner call; tìm mới dùng planner. Legacy chat khôi phục references từ Markdown trước truncation. Model nhận selectionScope + yêu cầu user gần đây; cho phép ranking/tính toán có căn cứ, không đánh đồng tiền thuê với tổng chi phí, không bịa missing fields. Logs phân biệt catalog/planning/execution/generation bằng request_id, không log nội dung/secret. RAG: tài liệu APPROVED + active PUBLISHED, PostgreSQL AI/pgvector, E5 local CPU 384 chiều. Admin upload/edit theo filename luôn tăng version, worker activate thành công mới xóa vectors cũ, giữ lịch sử. OpenAI Responses: RAG gpt-4o-mini; planner/listing gpt-4.1-mini. Không Gemini/Groq, không OpenAI embedding, không compact public listing evidence. Scope và text bị giới hạn lịch sử 8 messages, chưa có structured preferences dài hạn/concurrency serialization. Frontend Markdown GFM, JSON không streaming; contract không đổi. Giữ secrets trong env ignored; không chạy paid test/commit/push ngoài yêu cầu. Đối chiếu code/config trước khi tiếp tục, không coi tính năng chưa có là đã triển khai.
