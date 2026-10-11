@@ -2,30 +2,39 @@ import json
 
 import pytest
 
+from homespace_ai.clients.generative import GenerationUnavailableError
 from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
+from homespace_ai.core.config import Settings
 
 
-class Settings:
-    generation_provider = "groq"
-    generation_fallback_provider = "gemini"
-    generation_model = ""
-    groq_model = "test-groq"
-    gemini_model = "test-gemini"
-    groq_api_key = "test"
-    gemini_api_key = "test"
-    generation_timeout_seconds = 3.0
+def config():
+    return Settings(_env_file=None, GENERATION_PROVIDER="openai", OPENAI_API_KEY="test-only-key")
+
+
+def call(name, args):
+    return {"status": "completed", "output": [{"type": "function_call", "name": name,
+                                             "arguments": json.dumps(args)}]}
 
 
 @pytest.mark.asyncio
-async def test_groq_native_tool_call_uses_field_catalog(monkeypatch):
-    planner = ListingToolPlanner(Settings())
-    async def fake_post(url, payload, headers):
-        search = payload["tools"][0]["function"]["parameters"]
-        assert search["properties"]["filters"]["items"]["properties"]["field"]["enum"] == ["room.parking_policy"]
-        return {"choices": [{"message": {"tool_calls": [{"function": {
-            "name": "search_listings", "arguments": json.dumps({"filters": [
-                {"field": "room.parking_policy", "op": "eq", "value": "PAID"}
-            ]})}}]}}]}
+async def test_openai_native_tool_call_uses_strict_field_catalog(monkeypatch):
+    planner = ListingToolPlanner(config())
+    async def fake_post(payload):
+        assert payload["model"] == "gpt-4.1-mini"
+        assert "reasoning" not in payload
+        assert payload["store"] is False
+        assert payload["parallel_tool_calls"] is False
+        search = payload["tools"][0]
+        assert search["strict"] is True
+        schema = search["parameters"]
+        assert schema["additionalProperties"] is False
+        assert set(schema["required"]) == set(schema["properties"])
+        item = schema["properties"]["filters"]["items"]
+        assert item["additionalProperties"] is False
+        assert item["properties"]["field"]["enum"] == ["room.parking_policy"]
+        return call("search_listings", {"filters": [
+            {"field": "room.parking_policy", "op": "eq", "value": "PAID"}],
+            "sort": "newest", "limit": 5})
     monkeypatch.setattr(planner, "_post", fake_post)
     result = await planner.plan("Tìm phòng gửi xe có phí", [], {"room.parking_policy": "TEXT"})
     assert result.name == "search_listings"
@@ -33,31 +42,53 @@ async def test_groq_native_tool_call_uses_field_catalog(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_gemini_native_tool_call(monkeypatch):
-    settings = Settings()
-    settings.generation_provider = "gemini"
-    settings.generation_fallback_provider = ""
-    planner = ListingToolPlanner(settings)
-    async def fake_post(url, payload, headers):
-        assert payload["tools"][0]["functionDeclarations"][0]["name"] == "search_listings"
-        return {"candidates": [{"content": {"parts": [{"functionCall": {
-            "name": "get_listing_detail", "args": {"listingId": "00000000-0000-0000-0000-000000000001"}
-        }}]}}]}
+async def test_openai_detail_tool_call(monkeypatch):
+    planner = ListingToolPlanner(config())
+    async def fake_post(payload):
+        return call("get_listing_detail", {"listingId": "00000000-0000-0000-0000-000000000001"})
     monkeypatch.setattr(planner, "_post", fake_post)
-    result = await planner.plan("Căn này có máy lạnh không?", [], {"amenity.AIR_CONDITIONER": "BOOLEAN"})
-    assert result.name == "get_listing_detail"
+    assert (await planner.plan("Căn này có máy lạnh không?", [], {})).name == "get_listing_detail"
+
+
+@pytest.mark.asyncio
+async def test_rag_route_without_tool(monkeypatch):
+    planner = ListingToolPlanner(config())
+    async def fake_post(payload):
+        return {"status": "completed", "output": [{"type": "message", "content": [
+            {"type": "output_text", "text": "Use RAG"}]}]}
+    monkeypatch.setattr(planner, "_post", fake_post)
+    assert await planner.plan("HomeSpace là gì?", [], {"category": "TEXT"}) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", [
+    {"status": "incomplete", "output": []},
+    call("invented_tool", {}),
+    call("search_listings", {"filters": "bad"}),
+    {"status": "completed", "output": [{"type": "function_call", "name": "search_listings",
+                                      "arguments": "not JSON"}]},
+    {"status": "completed", "output": [{"type": "message", "content": [{"type": "refusal"}]}]},
+    {"status": "completed", "output": [*call("search_listings", {"filters": []})["output"],
+                                     *call("search_listings", {"filters": []})["output"]]},
+])
+async def test_invalid_or_incomplete_tool_call_is_not_routed_to_rag(monkeypatch, response):
+    planner = ListingToolPlanner(config())
+    async def fake_post(payload):
+        return response
+    monkeypatch.setattr(planner, "_post", fake_post)
+    with pytest.raises(GenerationUnavailableError):
+        await planner.plan("Tìm phòng", [], {"category": "TEXT"})
 
 
 @pytest.mark.asyncio
 async def test_normalizes_real_room_question_without_inventing_paid_parking(monkeypatch):
-    planner = ListingToolPlanner(Settings())
-    async def fake_post(url, payload, headers):
-        return {"choices": [{"message": {"tool_calls": [{"function": {
-            "name": "search_listings", "arguments": json.dumps({"filters": [
-                {"field": "ward_name", "op": "eq", "value": "Phú Lợi"},
-                {"field": "room.balcony_type", "op": "contains", "value": "ban công"},
-                {"field": "charge.MOTORBIKE_PARKING.included_in_rent", "op": "eq", "value": "false"},
-            ]})}}]}}]}
+    planner = ListingToolPlanner(config())
+    async def fake_post(payload):
+        return call("search_listings", {"filters": [
+            {"field": "ward_name", "op": "eq", "value": "Phú Lợi"},
+            {"field": "room.balcony_type", "op": "contains", "value": "ban công"},
+            {"field": "charge.MOTORBIKE_PARKING.included_in_rent", "op": "eq", "value": "false"},
+        ]})
     monkeypatch.setattr(planner, "_post", fake_post)
     fields = {field: kind for field, kind in [
         ("ward_name", "TEXT"), ("room.balcony_type", "TEXT"),

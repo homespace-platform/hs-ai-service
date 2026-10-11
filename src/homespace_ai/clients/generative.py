@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 import asyncio
-import json
 from typing import Any
 import httpx
 import structlog
@@ -16,14 +15,6 @@ class GenerationUnavailableError(Exception):
     def __init__(self, message: str, *, retryable: bool = True) -> None:
         super().__init__(message)
         self.retryable = retryable
-
-
-def _output_token_budgets(configured: int) -> list[int]:
-    """Retry a capped answer with more room instead of showing an unfinished sentence."""
-    budgets = [configured]
-    while len(budgets) < 3 and budgets[-1] < 4096:
-        budgets.append(min(4096, max(2048, budgets[-1] * 2)))
-    return budgets
 
 
 class BaseGenerativeClient(ABC):
@@ -105,265 +96,125 @@ class DisabledGenerativeClient(BaseGenerativeClient):
         )
 
 
-class FallbackGenerativeClient(BaseGenerativeClient):
-    """Try providers in order when the active provider has a transient failure."""
+class OpenAIResponsesClient:
+    """Shared, stateless transport. Never log headers, prompt contents or error bodies."""
 
-    def __init__(
-        self, clients: list[tuple[str, BaseGenerativeClient]]
-    ) -> None:
-        self.clients = clients
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
 
-    async def generate_answer(
-        self, question: str, context_chunks: list[dict[str, Any]], *, audience: str = "USER", mode: str = "homespace"
-    ) -> str:
-        last_error: GenerationUnavailableError | None = None
-        for index, (provider, client) in enumerate(self.clients):
+    def payload(self, model: str, instructions: str, content: str, max_tokens: int) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": model, "instructions": instructions,
+            "input": [{"role": "user", "content": content}],
+            "max_output_tokens": max_tokens, "store": False,
+        }
+        if model.startswith(("gpt-5", "gpt-6", "o1", "o3", "o4")):
+            payload["reasoning"] = {"effort": self.settings.openai_reasoning_effort}
+        else:
+            payload["temperature"] = self.settings.generation_temperature
+        return payload
+
+    async def create(self, payload: dict[str, Any], *, task: str) -> dict[str, Any]:
+        key = self.settings.openai_api_key.get_secret_value()
+        if not key:
+            raise GenerationUnavailableError("OpenAI API key is not configured.", retryable=False)
+        for attempt in range(2):
             try:
-                provider_budget = getattr(client, "timeout", None)
-                if isinstance(provider_budget, (int, float)) and provider_budget > 0:
-                    return await asyncio.wait_for(
-                        client.generate_answer(question, context_chunks, audience=audience, mode=mode),
-                        timeout=provider_budget,
+                async with httpx.AsyncClient(timeout=self.settings.generation_timeout_seconds) as client:
+                    response = await client.post(
+                        "https://api.openai.com/v1/responses", json=payload,
+                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     )
-                return await client.generate_answer(question, context_chunks, audience=audience, mode=mode)
-            except (GenerationUnavailableError, asyncio.TimeoutError) as error:
-                exc = (GenerationUnavailableError(f"{provider} exceeded its response budget.")
-                       if isinstance(error, asyncio.TimeoutError) else error)
-                last_error = exc
-                has_fallback = index < len(self.clients) - 1
-                if not exc.retryable or not has_fallback:
-                    raise
-                next_provider = self.clients[index + 1][0]
-                logger.warn(
-                    "generation_provider_fallback",
-                    failed_provider=provider,
-                    fallback_provider=next_provider,
-                    error=str(exc),
-                )
+            except httpx.RequestError:
+                if attempt == 0:
+                    await asyncio.sleep(1)
+                    continue
+                raise GenerationUnavailableError("OpenAI request timed out or is unreachable.") from None
 
-        raise last_error or GenerationUnavailableError(
-            "No generative provider is available."
-        )
-
-
-class GeminiGenerativeClient(BaseGenerativeClient):
-    def __init__(self, settings: Settings) -> None:
-        self.api_key = settings.gemini_api_key
-        primary_provider = settings.generation_provider.lower().strip()
-        self.model = settings.gemini_model or (
-            settings.generation_model if primary_provider == "gemini" else ""
-        )
-        self.timeout = settings.generation_timeout_seconds
-        self.max_tokens = settings.generation_max_output_tokens
-        self.temperature = settings.generation_temperature
-
-    async def generate_answer(
-        self, question: str, context_chunks: list[dict[str, Any]], *, audience: str = "USER", mode: str = "homespace"
-    ) -> str:
-        if not self.api_key:
-            raise GenerationUnavailableError("Gemini API key is not configured.")
-        if not self.model:
-            raise GenerationUnavailableError("Gemini model is not configured.")
-
-        model_name = self.model.removeprefix("models/")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-        system_prompt, user_content = generation_prompts(question, context_chunks, audience, mode)
-
-        payload = {
-            "system_instruction": {
-                "parts": [{"text": system_prompt}]
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": user_content}]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0 if mode == "listing" else self.temperature,
-                "maxOutputTokens": self.max_tokens,
-            },
-        }
-
-        budgets = _output_token_budgets(self.max_tokens)
-        max_attempts = 2
-        for budget in budgets:
-            payload["generationConfig"]["maxOutputTokens"] = budget
-            for attempt in range(1, max_attempts + 1):
+            if response.status_code != 200:
+                # Read only a known code to classify quota exhaustion; never expose the body.
+                quota_exhausted = False
                 try:
-                    async with httpx.AsyncClient(timeout=self.timeout) as client:
-                        response = await client.post(
-                            url, json=payload, headers={"x-goog-api-key": self.api_key}
-                        )
+                    quota_exhausted = response.json().get("error", {}).get("code") == "insufficient_quota"
+                except (ValueError, AttributeError):
+                    pass
+                retryable = response.status_code in {408, 409, 429, 500, 502, 503, 504} and not quota_exhausted
+                logger.warning("openai_api_error", task=task, model=payload["model"],
+                               status_code=response.status_code, quota_exhausted=quota_exhausted)
+                if retryable and attempt == 0:
+                    try:
+                        delay = min(5.0, max(1.0, float(response.headers.get("retry-after", "1"))))
+                    except ValueError:
+                        delay = 1.0
+                    await asyncio.sleep(delay)
+                    continue
+                raise GenerationUnavailableError(
+                    f"OpenAI returned HTTP {response.status_code}.", retryable=retryable)
 
-                        if response.status_code == 429:
-                            logger.warn("gemini_rate_limit_exceeded")
-                            raise GenerationUnavailableError("Generative model rate limit or quota exceeded.")
-
-                        if response.status_code in (500, 502, 503, 504):
-                            if attempt < max_attempts:
-                                logger.warn("gemini_transient_error_retrying", status_code=response.status_code, attempt=attempt)
-                                await asyncio.sleep(1.5)
-                                continue
-                            logger.error("gemini_api_error", status_code=response.status_code)
-                            raise GenerationUnavailableError(f"Gemini API returned status {response.status_code}.")
-
-                        if response.status_code != 200:
-                            logger.error("gemini_api_error", status_code=response.status_code)
-                            raise GenerationUnavailableError(
-                                f"Gemini API returned status {response.status_code}.",
-                                retryable=response.status_code in (408, 409, 425),
-                            )
-
-                        data = response.json()
-                        candidates = data.get("candidates", [])
-                        if not candidates:
-                            raise GenerationUnavailableError(
-                                "Gemini returned empty candidates.", retryable=False
-                            )
-
-                        if candidates[0].get("finishReason") == "MAX_TOKENS":
-                            logger.warn("gemini_answer_truncated", max_tokens=budget)
-                            if budget == budgets[-1]:
-                                raise GenerationUnavailableError("Gemini answer was cut off at the output-token limit.")
-                            break
-
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        answer = "".join(part.get("text", "") for part in parts)
-                        if not answer.strip():
-                            raise GenerationUnavailableError(
-                                "Gemini returned an empty answer.", retryable=False
-                            )
-                        return answer.strip()
-                except httpx.TimeoutException:
-                    if attempt < max_attempts:
-                        await asyncio.sleep(1.0)
-                        continue
-                    logger.warn("gemini_timeout")
-                    raise GenerationUnavailableError("Generative model request timed out.")
-                except httpx.RequestError:
-                    if attempt < max_attempts:
-                        await asyncio.sleep(1.0)
-                        continue
-                    logger.error("gemini_request_error")
-                    raise GenerationUnavailableError("Generative model service unreachable.")
+            try:
+                data = response.json()
+                if not isinstance(data, dict) or not isinstance(data.get("output"), list):
+                    raise ValueError
+                for item in data["output"]:
+                    if not isinstance(item, dict):
+                        raise ValueError
+                    if "content" in item and (
+                        not isinstance(item["content"], list)
+                        or any(not isinstance(part, dict) for part in item["content"])
+                        or any(part.get("type") == "output_text" and not isinstance(part.get("text"), str)
+                               for part in item["content"])
+                    ):
+                        raise ValueError
+            except ValueError:
+                raise GenerationUnavailableError("OpenAI returned malformed JSON.", retryable=False) from None
+            usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+            logger.info("openai_usage", task=task, model=data.get("model", payload["model"]),
+                        input_tokens=usage.get("input_tokens"), output_tokens=usage.get("output_tokens"),
+                        cached_tokens=(usage.get("input_tokens_details") or {}).get("cached_tokens"),
+                        reasoning_tokens=(usage.get("output_tokens_details") or {}).get("reasoning_tokens"),
+                        response_status=data.get("status"), request_id=response.headers.get("x-request-id"))
+            return data
+        raise GenerationUnavailableError("OpenAI request failed.")
 
 
-class GroqGenerativeClient(BaseGenerativeClient):
+class OpenAIGenerativeClient(BaseGenerativeClient):
     def __init__(self, settings: Settings) -> None:
-        self.api_key = settings.groq_api_key
-        primary_provider = settings.generation_provider.lower().strip()
-        self.model = settings.groq_model or (
-            settings.generation_model if primary_provider == "groq" else ""
-        )
-        self.timeout = settings.generation_timeout_seconds
-        self.max_tokens = settings.generation_max_output_tokens
-        self.temperature = settings.generation_temperature
+        self.settings = settings
+        self.transport = OpenAIResponsesClient(settings)
 
     async def generate_answer(
-        self, question: str, context_chunks: list[dict[str, Any]], *, audience: str = "USER", mode: str = "homespace"
+        self, question: str, context_chunks: list[dict[str, Any]], *,
+        audience: str = "USER", mode: str = "homespace",
     ) -> str:
-        if not self.api_key:
-            raise GenerationUnavailableError("Groq API key is not configured.")
-        if not self.model:
-            raise GenerationUnavailableError("Groq model is not configured.")
-
-        url = "https://api.groq.com/openai/v1/chat/completions"
+        listing = mode == "listing"
+        model = self.settings.openai_listing_model if listing else self.settings.openai_rag_model
+        budget = (self.settings.openai_listing_max_output_tokens if listing
+                  else self.settings.openai_rag_max_output_tokens)
+        task = "listing_answer" if listing else "general_answer" if mode == "general" else "rag_answer"
         system_prompt, user_content = generation_prompts(question, context_chunks, audience, mode)
-
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            "temperature": 0 if mode == "listing" else self.temperature,
-            "max_completion_tokens": self.max_tokens,
-        }
-        if self.model.startswith("openai/gpt-oss-"):
-            payload.update(
-                {
-                    "reasoning_effort": "low",
-                    "include_reasoning": False,
-                }
-            )
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                budgets = _output_token_budgets(self.max_tokens)
-                for budget in budgets:
-                    payload["max_completion_tokens"] = budget
-                    response = await client.post(url, json=payload, headers=headers)
-
-                    if response.status_code == 429:
-                        logger.warn("groq_rate_limit_exceeded")
-                        raise GenerationUnavailableError("Generative model rate limit or quota exceeded.")
-
-                    if response.status_code != 200:
-                        logger.error("groq_api_error", status_code=response.status_code)
-                        raise GenerationUnavailableError(
-                            f"Groq API returned status {response.status_code}.",
-                            retryable=response.status_code
-                            in (408, 409, 425, 500, 502, 503, 504),
-                        )
-
-                    data = response.json()
-                    choices = data.get("choices", [])
-                    if not choices:
-                        raise GenerationUnavailableError(
-                            "Groq returned empty choices.", retryable=False
-                        )
-
-                    if choices[0].get("finish_reason") == "length":
-                        logger.warn("groq_answer_truncated", max_tokens=budget)
-                        if budget == budgets[-1]:
-                            raise GenerationUnavailableError("Groq answer was cut off at the output-token limit.")
-                        continue
-
-                    answer = choices[0].get("message", {}).get("content", "")
-                    if not answer.strip():
-                        raise GenerationUnavailableError(
-                            "Groq returned an empty answer.", retryable=False
-                        )
-                    return answer.strip()
-        except httpx.TimeoutException:
-            logger.warn("groq_timeout")
-            raise GenerationUnavailableError("Generative model request timed out.")
-        except httpx.RequestError as e:
-            logger.error("groq_request_error", error=str(e))
-            raise GenerationUnavailableError("Generative model service unreachable.")
-
-
-def _get_provider_client(
-    provider: str, settings: Settings
-) -> BaseGenerativeClient:
-    if provider == "gemini":
-        return GeminiGenerativeClient(settings)
-    if provider == "groq":
-        return GroqGenerativeClient(settings)
-    return DisabledGenerativeClient()
+        # Keep all Core evidence unchanged. This is an output budget, not an input truncation.
+        payload = self.transport.payload(model, system_prompt, user_content, budget)
+        for attempt in range(2):
+            data = await self.transport.create(payload, task=task)
+            if data.get("status") == "incomplete" and (data.get("incomplete_details") or {}).get("reason") == "max_output_tokens":
+                logger.warning("openai_answer_truncated", task=task, max_output_tokens=payload["max_output_tokens"])
+                if attempt == 0 and budget < 32768:
+                    payload["max_output_tokens"] = min(32768, budget * 2)
+                    continue
+                raise GenerationUnavailableError("OpenAI answer exceeded its output-token budget.", retryable=False)
+            if data.get("status") != "completed":
+                raise GenerationUnavailableError("OpenAI did not complete the answer.", retryable=False)
+            answer = "".join(
+                part.get("text", "") for item in data["output"] if item.get("type") == "message"
+                for part in item.get("content", []) if part.get("type") == "output_text"
+            ).strip()
+            if not answer:
+                raise GenerationUnavailableError("OpenAI returned no answer.", retryable=False)
+            return answer
+        raise GenerationUnavailableError("OpenAI answer is unavailable.", retryable=False)
 
 
 def get_generative_client(settings: Settings) -> BaseGenerativeClient:
-    provider = settings.generation_provider.lower().strip()
-    primary_client = _get_provider_client(provider, settings)
-    fallback_provider = settings.generation_fallback_provider.lower().strip()
-
-    if (
-        provider not in {"gemini", "groq"}
-        or fallback_provider not in {"gemini", "groq"}
-        or fallback_provider == provider
-    ):
-        return primary_client
-
-    return FallbackGenerativeClient(
-        [
-            (provider, primary_client),
-            (fallback_provider, _get_provider_client(fallback_provider, settings)),
-        ]
-    )
+    if settings.generation_provider == "openai":
+        return OpenAIGenerativeClient(settings)
+    return DisabledGenerativeClient()

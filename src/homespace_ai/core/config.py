@@ -1,7 +1,7 @@
 from functools import lru_cache
-from typing import ClassVar
+from typing import ClassVar, Literal
 
-from pydantic import Field, HttpUrl, field_validator
+from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -87,17 +87,19 @@ class Settings(BaseSettings):
     retrieval_top_k: int = Field(default=5, ge=1, le=20, alias="RETRIEVAL_TOP_K")
     retrieval_min_similarity: float = Field(default=0.80, ge=0.0, le=1.0, alias="RETRIEVAL_MIN_SIMILARITY")
 
-    # Generation configuration (disabled | gemini | groq)
-    generation_provider: str = Field(default="disabled", alias="GENERATION_PROVIDER")
-    generation_fallback_provider: str = Field(default="", alias="GENERATION_FALLBACK_PROVIDER")
-    generation_model: str = Field(default="", alias="GENERATION_MODEL")
-    gemini_model: str = Field(default="", alias="GEMINI_MODEL")
-    groq_model: str = Field(default="", alias="GROQ_MODEL")
-    gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
-    generation_max_output_tokens: int = Field(default=1024, ge=64, le=4096, alias="GENERATION_MAX_OUTPUT_TOKENS")
+    # OpenAI Responses API. Embeddings remain local and independent of generation.
+    generation_provider: Literal["disabled", "openai"] = Field(default="disabled", alias="GENERATION_PROVIDER")
+    openai_api_key: SecretStr = Field(default=SecretStr(""), alias="OPENAI_API_KEY", repr=False)
+    openai_rag_model: str = Field(default="gpt-4o-mini", min_length=1, alias="OPENAI_RAG_MODEL")
+    openai_tool_model: str = Field(default="gpt-4.1-mini", min_length=1, alias="OPENAI_TOOL_MODEL")
+    openai_listing_model: str = Field(default="gpt-4.1-mini", min_length=1, alias="OPENAI_LISTING_MODEL")
+    openai_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = Field(
+        default="low", alias="OPENAI_REASONING_EFFORT")
+    openai_rag_max_output_tokens: int = Field(default=4096, ge=64, le=32768, alias="OPENAI_RAG_MAX_OUTPUT_TOKENS")
+    openai_tool_max_output_tokens: int = Field(default=4096, ge=64, le=32768, alias="OPENAI_TOOL_MAX_OUTPUT_TOKENS")
+    openai_listing_max_output_tokens: int = Field(default=16384, ge=64, le=32768, alias="OPENAI_LISTING_MAX_OUTPUT_TOKENS")
     generation_temperature: float = Field(default=0.2, ge=0.0, le=1.0, alias="GENERATION_TEMPERATURE")
-    generation_timeout_seconds: float = Field(default=20.0, ge=1.0, le=60.0, alias="GENERATION_TIMEOUT_SECONDS")
+    generation_timeout_seconds: float = Field(default=90.0, ge=1.0, le=180.0, alias="GENERATION_TIMEOUT_SECONDS")
 
     # Worker configuration
     worker_poll_interval_seconds: float = Field(default=2.0, ge=0.5, le=30.0, alias="WORKER_POLL_INTERVAL_SECONDS")

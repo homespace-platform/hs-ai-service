@@ -1,14 +1,12 @@
 """Native provider tool calling for public listing lookup; never generates SQL."""
 
-import asyncio
+import json
 import re
 from dataclasses import dataclass
 from copy import deepcopy
 from typing import Any
 
-import httpx
-
-from homespace_ai.clients.generative import GenerationUnavailableError
+from homespace_ai.clients.generative import GenerationUnavailableError, OpenAIResponsesClient
 from homespace_ai.core.config import Settings
 
 
@@ -62,23 +60,10 @@ class ListingToolPlanner:
         self.settings = settings
 
     async def plan(self, question: str, history: list[dict[str, str]], fields: dict[str, str]) -> ToolPlan | None:
-        providers = [self.settings.generation_provider.lower().strip()]
-        fallback = self.settings.generation_fallback_provider.lower().strip()
-        if fallback in {"groq", "gemini"} and fallback not in providers:
-            providers.append(fallback)
-        if providers[0] not in {"groq", "gemini"}:
-            raise GenerationUnavailableError("Listing tool planning requires a generative provider.")
-        last_error: GenerationUnavailableError | None = None
-        for provider in providers:
-            try:
-                plan = await (self._groq(question, history, fields) if provider == "groq"
-                              else self._gemini(question, history, fields))
-                return self._normalize_search(question, plan, fields, history)
-            except GenerationUnavailableError as error:
-                last_error = error
-                if not error.retryable:
-                    break
-        raise last_error or GenerationUnavailableError("Listing tool planning failed.")
+        if self.settings.generation_provider != "openai":
+            raise GenerationUnavailableError("Listing tool planning requires OpenAI.", retryable=False)
+        plan = await self._openai(question, history, fields)
+        return self._normalize_search(question, plan, fields, history)
 
     @staticmethod
     def _normalize_search(question: str, plan: ToolPlan | None, fields: dict[str, str],
@@ -191,56 +176,45 @@ class ListingToolPlanner:
         lines.append("user: " + question)
         return "\n".join(lines)
 
-    async def _groq(self, question: str, history: list[dict[str, str]], fields: dict[str, str]) -> ToolPlan | None:
-        model = self.settings.groq_model or (self.settings.generation_model if self.settings.generation_provider.lower().strip() == "groq" else "")
-        if not self.settings.groq_api_key or not model:
-            raise GenerationUnavailableError("Groq tool calling is not configured.")
-        tools = [{"type": "function", "function": {"name": name, "description": description,
-                  "parameters": (_search_parameters(fields) if name == "search_listings" else
-                                 _DETAIL_PARAMETERS if name == "get_listing_detail" else _MULTI_DETAIL_PARAMETERS)}}
-                 for name, description in _DESCRIPTIONS.items()]
-        payload = {"model": model, "temperature": 0, "max_completion_tokens": 600,
-                   "messages": [{"role": "system", "content": self._instructions(fields)},
-                                {"role": "user", "content": self._dialog(question, history)}],
-                   "tools": tools, "tool_choice": "auto", "parallel_tool_calls": False}
-        if model.startswith("openai/gpt-oss-"):
-            payload.update({"reasoning_effort": "low", "include_reasoning": False})
-        data = await self._post("https://api.groq.com/openai/v1/chat/completions", payload,
-                                {"Authorization": f"Bearer {self.settings.groq_api_key}"})
-        try:
-            calls = data["choices"][0]["message"].get("tool_calls") or []
-            if not calls:
-                return None
-            import json
-            return self._validated(calls[0]["function"]["name"], json.loads(calls[0]["function"]["arguments"]))
-        except (KeyError, IndexError, TypeError, ValueError) as error:
-            raise GenerationUnavailableError("Malformed Groq tool call.", retryable=False) from error
-
-    async def _gemini(self, question: str, history: list[dict[str, str]], fields: dict[str, str]) -> ToolPlan | None:
-        configured_model = self.settings.gemini_model or (self.settings.generation_model if self.settings.generation_provider.lower().strip() == "gemini" else "")
-        if not self.settings.gemini_api_key or not configured_model:
-            raise GenerationUnavailableError("Gemini tool calling is not configured.")
-        declarations = []
+    async def _openai(self, question: str, history: list[dict[str, str]], fields: dict[str, str]) -> ToolPlan | None:
+        tools = []
         for name, description in _DESCRIPTIONS.items():
             parameters = (_search_parameters(fields) if name == "search_listings" else
-                          _DETAIL_PARAMETERS if name == "get_listing_detail" else _MULTI_DETAIL_PARAMETERS)
-            declarations.append({"name": name, "description": description, "parameters": parameters})
-        model = configured_model.removeprefix("models/")
-        payload = {"system_instruction": {"parts": [{"text": self._instructions(fields)}]},
-                   "contents": [{"role": "user", "parts": [{"text": self._dialog(question, history)}]}],
-                   "tools": [{"functionDeclarations": declarations}],
-                   "generationConfig": {"temperature": 0, "maxOutputTokens": 600}}
-        data = await self._post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-                                payload, {"x-goog-api-key": self.settings.gemini_api_key})
+                          deepcopy(_DETAIL_PARAMETERS if name == "get_listing_detail" else _MULTI_DETAIL_PARAMETERS))
+            # Responses strict schemas require every property and reject undeclared properties.
+            parameters["required"] = list(parameters["properties"])
+            parameters["additionalProperties"] = False
+            if name == "search_listings":
+                parameters["properties"]["filters"]["items"]["additionalProperties"] = False
+                parameters["properties"]["filters"]["maxItems"] = 24
+                parameters["properties"]["limit"].update({"minimum": 1, "maximum": 5})
+            elif name == "get_listing_details":
+                parameters["properties"]["listingIds"].update({"minItems": 2, "maxItems": 5})
+            tools.append({"type": "function", "name": name, "description": description,
+                          "parameters": parameters, "strict": True})
+        transport = OpenAIResponsesClient(self.settings)
+        payload = transport.payload(
+            self.settings.openai_tool_model,
+            self._instructions(fields) + " When unspecified use sort=newest and limit=5.",
+            self._dialog(question, history), self.settings.openai_tool_max_output_tokens,
+        )
+        payload.update({"tools": tools, "tool_choice": "auto", "parallel_tool_calls": False})
+        data = await self._post(payload)
+        if data.get("status") != "completed":
+            raise GenerationUnavailableError("OpenAI did not complete tool planning.", retryable=False)
         try:
-            parts = data["candidates"][0]["content"]["parts"]
-            for part in parts:
-                call = part.get("functionCall")
-                if call:
-                    return self._validated(call["name"], call.get("args") or {})
-            return None
-        except (KeyError, IndexError, TypeError, ValueError) as error:
-            raise GenerationUnavailableError("Malformed Gemini tool call.", retryable=False) from error
+            calls = [item for item in data["output"] if item.get("type") == "function_call"]
+            if not calls:
+                # Refusals are not a RAG routing decision.
+                if any(part.get("type") == "refusal" for item in data["output"]
+                       for part in item.get("content", [])):
+                    raise ValueError("Tool planner refused")
+                return None
+            if len(calls) != 1:
+                raise ValueError("Expected one tool call")
+            return self._validated(calls[0]["name"], json.loads(calls[0]["arguments"]))
+        except (KeyError, IndexError, TypeError, ValueError):
+            raise GenerationUnavailableError("Malformed OpenAI tool call.", retryable=False) from None
 
     @staticmethod
     def _validated(name: str, args: Any) -> ToolPlan:
@@ -254,21 +228,5 @@ class ListingToolPlanner:
             raise ValueError("Listing IDs are required")
         return ToolPlan(name=name, arguments=args)
 
-    async def _post(self, url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
-        for attempt in range(2):
-            try:
-                async with httpx.AsyncClient(timeout=self.settings.generation_timeout_seconds) as client:
-                    response = await client.post(url, json=payload, headers=headers)
-                if response.status_code in {500, 502, 503, 504} and attempt == 0:
-                    await asyncio.sleep(0.75)
-                    continue
-                if response.status_code != 200:
-                    raise GenerationUnavailableError(f"Tool model returned HTTP {response.status_code}.",
-                                                     retryable=response.status_code in {408, 409, 425, 429, 500, 502, 503, 504})
-                return response.json()
-            except (httpx.RequestError, ValueError) as error:
-                if attempt == 0:
-                    await asyncio.sleep(0.75)
-                    continue
-                raise GenerationUnavailableError("Tool model is unreachable or returned invalid JSON.") from error
-        raise GenerationUnavailableError("Tool model request failed.")
+    async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await OpenAIResponsesClient(self.settings).create(payload, task="listing_tool_plan")

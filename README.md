@@ -60,17 +60,51 @@ The old example value `hs-internal-gateway-secret-dev-2026` is rejected. Do
 not commit either real `.env` file. Restart Gateway and AI Service after the
 change. If `GENERATION_PROVIDER=disabled`, retrieval still works but `/agent/ask`
 returns `GENERATION_UNAVAILABLE` with citations instead of pretending an
-excerpt is a generated answer. Set a supported `GENERATION_PROVIDER` and its
-matching `GENERATION_MODEL` when you are ready to use Gemini or Groq.
+excerpt is a generated answer.
 
-To use Groq first and fail over automatically to Gemini on rate limits, timeouts,
-network failures, or provider 5xx errors, configure:
+### OpenAI generation and model allocation
 
-```dotenv
-GENERATION_PROVIDER=groq
-GENERATION_FALLBACK_PROVIDER=gemini
-GEMINI_MODEL=gemini-2.5-flash
-GROQ_MODEL=openai/gpt-oss-20b
+Set `GENERATION_PROVIDER=openai` and `OPENAI_API_KEY` in the ignored server-side
+`.env`. Do not expose the key to the frontend, screenshots, logs, or Git.
+Gemini/Groq clients and fallback configuration are no longer used.
+
+| Task | Default model | Purpose |
+| --- | --- | --- |
+| RAG / admin general answers | gpt-4o-mini | Lower-cost answers from retrieved documents |
+| Listing tool planning | gpt-4.1-mini | Strict native function calls using the Core field catalog |
+| Listing answers / comparisons | gpt-4.1-mini | Ground answers in full live public Core evidence |
+
+Each model can be changed independently via `OPENAI_RAG_MODEL`,
+`OPENAI_TOOL_MODEL`, and `OPENAI_LISTING_MODEL`. GPT reasoning models use
+`OPENAI_REASONING_EFFORT=low`; non-reasoning models use `GENERATION_TEMPERATURE`.
+Models must support Responses API; the tool model must also support strict function calling.
+The defaults above are non-reasoning models: no reasoning parameter is sent.
+Local mocked tests verify routing and request compatibility, not live model answer quality.
+
+Embedding remains local: `intfloat/multilingual-e5-small`. No re-ingestion or
+OpenAI embedding cost is required. RAG retrieval and Core authorization are unchanged.
+Core tool JSON is passed intact: no field filtering or payload compaction is introduced.
+Provider context windows and account token/rate limits still apply.
+
+Responses requests use `store=false` (this does not override OpenAI abuse-monitoring
+retention). Logs contain task/model/token usage, including cached and reasoning tokens;
+never prompts, tool result bodies, API keys or provider error bodies. Use these logs and
+the OpenAI project usage dashboard to track spend. Prepaid credit can still run out.
+No automatic upgrade to a more expensive model is enabled.
+
+Output budgets (not input payload caps) default to 4096 tokens for RAG/planning and
+16384 for listing answers. If an answer hits the output budget, retry once with twice
+the budget (maximum 32768), never present a partial answer. Retries can incur extra
+cost. HTTP 429/transient network/5xx failures are retried once; exhausted billing
+quota, auth failures and invalid requests are not retried. Restart AI service after
+changing `.env`; there is no frontend API-contract change.
+
+Verification (unit tests do not call the paid API):
+
+```powershell
+uv run pytest tests/unit -q
+# Opt-in: three paid smoke requests with synthetic data, no DB/Gateway calls.
+uv run python scripts/smoke_openai.py --live
 ```
 
 ### Step 3: Run Ingestion Worker (Terminal 2)
