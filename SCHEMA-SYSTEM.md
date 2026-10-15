@@ -239,7 +239,9 @@ Nguồn chính xác của toàn bộ registry: `hs-core-api/hs-listing-service/.
 
 Loại phí: `ELECTRICITY`, `WATER`, `MANAGEMENT`, `INTERNET`, `SERVICE_OR_GARBAGE`, `MOTORBIKE_PARKING`, `CAR_PARKING`, `OVERTIME_AIR_CONDITIONING`, `OTHER`.
 
-Tiện ích boolean cố định: `WIFI`, `AIR_CONDITIONER`, `WATER_HEATER`, `REFRIGERATOR`, `WASHING_MACHINE`, `ELEVATOR`, `PARKING`, `SECURITY_24_7`, `CAMERA`, `PETS_ALLOWED`, `SWIMMING_POOL`, `GYM`.
+Tiện ích boolean cố định: `WIFI`, `AIR_CONDITIONER`, `WATER_HEATER`, `REFRIGERATOR`, `WASHING_MACHINE`, `ELEVATOR`, `PARKING`, `SECURITY_24_7`, `CAMERA`, `SWIMMING_POOL`, `GYM`.
+
+Thú cưng/hút thuốc/cho thuê lại/khách qua đêm là chính sách, không phải amenity. Dùng `policy.petPolicy.value`, `policy.smokingPolicy.value`, `policy.subleasePolicy.value`, `policy.overnightGuestPolicy.value` với `ALLOWED`, `NOT_ALLOWED`, `APPROVAL_REQUIRED`. “Cho phép” chỉ là ALLOWED; cần chủ nhà chấp thuận không đồng nghĩa đã cho phép. Các filter được scope cùng policy_code để không nhầm quyền của dòng khác. Nội dung bổ sung tra `.note`; các chính sách TEXT theo loại hình dùng `policy.buildingRulesPolicy.value`, `policy.sharedAmenitiesPolicy.value`, `policy.quietHoursPolicy.value`. Registry Core là nguồn field có thẩm quyền, không tự thêm field ngoài registry.
 
 Nội thất theo mã: `BED`, `WARDROBE`, `WORK_DESK`, `KITCHEN_SHELF`, `REFRIGERATOR`, `WASHING_MACHINE`, `WATER_HEATER`, `CURTAIN`, `FAN`, `SOFA_SET`, `DINING_SET`, `TV`, `KITCHEN_CABINET`, `COOKTOP`, `AIR_CONDITIONER`, `LIGHTING`.
 
