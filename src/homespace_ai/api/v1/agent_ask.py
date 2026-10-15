@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from homespace_ai.api.v1.admin_knowledge import get_embedder
-from homespace_ai.api.v1.schemas import AskRequest, AskResponse, CitationItem, ContractCardItem
+from homespace_ai.api.v1.schemas import AppointmentCardItem, AskRequest, AskResponse, CitationItem, ContractCardItem
 from homespace_ai.application.use_cases.ask_use_cases import AskUseCases, AskResult
+from homespace_ai.application import appointment_context
+from homespace_ai.application.use_cases.appointment_ask import AppointmentAsk
 from homespace_ai.application.contract_context import classify
 from homespace_ai.application.use_cases.contract_ask import ContractAsk
 from homespace_ai.application.use_cases.listing_ask import ListingAsk
@@ -53,7 +55,8 @@ async def ask_agent(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
         history = [{"role": message.get("role", "user"), "content": message.get("content", ""),
                     "status": message.get("status"), "listingContext": message.get("listingContext"),
-                    "contractContext": message.get("contractContext")}
+                    "contractContext": message.get("contractContext"),
+                    "appointmentContext": message.get("appointmentContext")}
                    for message in conversation.get("messages", [])[-8:]]
         saved = await conversation_repository.append_message(
             user.user_id, conversation_id, role="user", content=question
@@ -74,6 +77,7 @@ async def ask_agent(
             listing_ids=result.listing_ids,
             listing_positions=result.listing_positions,
             contract_context=result.contract_context, contract_cards=result.contract_cards,
+            appointment_context=result.appointment_context, appointment_cards=result.appointment_cards,
             data_sources=result.data_sources,
         )
     return public_answer(result)
@@ -93,6 +97,26 @@ async def generate_answer(
     )
     result = None
     is_guest = user.user_id.startswith("guest:")
+    if question.strip().lower().strip(" .!?…") not in GREETING_TEXTS and appointment_context.classify(question, history) is not None:
+        # Viewing appointments come first: the old personal-data regex in RAG must never answer these, and the
+        # Contract module must not capture ordinary appointment words.
+        gateway = getattr(request.app.state, "gateway_client", None)
+        temporary_gateway = gateway is None
+        if gateway is None:
+            gateway = GatewayApiClient(str(settings.gateway_base_url), settings.gateway_request_timeout_seconds)
+
+        async def appointment_guidance(general_question: str) -> AskResult:
+            return await use_cases.ask(question=general_question, user_role="USER", user_name=None,
+                                       locale="vi-VN", conversation_id=conversation_id, request_id=request_id)
+
+        try:
+            result = await AppointmentAsk(settings, generative_client, gateway, request, is_guest=is_guest,
+                                          rag=appointment_guidance).try_answer(question, history, request_id)
+        finally:
+            if temporary_gateway:
+                await gateway.aclose()
+        if result is not None:
+            return result
     if question.strip().lower().strip(" .!?…") not in GREETING_TEXTS and classify(question, history) is not None:
         # The account's own contracts come first: the personal-data regex in RAG must never answer these.
         gateway = getattr(request.app.state, "gateway_client", None)
@@ -159,6 +183,7 @@ def public_answer(result: AskResult) -> ApiResponse[AskResponse]:
             listingIds=result.listing_ids,
             listingPositions=result.listing_positions,
             contractCards=[ContractCardItem(**card) for card in result.contract_cards],
+            appointmentCards=[AppointmentCardItem(**card) for card in result.appointment_cards],
             dataSources=result.data_sources,
         ),
     )

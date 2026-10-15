@@ -129,6 +129,32 @@ class ContractCardItem(BaseModel):
     source: str = "CORE"
 
 
+class AppointmentCardItem(BaseModel):
+    """Compact card built by the application from a verified Core projection. No link: the web app builds the
+    role-correct route and the exact-open parameter from appointmentId + requesterRole. The stored status and the
+    time-derived phase stay separate, and a proposed schedule never replaces the current one."""
+    appointmentId: str
+    requesterRole: str
+    roleLabel: str
+    listingId: str | None = None
+    listingTitle: str
+    listingAddress: str | None = None
+    date: str | None = None
+    startTime: str | None = None
+    endTime: str | None = None
+    status: str
+    statusLabel: str
+    temporalPhase: str | None = None
+    phaseLabel: str | None = None
+    statusSyncPending: bool = False
+    rescheduleRequested: bool = False
+    proposedDate: str | None = None
+    proposedStartTime: str | None = None
+    proposedEndTime: str | None = None
+    readAt: str | None = None
+    source: str = "CORE"
+
+
 class AskResponse(BaseModel):
     answer: str
     # ANSWERED, GENERAL_ANSWER, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE, TOOL_UNAVAILABLE,
@@ -139,6 +165,7 @@ class AskResponse(BaseModel):
     listingIds: list[str] = Field(default_factory=list)
     listingPositions: dict[str, int] = Field(default_factory=dict)
     contractCards: list[ContractCardItem] = Field(default_factory=list)
+    appointmentCards: list[AppointmentCardItem] = Field(default_factory=list)
     dataSources: list[str] = Field(default_factory=list)
 
 
@@ -164,6 +191,7 @@ class ConversationMessage(BaseModel):
     listingIds: list[str] = Field(default_factory=list)
     listingPositions: dict[str, int] = Field(default_factory=dict)
     contractCards: list[ContractCardItem] = Field(default_factory=list)
+    appointmentCards: list[AppointmentCardItem] = Field(default_factory=list)
     dataSources: list[str] = Field(default_factory=list)
 
 

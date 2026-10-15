@@ -210,7 +210,7 @@ BENCHMARK_30_QUESTIONS = [
     # 7. Out-of-Scope / Personal dynamic queries (3 questions)
     {"q": "Tin đăng phòng trọ của tôi đã được admin duyệt chưa?", "cat": "out_of_scope", "expect_doc": None},
     {"q": "Hóa đơn tiền thuê tháng này của tôi cần thanh toán bao nhiêu?", "cat": "out_of_scope", "expect_doc": None},
-    {"q": "Lịch hẹn xem nhà của tôi ngày mai lúc mấy giờ?", "cat": "out_of_scope", "expect_doc": None},
+    {"q": "Số dư ví của tôi còn bao nhiêu?", "cat": "out_of_scope", "expect_doc": None},  # appointments are now answered by the appointment module
 
     # 8. Admin-only confidentiality isolation (3 questions)
     {"q": "Quy trình vận hành mật của quản trị viên và xử lý tài khoản gian lận?", "cat": "admin_only", "expect_doc": "hs-knowledge-admin-operations"},

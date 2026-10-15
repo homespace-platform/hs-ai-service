@@ -445,6 +445,30 @@ Thứ tự ưu tiên khi thông tin mâu thuẫn: **source/config đang dùng �
 
 **Test:** Core `AiContractQueryServiceTest` (19); AI `tests/unit/test_contract_ask.py`, `test_agent_contract_route.py`; web `tests/ai-contract-cards.test.cjs`, `home-ai-chat.test.cjs`.
 
+## 9c. Nguồn thứ tư: lịch xem nhà của tài khoản (chỉ đọc)
+
+**Bốn nguồn tách biệt:** RAG, Listing, Contract, Appointment (lịch xem nhà của chính tài khoản đăng nhập, vai trò OWNER/RENTER/BOTH). Câu kết hợp (“đổi giờ lịch xem nhà thế nào, và lịch nào của tôi đang chờ đổi?”) = Appointment + RAG: phần cá nhân từ Core, phần hướng dẫn chung từ RAG (`05`), hai mục có nhãn; RAG chỉ nhận câu hỏi chung đã viết lại; Core lỗi thì không gọi RAG.
+
+**Định tuyến (code, không do model, `application/appointment_context.py`):** chạy trên văn bản đã bỏ dấu (`fold`), nên không dựa vào tôi/tối/tới riêng lẻ. `classify` trả `APPOINTMENT`, `APPOINTMENT_AND_RAG`, `AVAILABILITY` hoặc `None`. Thứ tự trong `agent_ask.py`: Appointment chạy **trước** Contract và RAG. “Đặt lịch xem nhà như thế nào?” → RAG; “ngày mai tôi có lịch xem nhà nào?” → Appointment; “căn thứ hai chiều mai xem được không?” sau kết quả Listing → Availability (dùng `listingContext`). Follow-up (“lịch thứ hai”, “lịch đó”, “còn ngày mai?”, “xem tiếp”) chỉ nhận khi lượt assistant gần nhất là lịch hẹn; nhiều đối tượng khớp thì hỏi người dùng chọn. Nhánh OUT_OF_SCOPE/REALTIME không còn chặn câu hỏi lịch hẹn cá nhân.
+
+**Core API (`AppointmentAiController`, `/api/v1/appointments/ai/*`, GET, đọc-only):** `summary`, `search`, `items/{appointmentId}`, `listings/{listingId}/availability`. User id lấy từ ngữ cảnh xác thực, không nhận từ client. Role `OWNER|RENTER|BOTH`; date preset `TODAY|TOMORROW|THIS_WEEK|NEXT_WEEK|THIS_WEEKEND|THIS_MONTH` do **Core** giải quyết (tuần Thứ Hai–Chủ nhật). Availability nhận `date|datePreset|weekday|week` và Core giải ngày, giới hạn ±366 ngày, tham số xung đột trả `APPOINTMENT_AI_QUERY_INVALID`. Tổng chính xác trên toàn tập, sắp xếp tất định, không N+1, không ghi. Metadata `readAt`, timezone, filters, paging.
+
+**Thời gian:** đồng hồ thật `Asia/Ho_Chi_Minh` qua `Clock` có thể tiêm, **không** dùng `BillingTime` hay `HOMESPACE_TIME_SIMULATED_AT`. `temporalPhase` (`UPCOMING|IN_PROGRESS|PAST`, quá khứ khi `end <= now`) tách khỏi `status` đã lưu; `statusSyncPending` khi đã qua giờ mà scheduler chưa cập nhật; lịch quá giờ không được gọi là “sắp tới”. `proposedSchedule` không bao giờ thay `currentSchedule`.
+
+**Quyền và nghiệp vụ giữ nguyên:** chỉ lịch mà user là chủ nhà hoặc người thuê; không thuộc về user → `NOT_FOUND`; tin chưa công khai với người không phải chủ → `LISTING_NOT_FOUND`. `bookingCount` là số yêu cầu, không phải sức chứa nên không suy ra “đã đầy”; COMPLETED không chứng minh có mặt; lịch sử đổi giờ không được lưu; thông báo/email chưa gửi thật; chỉ người thuê gửi đổi giờ, chủ nhà quyết định; KYC chỉ kiểm khi đặt; một lịch hoạt động mỗi người thuê mỗi tin; chủ nhà không tự đặt tin của mình. Không lộ liên hệ; ghi chú, tên khách, lý do hủy, tiêu đề tin là dữ liệu không tin cậy (bị lọc link/UUID/route, không là chỉ thị).
+
+**Tools AI (`tools/appointments.py`):** `summarize_my_appointments`, `search_my_appointments`, `get_appointment_detail`, `get_listing_viewing_availability`; schema strict, từ chối khóa/tool lạ, chỉ GET tới `/api/v1/appointments/ai…` qua Gateway kèm JWT gốc; khách không chạm Core. Planner (`clients/appointment_tool_planner.py`) chỉ là phương án dự phòng cho câu không khớp mẫu và chỉ thấy tên tool + id đã xác minh. Giới hạn `MAX_MODEL_ROUNDS=3`, `MAX_TOOL_CALLS=6`, `TOTAL_TIMEOUT_SECONDS=40`, `PAGE_SIZE=5`, `MAX_CARDS=5`. Đếm/liệt kê/chi tiết/availability trả lời **tất định theo mẫu**, không để model diễn đạt số liệu. AI không bao giờ tạo/duyệt/từ chối/đổi/hủy/hoàn thành lịch và không nói đã làm vậy hay đã thông báo.
+
+**Ngữ cảnh hội thoại:** `appointmentContext` (chỉ tối đa 10 id, id đã chọn, vai trò, bộ lọc, trang, ngày đọc; không lưu dữ kiện) tách khỏi `listingContext`/`contractContext`, không lộ trong response công khai; `listingContext` được giữ qua câu trả lời lịch hẹn để “căn thứ hai” vẫn dùng được. Mỗi lượt đọc lại dữ liệu và quyền từ Core.
+
+**Response/frontend:** `appointmentCards`, `dataSources` (`CORE_APPOINTMENT`, `RAG`); mọi kết quả của module, kể cả `LOGIN_REQUIRED`/`TOOL_UNAVAILABLE`, mang `CORE_APPOINTMENT` để UI không diễn đạt thành lỗi hợp đồng/tin đăng (`lib/ai-contract-cards.ts: aiStatusNote/aiSourceNote`). Link do app dựng: chủ nhà `/dashboard/viewing-schedules?appointmentId=…&status=…`, người thuê `/dashboard/viewing-schedules/my-bookings?appointmentId=…&status=…` (`lib/ai-appointment-cards.ts`). Trang đích mở đúng lịch theo id bằng `components/appointment/useAppointmentDeepLink.ts` (id phải là UUID, `status` chỉ là gợi ý đã whitelist, tra qua API danh sách theo quyền; không thấy thì thông báo). Thẻ trong lịch sử là snapshot tại `readAt`; hội thoại cũ không có `appointmentCards` vẫn mở bình thường.
+
+**Kiến thức:** `01`, `05`, `13`, `README` trong `hs-infrastructure/documents/knowledge` được cập nhật ranh giới RAG/Appointment. Sửa Markdown không thay RAG đang chạy — cần Admin upload/apply.
+
+**Test:** Core `AiAppointmentQueryPostgresTest` (PostgreSQL, opt-in qua biến môi trường), `AppointmentAiControllerTest`, `AppointmentActionRulesParityTest`; AI `tests/unit/test_appointment_ask.py`, `test_agent_appointment_route.py`; web `tests/ai-appointment-cards.test.cjs`, `home-ai-chat.test.cjs`. Bộ câu hỏi thủ công: `hs-web-app/docs/AI_APPOINTMENT_TOOL_TEST_QUESTIONS.md`.
+
+**Giới hạn:** không có lịch sử đổi giờ; không có liên hệ; `bookingCount` chỉ đếm yêu cầu; không dự đoán KYC; ngày trong tuần của danh sách tìm kiếm do AI service tính theo đồng hồ VN thật; test PostgreSQL của Core cần container và biến môi trường nên không chạy mặc định.
+
 ## 10. Khởi chạy, kiểm tra và các giới hạn cần nhớ
 
 Chạy trong `D:/Workspace/homespace/hs-ai-service`, sau khi chuẩn bị `.env` và hạ tầng:

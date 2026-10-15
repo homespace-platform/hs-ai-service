@@ -35,6 +35,9 @@ class AskResult:
     # and which sources produced the answer (CORE_CONTRACT / RAG / CORE_LISTING).
     contract_context: dict[str, Any] | None = None
     contract_cards: list[dict[str, Any]] = field(default_factory=list)
+    # Viewing-appointment module: same rules (references only; cards built by application code).
+    appointment_context: dict[str, Any] | None = None
+    appointment_cards: list[dict[str, Any]] = field(default_factory=list)
     data_sources: list[str] = field(default_factory=list)
 
     @property
@@ -47,7 +50,8 @@ class AskResult:
 REALTIME_PATTERNS = [
     re.compile(r"\b(tin đăng|bài đăng)\s+.*(của tôi|được duyệt chưa|trạng thái)\b", re.IGNORECASE),
     re.compile(r"\b(tiền thuê|thanh toán|hóa đơn)\s+.*(tháng này|của tôi|kỳ này)\b", re.IGNORECASE),
-    re.compile(r"\b(hợp đồng|chữ ký|lịch hẹn)\s+.*(của tôi|đã ký chưa|sắp tới)\b", re.IGNORECASE),
+    # Viewing appointments ("lịch hẹn của tôi") are answered by the appointment module before this point.
+    re.compile(r"\b(hợp đồng|chữ ký)\s+.*(của tôi|đã ký chưa|sắp tới)\b", re.IGNORECASE),
     re.compile(r"\b(số dư|ví|tiền cọc)\s+.*(của tôi|còn bao nhiêu)\b", re.IGNORECASE),
 ]
 
@@ -110,7 +114,7 @@ class AskUseCases:
             return AskResult(
                 answer=(
                     "Mình chưa xem được dữ liệu tài khoản hoặc trạng thái cập nhật theo thời gian thực "
-                    "(như tin đăng, hóa đơn, hợp đồng hay lịch hẹn của bạn). "
+                    "(như tin đăng, hóa đơn hay số dư của bạn). "
                     "Bạn hãy kiểm tra mục tương ứng trên HomeSpace; mình vẫn có thể hướng dẫn cách sử dụng nhé."
                 ),
                 status="OUT_OF_SCOPE",

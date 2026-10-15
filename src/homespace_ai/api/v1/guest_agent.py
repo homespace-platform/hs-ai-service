@@ -91,6 +91,7 @@ async def ask(body: GuestAskRequest, request: Request, user=Depends(get_guest_us
              "status": result.status, "listingContext": result.listing_context,
              "listingIds": result.listing_ids, "listingPositions": result.listing_positions,
              "contractContext": result.contract_context, "contractCards": result.contract_cards,
+             "appointmentContext": result.appointment_context, "appointmentCards": result.appointment_cards,
              "dataSources": result.data_sources},
         ])
         state["count"] = reserved["count"]

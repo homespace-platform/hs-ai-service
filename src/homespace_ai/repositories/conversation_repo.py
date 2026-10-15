@@ -128,6 +128,7 @@ class ConversationRepository:
         listing_ids: list[str] | None = None, listing_positions: dict[str, int] | None = None,
         contract_context: dict[str, Any] | None = None, contract_cards: list[dict[str, Any]] | None = None,
         data_sources: list[str] | None = None,
+        appointment_context: dict[str, Any] | None = None, appointment_cards: list[dict[str, Any]] | None = None,
     ) -> bool:
         now = _now()
         message = {
@@ -146,6 +147,10 @@ class ConversationRepository:
                 message["contractContext"] = contract_context  # references only, never facts
             if contract_cards:
                 message["contractCards"] = contract_cards
+            if appointment_context is not None:
+                message["appointmentContext"] = appointment_context  # references only, never facts
+            if appointment_cards:
+                message["appointmentCards"] = appointment_cards  # snapshot at readAt
             if data_sources:
                 message["dataSources"] = data_sources
         result = await self.collection.update_one(
