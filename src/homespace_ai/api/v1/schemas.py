@@ -110,13 +110,36 @@ class AskRequest(BaseModel):
         return self.conversationId or self.conversation_id
 
 
+class ContractCardItem(BaseModel):
+    """Compact card built by the application from a verified Core projection. No link: the web app
+    builds the role-correct route from contractId + askerRole."""
+    contractId: str
+    contractNumber: str
+    property: str | None = None
+    askerRole: str
+    roleLabel: str
+    status: str
+    statusLabel: str
+    leasePhase: str
+    phaseLabel: str
+    leaseStart: str | None = None
+    leaseEndExclusive: str | None = None
+    lastRentalDay: str | None = None
+    readAt: str | None = None
+    source: str = "CORE"
+
+
 class AskResponse(BaseModel):
     answer: str
-    status: str  # ANSWERED, GENERAL_ANSWER, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE
+    # ANSWERED, GENERAL_ANSWER, NO_EVIDENCE, OUT_OF_SCOPE, GENERATION_UNAVAILABLE, TOOL_UNAVAILABLE,
+    # NO_RESULTS, NEEDS_CLARIFICATION, LOGIN_REQUIRED, NOT_FOUND
+    status: str
     citations: list[CitationItem] = Field(default_factory=list)
     requestId: str
     listingIds: list[str] = Field(default_factory=list)
     listingPositions: dict[str, int] = Field(default_factory=dict)
+    contractCards: list[ContractCardItem] = Field(default_factory=list)
+    dataSources: list[str] = Field(default_factory=list)
 
 
 class GuestStateRequest(BaseModel):
@@ -140,6 +163,8 @@ class ConversationMessage(BaseModel):
     createdAt: datetime
     listingIds: list[str] = Field(default_factory=list)
     listingPositions: dict[str, int] = Field(default_factory=dict)
+    contractCards: list[ContractCardItem] = Field(default_factory=list)
+    dataSources: list[str] = Field(default_factory=list)
 
 
 class ConversationSummary(BaseModel):

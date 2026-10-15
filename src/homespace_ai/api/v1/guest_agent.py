@@ -89,7 +89,9 @@ async def ask(body: GuestAskRequest, request: Request, user=Depends(get_guest_us
             {"id": str(uuid4()), "role": "user", "content": question, "createdAt": now},
             {"id": str(uuid4()), "role": "assistant", "content": result.answer, "createdAt": now,
              "status": result.status, "listingContext": result.listing_context,
-             "listingIds": result.listing_ids, "listingPositions": result.listing_positions},
+             "listingIds": result.listing_ids, "listingPositions": result.listing_positions,
+             "contractContext": result.contract_context, "contractCards": result.contract_cards,
+             "dataSources": result.data_sources},
         ])
         state["count"] = reserved["count"]
         return ApiResponse(result=GuestAskResponse(**public_answer(result).result.model_dump(),

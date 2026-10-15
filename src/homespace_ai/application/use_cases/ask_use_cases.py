@@ -31,6 +31,11 @@ class AskResult:
     request_id: str
     listing_context: dict[str, Any] | None = None
     listing_ids: list[str] = field(default_factory=list)
+    # Contract module: references (never facts), cards built by application code from verified Core results,
+    # and which sources produced the answer (CORE_CONTRACT / RAG / CORE_LISTING).
+    contract_context: dict[str, Any] | None = None
+    contract_cards: list[dict[str, Any]] = field(default_factory=list)
+    data_sources: list[str] = field(default_factory=list)
 
     @property
     def listing_positions(self) -> dict[str, int]:

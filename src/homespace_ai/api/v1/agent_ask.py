@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from homespace_ai.api.v1.admin_knowledge import get_embedder
-from homespace_ai.api.v1.schemas import AskRequest, AskResponse, CitationItem
+from homespace_ai.api.v1.schemas import AskRequest, AskResponse, CitationItem, ContractCardItem
 from homespace_ai.application.use_cases.ask_use_cases import AskUseCases, AskResult
+from homespace_ai.application.contract_context import classify
+from homespace_ai.application.use_cases.contract_ask import ContractAsk
 from homespace_ai.application.use_cases.listing_ask import ListingAsk
 from homespace_ai.clients.generative import get_generative_client
 from homespace_ai.clients.gateway import GatewayApiClient
@@ -17,6 +19,7 @@ from homespace_ai.core.security import UserContext, get_current_user
 from homespace_ai.repositories.conversation_repo import get_conversation_repository
 
 router = APIRouter(prefix="/agent", tags=["Agent Ask"])
+GREETING_TEXTS = {"chào", "chào bạn", "xin chào", "hi", "hello", "hey", "chào ai", "chào homespace"}
 
 
 @router.post(
@@ -49,7 +52,8 @@ async def ask_agent(
         if conversation is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
         history = [{"role": message.get("role", "user"), "content": message.get("content", ""),
-                    "status": message.get("status"), "listingContext": message.get("listingContext")}
+                    "status": message.get("status"), "listingContext": message.get("listingContext"),
+                    "contractContext": message.get("contractContext")}
                    for message in conversation.get("messages", [])[-8:]]
         saved = await conversation_repository.append_message(
             user.user_id, conversation_id, role="user", content=question
@@ -69,6 +73,8 @@ async def ask_agent(
             listing_context=result.listing_context,
             listing_ids=result.listing_ids,
             listing_positions=result.listing_positions,
+            contract_context=result.contract_context, contract_cards=result.contract_cards,
+            data_sources=result.data_sources,
         )
     return public_answer(result)
 
@@ -86,6 +92,26 @@ async def generate_answer(
         authority.upper() in {"ADMIN", "ROLE_ADMIN"} for authority in user.authorities
     )
     result = None
+    is_guest = user.user_id.startswith("guest:")
+    if question.strip().lower().strip(" .!?…") not in GREETING_TEXTS and classify(question, history) is not None:
+        # The account's own contracts come first: the personal-data regex in RAG must never answer these.
+        gateway = getattr(request.app.state, "gateway_client", None)
+        temporary_gateway = gateway is None
+        if gateway is None:
+            gateway = GatewayApiClient(str(settings.gateway_base_url), settings.gateway_request_timeout_seconds)
+
+        async def general_guidance(general_question: str) -> AskResult:
+            return await use_cases.ask(question=general_question, user_role="USER", user_name=None,
+                                       locale="vi-VN", conversation_id=conversation_id, request_id=request_id)
+
+        try:
+            result = await ContractAsk(settings, generative_client, gateway, request, is_guest=is_guest,
+                                       rag=general_guidance).try_answer(question, history, request_id)
+        finally:
+            if temporary_gateway:
+                await gateway.aclose()
+        if result is not None:
+            return result
     if generative_client is not None and question.strip().lower().strip(" .!?…") not in {"chào", "chào bạn", "xin chào", "hi", "hello", "hey", "chào ai", "chào homespace"}:
         gateway = getattr(request.app.state, "gateway_client", None)
         temporary_gateway = gateway is None
@@ -132,5 +158,7 @@ def public_answer(result: AskResult) -> ApiResponse[AskResponse]:
             requestId=result.request_id,
             listingIds=result.listing_ids,
             listingPositions=result.listing_positions,
+            contractCards=[ContractCardItem(**card) for card in result.contract_cards],
+            dataSources=result.data_sources,
         ),
     )

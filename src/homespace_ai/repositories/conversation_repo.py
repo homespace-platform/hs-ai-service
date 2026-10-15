@@ -126,6 +126,8 @@ class ConversationRepository:
         self, owner_id: str, conversation_id: str, *, role: str,
         content: str, status: str | None = None, listing_context: dict[str, Any] | None = None,
         listing_ids: list[str] | None = None, listing_positions: dict[str, int] | None = None,
+        contract_context: dict[str, Any] | None = None, contract_cards: list[dict[str, Any]] | None = None,
+        data_sources: list[str] | None = None,
     ) -> bool:
         now = _now()
         message = {
@@ -140,6 +142,12 @@ class ConversationRepository:
         if role == "assistant":
             message["listingIds"] = listing_ids or []
             message["listingPositions"] = listing_positions or {}
+            if contract_context is not None:
+                message["contractContext"] = contract_context  # references only, never facts
+            if contract_cards:
+                message["contractCards"] = contract_cards
+            if data_sources:
+                message["dataSources"] = data_sources
         result = await self.collection.update_one(
             {"_id": conversation_id, **self.owner_filter(owner_id)},
             {"$push": {"messages": message}, "$set": {"updatedAt": now}},

@@ -104,7 +104,7 @@ flowchart TD
 
 ### Phân luồng thực tế, không phải router hoàn toàn do model
 
-- `agent_ask.py` thử `ListingAsk` trước, trừ lời chào chính xác.
+- `agent_ask.py` gọi `classify()` (`application/contract_context.py`) trước: nếu là câu hỏi hợp đồng cá nhân → `ContractAsk` (mục 9b), không đi qua regex “realtime/cá nhân → OUT_OF_SCOPE` và không bị lịch sử listing kéo sang nhánh Listing. Ngược lại mới thử `ListingAsk`, trừ lời chào chính xác.
 - Câu hỗ trợ như “HomeSpace là gì”, “cách đăng tin”, “cách đặt lịch”, “cách thanh toán”, “điều khoản sử dụng” có nhánh regex ưu tiên RAG nếu không đồng thời có tín hiệu tìm kiếm.
 - Follow-up rõ ràng (chọn phòng phù hợp/rẻ nhất, so sánh tập đang xét, phòng theo số thứ tự) dùng ID đã biết để đọc lại Core, bỏ qua catalog/planner. Câu tìm mới vẫn qua planner; câu hỏi ngữ nghĩa khác nhận thêm `DISPLAYED_SELECTION` ngoài text history để model định tuyến.
 - Không chọn tool khác với lỗi API: hỏi làm rõ khi cần, không dùng RAG bịa facts listing. Log `listing_plan_missing` hoặc `listing_request_failed` kèm request_id/stage/error_type/http_status; không log prompt, token, body hay hội thoại.
@@ -148,6 +148,9 @@ Khách dùng `POST /api/v1/ai/guest/agent/ask` → `/guest/agent/ask`, thêm `gu
 | `NO_RESULTS` | Tìm listing không có kết quả phù hợp sau các bước hiện có |
 | `NO_EVIDENCE` | RAG không có evidence phù hợp/đủ để trả lời |
 | `OUT_OF_SCOPE` | Yêu cầu dữ liệu cá nhân/realtime ngoài các tools đang hỗ trợ |
+| `LOGIN_REQUIRED` | Hỏi hợp đồng cá nhân nhưng chưa đăng nhập (khách) hoặc Core trả 401 |
+| `NEEDS_CLARIFICATION` | Nhiều hợp đồng phù hợp (“hợp đồng hiện tại” mơ hồ): trả danh sách ngắn để chọn |
+| `NOT_FOUND` | Hợp đồng không tồn tại hoặc không thuộc tài khoản (cùng một phản hồi cho cả hai) |
 | `TOOL_UNAVAILABLE` | Không lập/thực thi được kế hoạch listing đáng tin cậy |
 | `GENERATION_UNAVAILABLE` | Có thể đã lấy được dữ liệu nhưng không tạo được đáp án hoàn chỉnh |
 
@@ -424,6 +427,24 @@ Các repo liên quan, tính từ `D:/Workspace/homespace/`:
 
 Thứ tự ưu tiên khi thông tin mâu thuẫn: **source/config đang dùng → migration/contracts/tests → tài liệu context này → README/đề xuất cũ**.
 
+## 9b. Nguồn thứ ba: hợp đồng của tài khoản (chỉ đọc)
+
+**Ba nguồn tách biệt:** RAG (kiến thức chung, public/admin ACL), Listing tools (tin công khai), Contract tools (hợp đồng của chính tài khoản đăng nhập). Câu kết hợp (“có thể gia hạn lúc này không, làm thế nào?”) = Contract + RAG: phần cá nhân từ Core, phần hướng dẫn chung từ RAG, trình bày thành hai mục có nhãn; RAG chỉ nhận câu hỏi chung đã viết lại (không có dữ kiện cá nhân), citation chỉ thuộc phần RAG; Core lỗi thì không gọi RAG.
+
+**Định tuyến (code, không do model):** `classify(question, history)` trả `CONTRACT`, `CONTRACT_AND_RAG` hoặc `None`. “Ký hợp đồng như thế nào?” → RAG; “hợp đồng của tôi đã ký đủ chưa?” → Contract; tìm phòng → Listing; follow-up (“hợp đồng thứ 2”, “cái đó”) chỉ nhận khi lượt assistant gần nhất là hợp đồng.
+
+**Core API (`ContractAiController`, `/api/v1/contracts/ai/*`, GET, đọc-only, không `syncLocked`):** `summary`, `search`, `items/{id}`, `items/{id}/terms|amendments|lifecycle|financial`. User id lấy từ `UserContextHolder`, không nhận từ client. Chỉ hợp đồng gốc mà user là chủ nhà/người thuê (bản nháp bên thuê, hợp đồng con, không hoạt động bị loại); count/search/detail dùng cùng phạm vi; thống kê trên toàn tập, phân trang/whitelist; Core tính tổng, hạn, điều kiện gia hạn; tiền là chuỗi chính xác; ngày theo `BillingTime`, ngày kết thúc exclusive; điều khoản hiện hành chọn qua `ContractTermsResolver` (phụ lục chưa ký/bị thay/từ chối/rút không bao giờ là hiện hành); hóa đơn dùng snapshot đã đóng băng; “đã báo chuyển” ≠ “đã xác nhận nhận”; thiếu dữ liệu trả `null` tường minh; không lộ số giấy tờ/tài khoản ngân hàng. Mọi lỗi truy cập trả cùng `CONTRACT_NOT_FOUND`.
+
+**Tools AI (`tools/contracts.py`):** `summarize_my_contracts`, `search_my_contracts`, `get_contract_detail`, `get_contract_terms`, `get_contract_amendments`, `get_contract_lifecycle`, `get_contract_financial_summary`; schema strict, từ chối khóa/tool lạ, chỉ GET tới `/api/v1/contracts/ai…` qua Gateway kèm Authorization của người dùng; khách không bao giờ chạm Core. Planner (`clients/contract_tool_planner.py`) chỉ thấy tên tool và id đã xác minh; giới hạn `MAX_MODEL_ROUNDS=3`, `MAX_TOOL_CALLS=6`, `TOTAL_TIMEOUT_SECONDS=40`, `MAX_CARDS=5`, evidence ≤60k ký tự. Có tham chiếu đã xác minh (ordinal/số hợp đồng/đã chọn) thì bỏ qua planner; đếm/liệt kê trả lời tất định.
+
+**Ngữ cảnh hội thoại:** `contractContext` (chỉ id/số hợp đồng/lựa chọn/vai trò/ngày tham chiếu, không lưu dữ kiện) tách khỏi `listingContext`, không lộ trong response công khai; mỗi lượt đọc lại dữ liệu và quyền từ Core.
+
+**Response/frontend:** thêm `contractCards`, `dataSources` (`CORE_CONTRACT`, `RAG`). Link thẻ do app dựng theo vai trò (`/dashboard/{tenant|landlord}/contracts/{id}`) trong `hs-web-app/lib/ai-contract-cards.ts`; output model bị lọc link/URL/route/UUID. Trạng thái: chưa đăng nhập, cần làm rõ, không có kết quả, thiếu dữ liệu, lỗi tool/Core/provider được hiển thị riêng, lỗi không bị biến thành “không có hợp đồng”.
+
+**Kiến thức:** các tài liệu `01`, `07`, `08`, `13`, `14`, `README` trong `hs-infrastructure/documents/knowledge` mô tả ranh giới RAG/Contract; sửa Markdown không thay RAG đang chạy — cần Admin upload/apply (xem README).
+
+**Test:** Core `AiContractQueryServiceTest` (19); AI `tests/unit/test_contract_ask.py`, `test_agent_contract_route.py`; web `tests/ai-contract-cards.test.cjs`, `home-ai-chat.test.cjs`.
+
 ## 10. Khởi chạy, kiểm tra và các giới hạn cần nhớ
 
 Chạy trong `D:/Workspace/homespace/hs-ai-service`, sau khi chuẩn bị `.env` và hạ tầng:
@@ -461,10 +482,11 @@ Default local endpoints: AI 8084, Gateway 8080, Eureka 8761, PostgreSQL AI 5433,
 5. Không phải mọi field detail đều searchable; không có filter district hoặc OR tree.
 6. Citation validation chưa kiểm chứng đúng/sai từng claim; listing generation vẫn cần eval chống suy diễn facts/missing data.
 7. Full public evidence vẫn chịu context/token/rate limits; retry không giải quyết được mọi input payload quá lớn và có thể tăng phí.
-8. Không có SSE, chưa có private account tools, không có nghiệp vụ đặt lịch/thanh toán tự động từ AI.
+8. Không có SSE; ngoài công cụ hợp đồng chỉ-đọc (mục 9b) chưa có private account tools khác; không có nghiệp vụ đặt lịch/thanh toán/ký/gia hạn tự động từ AI.
+8b. Hợp đồng: thẻ hợp đồng lưu trong lịch sử là snapshot tại `readAt`, không live; hai tab cùng hội thoại phụ thuộc thứ tự append của Mongo; truy vấn JPQL của Core mới được test bằng mock/annotation, chưa chạy trên DB thật; planner LLM mới test bằng fake (không gọi paid); phân luồng hợp đồng vẫn là regex + ngữ cảnh, không bảo đảm đúng cho mọi câu tiếng Việt.
 9. Validation logs chỉ ghi path/type/loc/msg, không body/input/signed state. Account Mongo messages array chưa giới hạn cần đánh giá riêng về vận hành. Trial cookie + IP quotas không phải giải pháp chống bot đầy đủ; xóa cookie/đổi IP có thể tạo trial khác, production cần trusted proxy policy/CAPTCHA khi cần.
 10. Tài liệu này không là chỉ thị triển khai các mục còn thiếu; chỉ ghi nhận trạng thái để tránh AI agent tự thêm tính năng ngoài yêu cầu.
 
 ## 11. Context ngắn để đưa cho AI agent lần sau
 
-> HomeSpace AI là FastAPI sau Gateway/Eureka. `/api/v1/ai/agent/ask` điều phối hybrid heuristic + native OpenAI planner. Listing tools read-only gọi Core qua Gateway/JWT; Core whitelist field/operator, parameterized SQL, chỉ active/PUBLISHED/chưa hết hạn; không có personal contract/payment tools. Mongo lưu owned history và internal `listingContext` gồm scope ID/thứ tự, không lưu facts. Follow-up rõ ràng đọc lại Core, không cần planner call; tìm mới dùng planner. Legacy chat khôi phục scope từ Markdown trước truncation. Model nhận selectionScope + nhu cầu gần đây; ranking/tính toán có căn cứ, không đánh đồng tiền thuê với tổng chi phí, không bịa missing fields. Generated listing answers dùng strict JSON `answer` + enum `listingIds` từ evidence, backend kiểm tra lại. Public response/history có listingIds/listingPositions cho card, riêng với scope cả nhóm. Web hydrate public detail, lazy + dedup in-flight + tối đa 3 concurrent; tin ẩn/hết hạn có placeholder, lỗi mạng retry; không cache facts giữa lần mở lại. AiListingCompactCard (hàng ngang, không ảnh lớn/footer) và link legacy mở tab mới, giữ chat. Templates không viết danh sách link/card facts, so sánh vẫn Markdown GFM. Logs phân biệt catalog/planning/execution/generation bằng request_id, không log nội dung/secret. RAG: APPROVED + active PUBLISHED, PostgreSQL AI/pgvector, E5 local CPU 384. Admin upload/edit theo filename tăng version, activate thành công mới xóa vectors cũ. OpenAI Responses: RAG gpt-4o-mini; planner/listing gpt-4.1-mini. Không Gemini/Groq, không OpenAI embedding, không compact public listing evidence. Context 8 messages, chưa có structured preferences dài hạn/concurrency serialization. JSON không streaming. Giữ secrets trong env ignored; không chạy paid test/commit/push ngoài yêu cầu. Đối chiếu code/config trước khi tiếp tục.
+> HomeSpace AI là FastAPI sau Gateway/Eureka. `/api/v1/ai/agent/ask` điều phối hybrid heuristic + native OpenAI planner. Listing tools read-only gọi Core qua Gateway/JWT; Core whitelist field/operator, parameterized SQL, chỉ active/PUBLISHED/chưa hết hạn; có contract tools chỉ-đọc cho hợp đồng của chính user đăng nhập (mục 9b), không có payment tools hay thao tác ghi. Mongo lưu owned history và internal `listingContext` gồm scope ID/thứ tự, không lưu facts. Follow-up rõ ràng đọc lại Core, không cần planner call; tìm mới dùng planner. Legacy chat khôi phục scope từ Markdown trước truncation. Model nhận selectionScope + nhu cầu gần đây; ranking/tính toán có căn cứ, không đánh đồng tiền thuê với tổng chi phí, không bịa missing fields. Generated listing answers dùng strict JSON `answer` + enum `listingIds` từ evidence, backend kiểm tra lại. Public response/history có listingIds/listingPositions cho card, riêng với scope cả nhóm. Web hydrate public detail, lazy + dedup in-flight + tối đa 3 concurrent; tin ẩn/hết hạn có placeholder, lỗi mạng retry; không cache facts giữa lần mở lại. AiListingCompactCard (hàng ngang, không ảnh lớn/footer) và link legacy mở tab mới, giữ chat. Templates không viết danh sách link/card facts, so sánh vẫn Markdown GFM. Logs phân biệt catalog/planning/execution/generation bằng request_id, không log nội dung/secret. RAG: APPROVED + active PUBLISHED, PostgreSQL AI/pgvector, E5 local CPU 384. Admin upload/edit theo filename tăng version, activate thành công mới xóa vectors cũ. OpenAI Responses: RAG gpt-4o-mini; planner/listing gpt-4.1-mini. Không Gemini/Groq, không OpenAI embedding, không compact public listing evidence. Context 8 messages, chưa có structured preferences dài hạn/concurrency serialization. JSON không streaming. Giữ secrets trong env ignored; không chạy paid test/commit/push ngoài yêu cầu. Đối chiếu code/config trước khi tiếp tục.
