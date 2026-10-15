@@ -102,6 +102,7 @@ class ListingAsk:
                     raise ListingToolError("Core search and detail disagree on listing category")
                 evidence: dict[str, Any] = {"total": search.get("total"), "readAt": search.get("readAt"),
                                              "filters": plan.arguments.get("filters"),
+                                             "keyword": plan.arguments.get("keyword"),
                                              "relaxedFilters": relaxed, "listings": listings}
             elif plan.name == "get_listing_detail":
                 listing = await self.tools.detail(plan.arguments["listingId"])
@@ -309,7 +310,9 @@ class ListingAsk:
             relaxed = relaxed_labels(evidence["relaxedFilters"])
             intro = f"Mình chưa thấy tin khớp đủ mọi tiêu chí. Sau khi nới điều kiện {relaxed}, có lựa chọn gần với yêu cầu của bạn:"
         else:
-            intro = f"Mình tìm thấy {total} {category_name} đang hiển thị" + (f" tại {ward}" if ward else "") + ":"
+            keyword = evidence.get("keyword")
+            where = f" có nhắc đến “{keyword}”" if keyword else (f" tại {ward}" if ward else "")
+            intro = f"Mình tìm thấy {total} {category_name} đang hiển thị{where}:"
         lines = [intro]
         shown = listings[:4]
         lines.append(f"Bạn xem {len(shown)} lựa chọn bên dưới nhé; bấm vào thẻ sẽ mở chi tiết ở tab mới.")

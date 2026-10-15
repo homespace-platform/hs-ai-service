@@ -30,6 +30,9 @@ class ListingTools:
             raise ListingToolError("Invalid listing filters")
         payload = {"filters": filters, "sort": arguments.get("sort", "newest"),
                    "limit": min(max(int(arguments.get("limit") or 5), 1), 5)}
+        keyword = arguments.get("keyword")
+        if isinstance(keyword, str) and keyword.strip():
+            payload["keyword"] = keyword.strip()[:160]
         response = await self.gateway.request("POST", f"{self.base_path}/search",
                                               request=self.request, json=payload)
         return self._result(response)

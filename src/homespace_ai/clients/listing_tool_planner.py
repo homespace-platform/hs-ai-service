@@ -28,9 +28,19 @@ _SEARCH_PARAMETERS: dict[str, Any] = {
         }, "required": ["field", "op", "value"]}},
         "sort": {"type": "string", "enum": ["newest", "price_asc", "price_desc", "area_asc", "area_desc"]},
         "limit": {"type": "integer"},
+        "keyword": {"type": ["string", "null"]},
     },
     "required": ["filters"],
 }
+
+# "gần <địa danh>" where the place is a landmark (university, hospital, market, metro...) rather than an
+# administrative unit. Core stores landmarks only in title/description/address text, so use keyword search.
+_NEAR = re.compile(r"\b(?:gần|cạnh|sát|quanh|khu vực)\s+(?!phường\b|xã\b|đặc khu\b|quận\b|huyện\b|thành phố\b|tỉnh\b)"
+                   r"(?P<place>(?:[^,;?!\n.]|\.(?=\S)){3,80})", re.IGNORECASE)
+_PROVINCE_TAIL = re.compile(r"\s*(?:,|\b)\s*(?:thành phố|tp\.?|tỉnh)?\s*(?:hồ chí minh|hcm|tp\.?\s*hcm|sài gòn)\s*$",
+                            re.IGNORECASE)
+_TRAILING_NEEDS = re.compile(r"\s+(?:giá|dưới|trên|khoảng|từ|có|không|với|và|để|cho|ở|tầm|diện tích)\b.*$",
+                             re.IGNORECASE)
 
 _DETAIL_PARAMETERS: dict[str, Any] = {
     "type": "object",
@@ -146,7 +156,33 @@ class ListingToolPlanner:
                                "value": "NONE" if parking_forbidden else "FREE" if parking_free else "PAID" if parking_paid else "NONE"})
         if len(normalized) > 24:
             raise GenerationUnavailableError("Too many listing filters.", retryable=False)
-        return ToolPlan(plan.name, {**plan.arguments, "filters": normalized})
+
+        keyword = plan.arguments.get("keyword")
+        keyword = keyword.strip() if isinstance(keyword, str) else ""
+        if not keyword:
+            near = _NEAR.search(question)
+            if near:
+                keyword = _TRAILING_NEEDS.sub("", near["place"]).strip()
+                keyword = _PROVINCE_TAIL.sub("", keyword).strip(" -,")
+                if len(keyword) < 3:
+                    keyword = ""
+        if keyword:
+            # A landmark is not an administrative unit: ward/street guesses derived from it
+            # silently exclude the listings that actually mention the landmark.
+            def mentioned(value: str) -> bool:
+                return (value.lower() not in keyword.lower()
+                        and bool(re.search(re.escape(value), question, re.IGNORECASE)))
+            normalized = [item for item in normalized
+                          if not (item["field"] in {"ward_name", "ward_code", "street_line", "full_address"}
+                                  and not mentioned(item["value"]))
+                          and not (item["field"] in {"title", "description"} and item["op"] == "contains"
+                                   and keyword.lower() in item["value"].lower())]
+        arguments = {**plan.arguments, "filters": normalized}
+        if keyword:
+            arguments["keyword"] = keyword[:160]
+        else:
+            arguments.pop("keyword", None)
+        return ToolPlan(plan.name, arguments)
 
     @staticmethod
     def _instructions(fields: dict[str, str]) -> str:
@@ -180,6 +216,11 @@ class ListingToolPlanner:
             "A request for parking availability does not imply paid or free parking. "
             "A request for any balcony means room.has_balcony=true, not a guessed PRIVATE balcony type. "
             "Never add a condition the user did not request. "
+            "LANDMARKS: when the user wants a place NEAR a landmark (university, hospital, market, metro, "
+            "company, park, e.g. 'gần ĐH Quốc gia TP.HCM Thủ Đức') put the landmark text, exactly as the user wrote it "
+            "without 'gần' and without city/province, into the 'keyword' argument (otherwise null). It is matched against "
+            "title, description and address. Do NOT convert a landmark into ward_name, street_line or any administrative "
+            "filter, and do not guess a ward. Use ward_name/province_name filters only for Phường/Xã/Thành phố/Tỉnh the user named. "
             "Return at most one tool call. Available fields: " + catalog
         )
 
@@ -205,6 +246,7 @@ class ListingToolPlanner:
                 parameters["properties"]["filters"]["items"]["additionalProperties"] = False
                 parameters["properties"]["filters"]["maxItems"] = 24
                 parameters["properties"]["limit"].update({"minimum": 1, "maximum": 5})
+                parameters["properties"]["keyword"] = {"type": ["string", "null"], "maxLength": 160}
             elif name == "get_listing_details":
                 parameters["properties"]["listingIds"].update({"minItems": 2, "maxItems": 5})
             tools.append({"type": "function", "name": name, "description": description,
