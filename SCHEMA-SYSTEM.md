@@ -1,5 +1,9 @@
 # HomeSpace AI — sơ đồ hệ thống và bộ nhớ context
 
+## Cập nhật nhận nhà 21/10/2026
+
+Core tách RESERVATION_DEPOSIT (cọc trước ngày nhận nhà) khỏi INITIAL (tiền tháng đầu), trường hợp nhận nhà ngay có thể gộp INITIAL cả hai. Contract AI financial trả thêm onboardingPayments có trạng thái từng khoản; không suy từ cọc CONFIRMED thành đã trả tháng đầu. Khi hai bên duyệt đề nghị bắt đầu sớm, ngày thuê và lịch hóa đơn đổi theo ngày mới. Dữ liệu luôn đọc lại Core. AI chỉ hỏi đáp, không gọi endpoint ghi của RentalOnboardingController. Nguồn RAG 06/07/08/13 đã cập nhật trên đĩa, cần Admin upload/apply để thay knowledge runtime. Xem hs-web-app/docs/RENTAL_ONBOARDING_TEST_CASES.md. Đồng hồ nghiệp vụ onboarding dùng BillingTime; bảo mật/SmartCA/token upload vẫn dùng giờ thực.
+
 > Cập nhật: **11/10/2026**. Đối chiếu source code hiện có trong workspace, bao gồm thay đổi local chưa commit. Đây là tài liệu context bền vững của dự án, không phải xác nhận trạng thái triển khai production hay memory toàn cục của AI.
 >
 > Khi tiếp tục công việc, đọc file này trước, rồi đối chiếu lại code/config nếu chúng đã thay đổi. Không dùng các đề xuất kiến trúc cũ làm bằng chứng rằng một tính năng đã triển khai.
