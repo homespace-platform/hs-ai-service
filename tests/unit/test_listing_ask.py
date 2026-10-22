@@ -258,3 +258,13 @@ def test_multiple_categories_are_not_forced_to_one():
     assert not any(item["field"] == "category" for item in out.arguments["filters"])
     out = ListingToolPlanner._normalize_search("tìm phòng trọ ở An Nhơn", plan, fields)
     assert {"field": "category", "op": "eq", "value": "ROOM"} in out.arguments["filters"]
+
+
+def test_street_equality_from_model_becomes_contains_without_road_prefix():
+    from homespace_ai.clients.listing_tool_planner import ListingToolPlanner
+    fields = {"category": "TEXT", "street": "TEXT", "room.max_occupants": "INTEGER"}
+    plan = ToolPlan("search_listings", {"filters": [
+        {"field": "street", "op": "eq", "value": "Đường Phan Văn Trị"},
+        {"field": "room.max_occupants", "op": "gte", "value": "2"}]})
+    out = ListingToolPlanner._normalize_search("Tìm phòng trọ cho 2 người ở đường Phan Văn Trị", plan, fields)
+    assert {"field": "street", "op": "contains", "value": "Phan Văn Trị"} in out.arguments["filters"]

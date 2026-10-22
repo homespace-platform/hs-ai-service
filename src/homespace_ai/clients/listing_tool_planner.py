@@ -146,6 +146,11 @@ class ListingToolPlanner:
                     else:
                         # Core stores full administrative names; equality with a bare name is a false negative.
                         op = "contains"
+            if field in {"street", "display"} and op == "eq":
+                # Core stores "Đường Phan Văn Trị"; the user/model says "Phan Văn Trị". Equality is a false
+                # negative, so match the street name as a case-insensitive substring without the road prefix.
+                value = re.sub(r"^(?:đường|phố|hẻm|ngõ|đ\.)\s+", "", value, flags=re.IGNORECASE).strip()
+                op = "contains"
             # Do not narrow a generic balcony request to PRIVATE merely because the model guessed it.
             if field == "room.balcony_type" and balcony_mentioned:
                 if re.search(r"ban công riêng", question, re.IGNORECASE):
