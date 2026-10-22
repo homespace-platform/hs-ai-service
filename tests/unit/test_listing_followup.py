@@ -114,7 +114,7 @@ async def test_rag_policy_after_comparison_is_not_forced_into_old_selection():
 @pytest.mark.asyncio
 async def test_bare_location_change_uses_new_search_instead_of_old_scope():
     assistant = make_assistant(ToolPlan("search_listings", {"filters": [
-        {"field": "ward_name", "op": "eq", "value": "Phường An Nhơn"}]}))
+        {"field": "ward", "op": "eq", "value": "Phường An Nhơn"}]}))
     assistant.tools = CurrentTools()
     result = await assistant.try_answer("Tôi muốn ở An Nhơn, nên chọn phòng nào rẻ nhất?", previous(), "new-area")
     assert result.status == "ANSWERED"

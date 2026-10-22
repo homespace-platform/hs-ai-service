@@ -118,14 +118,14 @@ async def test_browse_answer_only_returns_matching_category_ids_and_skips_card_f
     house_id = "00000000-0000-0000-0000-000000000002"
     assistant = make_assistant(ToolPlan("search_listings", {"filters": [
         {"field": "category", "op": "eq", "value": "ROOM"},
-        {"field": "ward_name", "op": "contains", "value": "Phú Lợi"},
+        {"field": "ward", "op": "contains", "value": "Phú Lợi"},
     ]}), ids=[room_id, house_id])
     class MixedTools(FakeTools):
         async def detail(self, listing_id):
             return {"id": listing_id, "title": "Phòng Phú Lợi" if listing_id == room_id else "Nhà Phú Lợi",
                     "category": "ROOM" if listing_id == room_id else "HOUSE", "areaM2": 23,
                     "pricing": {"amount": 3360000, "unit": "ROOM_MONTH", "depositMonths": 3},
-                    "address": {"wardName": "Phường Phú Lợi"},
+                    "address": {"ward": "Phường Phú Lợi"},
                     "roomDetail": {"balconyType": "PRIVATE"}}
     assistant.tools = MixedTools([room_id, house_id])
     result = await assistant.try_answer("Tìm phòng khu vực Phú Lợi", [], "req-browse")

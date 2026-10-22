@@ -115,8 +115,8 @@ class ListingToolPlanner:
             if field.endswith(".max_occupants") and occupants and op == "eq" and not re.search(
                     r"tối đa|sức chứa|chỉ cho", question, re.IGNORECASE):
                 value, op = occupants[1], "gte"
-            if field in {"ward_name", "province_name"} and op == "eq":
-                prefixes = r"Phường|Xã|Đặc khu" if field == "ward_name" else r"Thành phố|Tỉnh"
+            if field in {"ward", "city"} and op == "eq":
+                prefixes = r"Phường|Xã|Đặc khu" if field == "ward" else r"Thành phố|Tỉnh"
                 if not re.match(rf"(?:{prefixes})\s", value, re.IGNORECASE):
                     mention = re.search(rf"\b({prefixes})\s+{re.escape(value)}\b", question, re.IGNORECASE)
                     if not mention:
@@ -173,7 +173,7 @@ class ListingToolPlanner:
                 return (value.lower() not in keyword.lower()
                         and bool(re.search(re.escape(value), question, re.IGNORECASE)))
             normalized = [item for item in normalized
-                          if not (item["field"] in {"ward_name", "ward_code", "street_line", "full_address"}
+                          if not (item["field"] in {"ward", "ward_id", "street", "display"}
                                   and not mentioned(item["value"]))
                           and not (item["field"] in {"title", "description"} and item["op"] == "contains"
                                    and keyword.lower() in item["value"].lower())]
@@ -219,8 +219,8 @@ class ListingToolPlanner:
             "LANDMARKS: when the user wants a place NEAR a landmark (university, hospital, market, metro, "
             "company, park, e.g. 'gần ĐH Quốc gia TP.HCM Thủ Đức') put the landmark text, exactly as the user wrote it "
             "without 'gần' and without city/province, into the 'keyword' argument (otherwise null). It is matched against "
-            "title, description and address. Do NOT convert a landmark into ward_name, street_line or any administrative "
-            "filter, and do not guess a ward. Use ward_name/province_name filters only for Phường/Xã/Thành phố/Tỉnh the user named. "
+            "title, description and address. Do NOT convert a landmark into ward, street or any administrative "
+            "filter, and do not guess a ward. Use ward/city filters only for Phường/Xã/Thành phố/Tỉnh the user named. "
             "Return at most one tool call. Available fields: " + catalog
         )
 

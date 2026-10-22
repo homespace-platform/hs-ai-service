@@ -76,7 +76,7 @@ class ListingAsk:
                     original_filters = plan.arguments.get("filters") or []
                     for index in range(len(original_filters) - 1, -1, -1):
                         field = original_filters[index].get("field", "") if isinstance(original_filters[index], dict) else ""
-                        if field in {"category", "province_code", "province_name", "ward_code", "ward_name"}:
+                        if field in {"category", "city_id", "city", "ward_id", "ward"}:
                             continue
                         remaining = original_filters[:index] + original_filters[index + 1:]
                         if not remaining:
@@ -303,7 +303,7 @@ class ListingAsk:
         first = listings[0]
         category_name = {"ROOM": "phòng trọ", "HOUSE": "nhà nguyên căn", "APARTMENT": "căn hộ"}.get(
             first.get("category"), "tin đăng")
-        wards = {item.get("address", {}).get("wardName") for item in listings}
+        wards = {item.get("address", {}).get("ward") for item in listings}
         ward = next(iter(wards)) if len(wards) == 1 else None
         total = evidence.get("total") or len(listings)
         if evidence.get("relaxedFilters"):

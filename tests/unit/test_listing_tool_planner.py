@@ -96,13 +96,13 @@ async def test_normalizes_real_room_question_without_inventing_paid_parking(monk
     planner = ListingToolPlanner(config())
     async def fake_post(payload):
         return call("search_listings", {"filters": [
-            {"field": "ward_name", "op": "eq", "value": "Phú Lợi"},
+            {"field": "ward", "op": "eq", "value": "Phú Lợi"},
             {"field": "room.balcony_type", "op": "contains", "value": "ban công"},
             {"field": "charge.MOTORBIKE_PARKING.included_in_rent", "op": "eq", "value": "false"},
         ]})
     monkeypatch.setattr(planner, "_post", fake_post)
     fields = {field: kind for field, kind in [
-        ("ward_name", "TEXT"), ("room.balcony_type", "TEXT"),
+        ("ward", "TEXT"), ("room.balcony_type", "TEXT"),
         ("room.has_balcony", "BOOLEAN"), ("room.parking_policy", "TEXT"),
         ("category", "TEXT"), ("charge.MOTORBIKE_PARKING.included_in_rent", "BOOLEAN"),
     ]}
@@ -111,7 +111,7 @@ async def test_normalizes_real_room_question_without_inventing_paid_parking(monk
         [], fields,
     )
     assert result.arguments["filters"] == [
-        {"field": "ward_name", "op": "eq", "value": "Phường Phú Lợi"},
+        {"field": "ward", "op": "eq", "value": "Phường Phú Lợi"},
         {"field": "room.has_balcony", "op": "eq", "value": "true"},
         {"field": "category", "op": "eq", "value": "ROOM"},
         {"field": "room.parking_policy", "op": "ne", "value": "NONE"},
@@ -130,25 +130,25 @@ def test_generic_balcony_does_not_assume_private():
 
 
 def test_bare_ward_uses_current_or_prior_full_name():
-    plan = ToolPlan("search_listings", {"filters": [{"field": "ward_name", "op": "eq", "value": "Phú Lợi"}]})
-    fields = {"ward_name": "TEXT"}
+    plan = ToolPlan("search_listings", {"filters": [{"field": "ward", "op": "eq", "value": "Phú Lợi"}]})
+    fields = {"ward": "TEXT"}
     without_history = ListingToolPlanner._normalize_search("Tìm phòng ở Phú Lợi", plan, fields)
     assert without_history.arguments["filters"] == [
-        {"field": "ward_name", "op": "contains", "value": "Phú Lợi"}
+        {"field": "ward", "op": "contains", "value": "Phú Lợi"}
     ]
     with_history = ListingToolPlanner._normalize_search("Tìm phòng ở Phú Lợi", plan, fields, [
         {"role": "user", "content": "Tìm phòng trọ tại Phường Phú Lợi, Thành phố Hồ Chí Minh"}
     ])
     assert with_history.arguments["filters"] == [
-        {"field": "ward_name", "op": "eq", "value": "Phường Phú Lợi"}
+        {"field": "ward", "op": "eq", "value": "Phường Phú Lợi"}
     ]
 
 
 def test_generic_phong_search_is_room_not_house():
     result = ListingToolPlanner._normalize_search(
         "Tìm phòng khu vực Phú Lợi", ToolPlan("search_listings", {"filters": [
-            {"field": "ward_name", "op": "eq", "value": "Phú Lợi"}
-        ]}), {"ward_name": "TEXT", "category": "TEXT"})
+            {"field": "ward", "op": "eq", "value": "Phú Lợi"}
+        ]}), {"ward": "TEXT", "category": "TEXT"})
     assert {"field": "category", "op": "eq", "value": "ROOM"} in result.arguments["filters"]
 
 

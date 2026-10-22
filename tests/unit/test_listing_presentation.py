@@ -45,7 +45,7 @@ def test_presentation_keeps_bullet_spacing_emphasis_and_comparison_tables():
 @pytest.mark.parametrize("fields,expected", [
     (["house.has_rooftop"], "sân thượng"),
     (["amenity.PARKING", "room.parking_policy"], "chỗ gửi xe"),
-    (["full_address"], "địa chỉ"),
+    (["display"], "địa chỉ"),
     (["charge.MOTORBIKE_PARKING.amount"], "phí gửi xe máy"),
     (["furnishing.BED.quantity"], "số lượng giường"),
     (["new.private_field"], "một tiêu chí bổ sung"),
