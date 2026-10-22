@@ -15,11 +15,19 @@ from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
 from homespace_ai.core.config import Settings
 from homespace_ai.tools.listings import ListingToolError, ListingTools
+from homespace_ai.application.vietnamese_text import VietnamesePattern
+from homespace_ai.application.listing_location import LocationClarification
+from homespace_ai.application.listing_evidence import compact_search_listing
+from homespace_ai.application.listing_limits import max_results, requested_count, search_limit, ABSOLUTE_MAX_RESULTS
 
 
-LISTING_SIGNAL = re.compile(r"(tìm|kiếm|còn|so sánh|phòng|căn hộ|nhà|tin đăng|bài đăng|gửi xe|nội thất|tiện ích)", re.IGNORECASE)
-SEARCH_INTENT = re.compile(r"(tìm|kiếm|còn phòng|phòng nào|căn nào|nhà nào|so sánh)", re.IGNORECASE)
-SUPPORT_INTENT = re.compile(r"(homespace là|cách đăng tin|hướng dẫn đăng tin|cách đặt lịch|cách thanh toán|điều khoản sử dụng|chính sách homespace|hợp đồng điện tử)", re.IGNORECASE)
+LISTING_SIGNAL = VietnamesePattern(
+    r"\b(tìm|kiếm|còn|so sánh|phòng|căn hộ|chung cư|studio|nhà|trọ|chỗ ở|nơi ở|chỗ thuê|thuê|tin đăng|bài đăng|"
+    r"gửi xe|nội thất|tiện ích|ngân sách|triệu|tr/tháng|giá rẻ|rẻ nhất|ở ghép|ở một mình)\b")
+SEARCH_INTENT = VietnamesePattern(
+    r"\b(tìm|kiếm|còn phòng|phòng nào|căn nào|nhà nào|so sánh|cần thuê|muốn thuê|cần tìm|muốn tìm|"
+    r"chỗ ở|nơi ở|chỗ thuê|cần chỗ|kiếm chỗ)\b")
+SUPPORT_INTENT = VietnamesePattern(r"(homespace là|cách đăng tin|hướng dẫn đăng tin|cách đặt lịch|cách thanh toán|điều khoản sử dụng|chính sách homespace|hợp đồng điện tử)")
 logger = structlog.get_logger(__name__)
 
 
@@ -28,7 +36,7 @@ class ListingAsk:
                  gateway: GatewayApiClient, request: Request) -> None:
         self.settings = settings
         self.generative_client = generative_client
-        self.tools = ListingTools(gateway, request)
+        self.tools = ListingTools(gateway, request, max_results(settings))
         self.planner = ListingToolPlanner(settings)
 
     async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
@@ -38,7 +46,7 @@ class ListingAsk:
         selection = scoped_selection(question, history)
         if selection == []:
             return self._clarify(request_id, scope)
-        if selection is None and not LISTING_SIGNAL.search(question) and not any(
+        if selection is None and requested_count(question) is None and not LISTING_SIGNAL.search(question) and not any(
                 LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
             return None
         stage = "field_catalog"
@@ -52,6 +60,9 @@ class ListingAsk:
                 fields = await self.tools.fields()
                 stage = "tool_planning"
                 plan = await self.planner.plan(question, history, fields)
+        except LocationClarification as error:
+            return AskResult(answer=str(error), status='ANSWERED', citations=[], request_id=request_id,
+                             listing_context=context_for(scope))
         except (ListingToolError, GenerationUnavailableError, HTTPException) as error:
             self._log_failure(request_id, stage, error)
             if LISTING_SIGNAL.search(question) or any(LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
@@ -69,18 +80,24 @@ class ListingAsk:
         stage = "tool_execution"
         try:
             if plan.name == "search_listings":
+                limit = search_limit(question, self.settings)
+                plan = ToolPlan(plan.name, {**plan.arguments, 'limit': limit})
                 search = await self.tools.search(plan.arguments)
                 ids = search.get("listingIds") or []
                 relaxed: list[str] = []
                 if not ids:
                     original_filters = plan.arguments.get("filters") or []
+                    retries = 0
                     for index in range(len(original_filters) - 1, -1, -1):
                         field = original_filters[index].get("field", "") if isinstance(original_filters[index], dict) else ""
-                        if field in {"category", "city_id", "city", "ward_id", "ward"}:
+                        if field in {"category", "city_id", "city", "ward_id", "ward", "street", "display", "price_amount", "area_m2"}:
                             continue
                         remaining = original_filters[:index] + original_filters[index + 1:]
                         if not remaining:
                             continue
+                        if retries >= 2:
+                            break
+                        retries += 1
                         candidate = await self.tools.search({**plan.arguments,
                             "filters": remaining})
                         if candidate.get("listingIds"):
@@ -89,10 +106,22 @@ class ListingAsk:
                             relaxed = [field]
                             break
                 if not ids:
+                    alternative = await self._nearby_alternative(plan.arguments)
+                    if alternative is not None:
+                        alt_ids, alt_total, kind, wanted, place = alternative
+                        alt_listings = [compact_search_listing(await self.tools.detail(value))
+                                        for value in list(dict.fromkeys(alt_ids))[:limit]]
+                        if alt_listings:
+                            return AskResult(
+                                answer=self._alternative_answer(kind, wanted, place, alt_total, alt_listings),
+                                status="ANSWERED", citations=[], request_id=request_id,
+                                listing_context=context_for([item["id"] for item in alt_listings]),
+                                listing_ids=[item["id"] for item in alt_listings])
+                if not ids:
                     return AskResult(answer="Mình chưa thấy tin đang hiển thị nào khớp đủ các điều kiện bạn vừa nêu. Bạn muốn nới tiêu chí nào (giá, khu vực hay tiện ích) để mình tìm tiếp?",
                                      status="NO_RESULTS", citations=[], request_id=request_id,
                                      listing_context=context_for([]))
-                listings = [await self.tools.detail(listing_id) for listing_id in ids[:5]]
+                listings = [compact_search_listing(await self.tools.detail(listing_id)) for listing_id in list(dict.fromkeys(ids))[:limit]]
                 requested_category = next((item.get("value") for item in plan.arguments.get("filters", [])
                                            if isinstance(item, dict) and item.get("field") == "category"
                                            and item.get("op") == "eq"), None)
@@ -103,14 +132,16 @@ class ListingAsk:
                 evidence: dict[str, Any] = {"total": search.get("total"), "readAt": search.get("readAt"),
                                              "filters": plan.arguments.get("filters"),
                                              "keyword": plan.arguments.get("keyword"),
-                                             "relaxedFilters": relaxed, "listings": listings}
+                                             "relaxedFilters": relaxed, "listings": listings,
+                                             "requestedCount": requested_count(question), "resultLimit": limit}
             elif plan.name == "get_listing_detail":
                 listing = await self.tools.detail(plan.arguments["listingId"])
                 evidence = {"readAt": "now", "listings": [listing]}
             else:
                 ids = plan.arguments["listingIds"]
-                if not 2 <= len(ids) <= 5:
-                    raise ListingToolError("Comparison requires two to five listing IDs")
+                if not 2 <= len(ids) <= max_results(self.settings):
+                    return AskResult(answer=f'Mỗi lượt mình có thể so sánh tối đa {max_results(self.settings)} tin. Bạn chọn một nhóm nhỏ hơn nhé.',
+                                     status='ANSWERED', citations=[], request_id=request_id, listing_context=context_for(scope))
                 evidence = {"readAt": "now", "listings": [await self.tools.detail(item) for item in ids]}
         except (ListingToolError, HTTPException, ValueError, TypeError, KeyError) as error:
             self._log_failure(request_id, stage, error, plan.name)
@@ -122,24 +153,29 @@ class ListingAsk:
         # Current API facts and stable display positions are separate from past user preferences.
         evidence["selectionScope"] = [{"listingId": value, "position": index}
                                       for index, value in enumerate(references, 1)]
-        evidence["recentUserRequests"] = [item["content"] for item in history[-8:]
+        evidence["recentUserRequests"] = [item["content"][:1200] for item in history[-8:]
                                          if item.get("role") == "user"]
         evidence["scopeOnly"] = is_known_selection
         result_context = context_for(references)
+        count_notice = self._count_notice(evidence) if plan.name == 'search_listings' else ''
 
-        if plan.name == "search_listings" and self._is_browse_query(question):
+        if plan.name == "search_listings" and (self._is_browse_query(question) or
+                requested_count(question) is not None and not VietnamesePattern(
+                    r'so sánh|phân tích|đánh giá|nên chọn|bao nhiêu|cho .*biết|chi tiết|tính thế nào').search(question)):
             return AskResult(answer=self._browse_answer(question, evidence), status="ANSWERED",
-                             citations=[], request_id=request_id, listing_context=context_for(ids[:4]),
-                             listing_ids=ids[:4])
+                             citations=[], request_id=request_id, listing_context=context_for(ids),
+                             listing_ids=ids)
 
         if self._is_room_comparison(question, evidence["listings"]):
-            return AskResult(answer=self._room_comparison_answer(evidence["listings"], references),
+            return AskResult(answer=(count_notice + '\n' if count_notice else '') + self._room_comparison_answer(evidence["listings"], references),
                              status="ANSWERED", citations=[], request_id=request_id,
                              listing_context=result_context, listing_ids=ids)
 
         # A recommendation mentioning parking must not be reduced to a parking-only template.
         parking_answer = None if RECOMMENDATION.search(question) else self._parking_answer(question, evidence["listings"], references)
         if parking_answer is not None:
+            if count_notice:
+                parking_answer = count_notice + '\n' + parking_answer
             if evidence.get("relaxedFilters"):
                 parking_answer = ("Chưa có tin khớp toàn bộ điều kiện. Những tin dưới đây chỉ là gợi ý sau khi bỏ tiêu chí "
                                   + relaxed_labels(evidence["relaxedFilters"]) + ".\n" + parking_answer)
@@ -153,6 +189,8 @@ class ListingAsk:
                 raise GenerationUnavailableError("Unknown listing reference.", retryable=False)
             raw = customer_listing_text(generated.answer)
             selected_ids = list(dict.fromkeys(generated.listing_ids))
+            if plan.name == 'search_listings' and requested_count(question) is not None:
+                selected_ids = ids  # Explicit page size applies to cards too, not just model prose references.
             # Enforce the no-link contract even if prose ignores the presentation instruction.
             raw = re.sub(r"\[([^\]]+)\]\(/rent/[0-9a-fA-F-]{36}\)", r"\1", raw)
             raw = re.sub(r"(?:https?://[^\s/]+)?/rent/[0-9a-fA-F-]{36}", "", raw)
@@ -165,12 +203,69 @@ class ListingAsk:
                 listing_context=result_context,
             )
 
+        if count_notice:
+            raw = count_notice + '\n' + raw
         if evidence.get("relaxedFilters"):
             raw = ("Chưa có tin khớp toàn bộ điều kiện. Mình đã nới tiêu chí "
                    + relaxed_labels(evidence["relaxedFilters"]) + " để gợi ý các tin liên quan:\n" + raw)
         return AskResult(answer=raw.strip(),
                          status="ANSWERED", citations=[], request_id=request_id,
                          listing_context=result_context, listing_ids=selected_ids)
+
+    _CATEGORY_NAMES = {"ROOM": "phòng trọ", "HOUSE": "nhà nguyên căn", "APARTMENT": "căn hộ"}
+
+    async def _nearby_alternative(self, arguments: dict[str, Any]):
+        """Never dead-end: keep the user's location/budget and relax only category, then street.
+
+        Returns (ids, total, kind, requested_category, place) or None. Results are clearly
+        labelled as alternatives and are never presented as exact matches.
+        """
+        filters = [item for item in arguments.get("filters") or [] if isinstance(item, dict)]
+        category = next((item.get("value") for item in filters
+                         if item.get("field") == "category" and item.get("op") == "eq"), None)
+        street = next((item.get("value") for item in filters if item.get("field") in {"street", "display"}), None)
+        ward = next((item.get("value") for item in filters if item.get("field") == "ward"), None)
+        place = street or ward or "khu vực bạn chọn"
+        has_location = any(item.get("field") in {"street", "display", "ward", "ward_id"} for item in filters)
+        if not has_location:
+            return None
+        if category:
+            rest = [item for item in filters if item.get("field") != "category"]
+            found = await self.tools.search({**arguments, "filters": rest})
+            if found.get("listingIds"):
+                return found["listingIds"], found.get("total"), "category", category, place
+        if street:
+            rest = [item for item in filters if item.get("field") not in {"street", "display"}]
+            if any(item.get("field") in {"ward", "ward_id"} for item in rest):
+                found = await self.tools.search({**arguments, "filters": rest})
+                if found.get("listingIds"):
+                    return found["listingIds"], found.get("total"), "street", category, ward or place
+        if any(item.get("field") == "price_amount" for item in filters):
+            # Keep location and type; show the cheapest real options so the customer can decide on budget.
+            rest = [item for item in filters if item.get("field") != "price_amount"]
+            found = await self.tools.search({**arguments, "filters": rest, "sort": "price_asc"})
+            if found.get("listingIds"):
+                return found["listingIds"], found.get("total"), "budget", category, place
+        return None
+
+    @classmethod
+    def _alternative_answer(cls, kind: str, wanted: str | None, place: str, total: Any,
+                            listings: list[dict[str, Any]]) -> str:
+        names = {cls._CATEGORY_NAMES.get(item.get("category"), "tin đăng") for item in listings}
+        actual = " / ".join(sorted(names))
+        wanted_name = cls._CATEGORY_NAMES.get(wanted, "tin đăng")
+        count = len(listings)
+        if kind == "category":
+            intro = (f"Hiện chưa có {wanted_name} nào đang hiển thị tại {place}. "
+                     f"Tuy nhiên cùng khu vực này có {total or count} {actual} bạn có thể tham khảo:")
+        elif kind == "budget":
+            intro = (f"Hiện chưa có {wanted_name} nào trong mức giá bạn đặt tại {place}. "
+                     f"Mình xếp {count} tin giá thấp nhất cùng khu vực để bạn cân nhắc:")
+        else:
+            intro = (f"Hiện chưa có {wanted_name} nào đúng tại {place}. "
+                     f"Mình gợi ý {count} {wanted_name} ở khu vực lân cận trong cùng phường:")
+        return (f"{intro}\nBạn xem {count} lựa chọn bên dưới nhé; đây là gợi ý thay thế, chưa khớp đủ yêu cầu ban đầu. "
+                "Bạn muốn mình lọc tiếp theo ngân sách hay tiện ích nào, hoặc giữ đúng loại hình ban đầu và mở rộng khu vực?")
 
     @staticmethod
     def _clarify(request_id: str, scope: list[str]) -> AskResult:
@@ -189,15 +284,15 @@ class ListingAsk:
 
     @staticmethod
     def _is_browse_query(question: str) -> bool:
-        return bool(re.match(r"\s*(?:tìm|kiếm|cho (?:tôi|mình) xem)\b", question, re.IGNORECASE)) and not bool(
-            re.search(r"so sánh|bao nhiêu|cho (?:tôi|mình) biết|chi tiết|đặt cọc|tiền cọc|\bphí\b|"
-                      r"nội thất|tiện ích|điều kiện thuê|lịch xem|tính thế nào", question, re.IGNORECASE))
+        return bool(VietnamesePattern(r"\s*(?:tìm|kiếm|cho (?:tôi|mình) xem)\b").match(question)) and not bool(
+            VietnamesePattern(r"so sánh|bao nhiêu|cho (?:tôi|mình) biết|chi tiết|đặt cọc|tiền cọc|\bphí\b|"
+                              r"nội thất|tiện ích|điều kiện thuê|lịch xem|tính thế nào").search(question))
 
     @staticmethod
     def _is_room_comparison(question: str, listings: list[dict[str, Any]]) -> bool:
         # A general follow-up comparison has a predictable compact answer. Questions about a
         # particular field still go to the grounded generator so every listing field remains askable.
-        return (2 <= len(listings) <= 5
+        return (2 <= len(listings) <= ABSOLUTE_MAX_RESULTS
                 and all(item.get("category") == "ROOM" for item in listings)
                 and not RECOMMENDATION.search(question)
                 and bool(re.search(r"so sánh", question, re.IGNORECASE))
@@ -298,6 +393,20 @@ class ListingAsk:
         return "\n".join(lines)
 
     @staticmethod
+    def _count_notice(evidence: dict[str, Any]) -> str:
+        requested = evidence.get('requestedCount')
+        if not requested:
+            return ''
+        shown = len(evidence['listings'])
+        limit = evidence.get('resultLimit', shown)
+        if requested > limit:
+            return f'Bạn yêu cầu {requested} tin; mỗi lượt hiện tối đa {limit} tin, nên mình hiển thị {shown} tin trước.'
+        total = evidence.get('total', shown)
+        if total < requested:
+            return f'Bạn yêu cầu {requested} tin nhưng hiện chỉ có {total} tin khớp các tiêu chí.'
+        return ''
+
+    @staticmethod
     def _browse_answer(question: str, evidence: dict[str, Any]) -> str:
         listings = evidence["listings"]
         first = listings[0]
@@ -314,7 +423,10 @@ class ListingAsk:
             where = f" có nhắc đến “{keyword}”" if keyword else (f" tại {ward}" if ward else "")
             intro = f"Mình tìm thấy {total} {category_name} đang hiển thị{where}:"
         lines = [intro]
-        shown = listings[:4]
+        shown = listings
+        notice = ListingAsk._count_notice(evidence)
+        if notice:
+            lines.append(notice)
         lines.append(f"Bạn xem {len(shown)} lựa chọn bên dưới nhé; bấm vào thẻ sẽ mở chi tiết ở tab mới.")
         lines.append("")
         if total > len(shown):

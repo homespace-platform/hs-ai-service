@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import Request
 
 from homespace_ai.clients.gateway import GatewayApiClient
+from homespace_ai.application.listing_limits import DEFAULT_RESULTS, DEFAULT_MAX_RESULTS, ABSOLUTE_MAX_RESULTS
 
 
 class ListingToolError(Exception):
@@ -15,10 +16,11 @@ class ListingToolError(Exception):
 
 
 class ListingTools:
-    def __init__(self, gateway: GatewayApiClient, request: Request) -> None:
+    def __init__(self, gateway: GatewayApiClient, request: Request, max_results: int = DEFAULT_MAX_RESULTS) -> None:
         self.gateway = gateway
         self.request = request
         self.base_path = "/api/v1/public/listings/ai"
+        self.max_results = min(max(max_results, 1), ABSOLUTE_MAX_RESULTS)
 
     async def fields(self) -> dict[str, str]:
         response = await self.gateway.request("GET", f"{self.base_path}/fields", request=self.request)
@@ -29,13 +31,19 @@ class ListingTools:
         if not isinstance(filters, list) or len(filters) > 24:
             raise ListingToolError("Invalid listing filters")
         payload = {"filters": filters, "sort": arguments.get("sort", "newest"),
-                   "limit": min(max(int(arguments.get("limit") or 5), 1), 5)}
+                   "limit": min(max(int(arguments.get("limit") or DEFAULT_RESULTS), 1), self.max_results)}
         keyword = arguments.get("keyword")
         if isinstance(keyword, str) and keyword.strip():
             payload["keyword"] = keyword.strip()[:160]
         response = await self.gateway.request("POST", f"{self.base_path}/search",
                                               request=self.request, json=payload)
-        return self._result(response)
+        result = self._result(response)
+        ids = result.get('listingIds')
+        if not isinstance(ids, list) or not all(isinstance(value, str) for value in ids):
+            raise ListingToolError('Invalid Core search result IDs')
+        # Defense against a changed/misconfigured upstream: never fan out into 1,000 detail requests.
+        return {name: result[name] for name in ('total', 'readAt') if name in result} | {
+            'listingIds': list(dict.fromkeys(ids))[:payload['limit']]}
 
     async def detail(self, listing_id: str) -> dict[str, Any]:
         try:
@@ -51,7 +59,7 @@ class ListingTools:
                    "areaM2", "maxMotorbikeCount", "maxCarCount", "pricing", "houseDetail",
                    "apartmentDetail", "roomDetail", "amenities", "customAmenities",
                    "furnishings", "charges", "address", "viewingDays", "viewingSlots",
-                   "publishedAt", "expiresAt", "viewCount")
+                   "publishedAt", "expiresAt", "viewCount", "policies")
         safe = {key: result.get(key) for key in allowed if key in result}
         media = result.get("media") or []
         safe["mediaCounts"] = {

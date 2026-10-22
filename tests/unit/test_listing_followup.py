@@ -76,10 +76,10 @@ async def test_search_compare_recommend_changed_preference_and_new_search_flow()
         return result
 
     found = await ask("Tìm phòng tại Phường Phú Lợi")
-    assert found.listing_context == context_for(IDS[:4])  # Fifth fetched room not displayed.
-    compared = await ask("So sánh 4 phòng này")
-    assert all(f"Phòng {i}" in compared.answer for i in range(1, 5))
-    assert compared.listing_ids == IDS[:4]
+    assert found.listing_context == context_for(IDS)  # Show and retain the full requested/default page.
+    compared = await ask("So sánh 5 phòng này")
+    assert all(f"Phòng {i}" in compared.answer for i in range(1, 6))
+    assert compared.listing_ids == IDS
     assistant.tools.prices[2] = 4000000  # Database update; old comparison is NOT evidence.
     recommended = await ask("Ở 1 mình, phòng nào rẻ nhất?")
     assert recommended.status == "ANSWERED"
@@ -89,7 +89,7 @@ async def test_search_compare_recommend_changed_preference_and_new_search_flow()
     evidence = json.loads(assistant.generative_client.kwargs["context_chunks"][0]["content"])
     assert "Ở 1 mình, phòng nào rẻ nhất?" in evidence["recentUserRequests"]
     assert "2 người" in assistant.generative_client.kwargs["question"]
-    assert IDS[4] not in assistant.tools.read[5:]
+    assert all(value in IDS for value in assistant.tools.read[5:])
     calls_before = assistant.tools.search_calls
     await ask("Tìm phòng khác ở Phường An Nhơn")
     assert assistant.tools.search_calls == calls_before + 1

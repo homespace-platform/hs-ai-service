@@ -110,12 +110,12 @@ async def test_normalizes_real_room_question_without_inventing_paid_parking(monk
         "Tìm phòng trọ ở Phường Phú Lợi, Thành phố Hồ Chí Minh có ban công và chỗ gửi xe máy.",
         [], fields,
     )
-    assert result.arguments["filters"] == [
+    assert sorted(result.arguments["filters"], key=lambda item: item['field']) == sorted([
         {"field": "ward", "op": "eq", "value": "Phường Phú Lợi"},
         {"field": "room.has_balcony", "op": "eq", "value": "true"},
         {"field": "category", "op": "eq", "value": "ROOM"},
         {"field": "room.parking_policy", "op": "ne", "value": "NONE"},
-    ]
+    ], key=lambda item: item['field'])
 
 
 def test_generic_balcony_does_not_assume_private():

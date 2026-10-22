@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     openai_listing_max_output_tokens: int = Field(default=16384, ge=64, le=32768, alias="OPENAI_LISTING_MAX_OUTPUT_TOKENS")
     generation_temperature: float = Field(default=0.2, ge=0.0, le=1.0, alias="GENERATION_TEMPERATURE")
     generation_timeout_seconds: float = Field(default=90.0, ge=1.0, le=180.0, alias="GENERATION_TIMEOUT_SECONDS")
+    ai_listing_max_results: int = Field(default=20, ge=1, le=50, alias="AI_LISTING_MAX_RESULTS")
 
     # Worker configuration
     worker_poll_interval_seconds: float = Field(default=2.0, ge=0.5, le=30.0, alias="WORKER_POLL_INTERVAL_SECONDS")

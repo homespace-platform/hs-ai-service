@@ -3,6 +3,43 @@ from httpx import ASGITransport, AsyncClient
 
 from homespace_ai.core.config import get_settings
 from homespace_ai.main import app
+from homespace_ai.repositories.conversation_repo import get_conversation_repository
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["USER", "ADMIN"])
+@pytest.mark.parametrize("trust", ["missing", "wrong", "trusted"])
+async def test_conversation_list_requires_gateway_trust(monkeypatch, role, trust):
+    """The failing UI endpoint accepts either account role only from a trusted Gateway."""
+    requested_users = []
+
+    class ConversationStub:
+        async def list_for_user(self, user_id):
+            requested_users.append(user_id)
+            return []
+
+    monkeypatch.setitem(
+        app.dependency_overrides, get_conversation_repository, lambda: ConversationStub()
+    )
+    headers = {"X-User-Id": "conversation-test-user", "X-User-Role": role}
+    if trust != "missing":
+        headers["X-Internal-Secret"] = (
+            get_settings().gateway_internal_secret
+            if trust == "trusted"
+            else "incorrect-test-only-gateway-secret"
+        )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/agent/conversations", headers=headers)
+
+    if trust == "trusted":
+        assert response.status_code == 200
+        assert response.json()["result"] == []
+        assert requested_users == ["conversation-test-user"]
+    else:
+        assert response.status_code == 403
+        assert "untrusted request source" in response.json()["detail"].lower()
+        assert requested_users == []
 
 
 @pytest.mark.asyncio

@@ -205,3 +205,56 @@ async def test_general_question_stays_in_rag():
     assistant = make_assistant(None)
     assert await assistant.try_answer("HomeSpace là gì?", [], "req-3") is None
     assert await assistant.try_answer("Cách đặt lịch xem phòng trên HomeSpace?", [], "req-3b") is None
+
+
+@pytest.mark.asyncio
+async def test_no_room_on_street_offers_house_on_same_street_instead_of_dead_end():
+    plan = ToolPlan("search_listings", {"filters": [
+        {"field": "category", "op": "eq", "value": "ROOM"},
+        {"field": "street", "op": "contains", "value": "Đường Nguyễn Oanh"},
+    ]})
+    assistant = make_assistant(plan)
+
+    class CategoryTools(FakeTools):
+        async def search(self, arguments):
+            has_category = any(f["field"] == "category" for f in arguments["filters"])
+            ids = [] if has_category else self.ids
+            return {"listingIds": ids, "total": len(ids), "readAt": "now"}
+
+        async def detail(self, listing_id):
+            return {"id": listing_id, "title": "Nhà 2 PN", "category": "HOUSE"}
+
+    assistant.tools = CategoryTools()
+    result = await assistant.try_answer("tìm phòng trọ ở đường Nguyễn Oanh", [], "alt-1")
+    assert result.status == "ANSWERED" and result.listing_ids
+    assert "chưa có phòng trọ" in result.answer and "nhà nguyên căn" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_over_budget_shows_cheapest_in_area_labelled_not_as_match():
+    plan = ToolPlan("search_listings", {"filters": [
+        {"field": "ward", "op": "contains", "value": "Phường An Nhơn"},
+        {"field": "price_amount", "op": "lte", "value": "1000000"},
+    ]})
+    assistant = make_assistant(plan)
+
+    class BudgetTools(FakeTools):
+        async def search(self, arguments):
+            has_price = any(f["field"] == "price_amount" for f in arguments["filters"])
+            ids = [] if has_price else self.ids
+            return {"listingIds": ids, "total": len(ids), "readAt": "now"}
+
+    assistant.tools = BudgetTools()
+    result = await assistant.try_answer("tìm phòng ở An Nhơn dưới 1 triệu", [], "alt-2")
+    assert result.status == "ANSWERED" and "chưa có" in result.answer and "mức giá" in result.answer
+
+
+def test_multiple_categories_are_not_forced_to_one():
+    from homespace_ai.clients.listing_tool_planner import ListingToolPlanner
+    fields = {"category": "TEXT", "ward": "TEXT"}
+    plan = ToolPlan("search_listings", {"filters": [{"field": "category", "op": "eq", "value": "APARTMENT"},
+                                                    {"field": "ward", "op": "contains", "value": "Phường An Nhơn"}]})
+    out = ListingToolPlanner._normalize_search("tìm phòng trọ hoặc căn hộ ở An Nhơn", plan, fields)
+    assert not any(item["field"] == "category" for item in out.arguments["filters"])
+    out = ListingToolPlanner._normalize_search("tìm phòng trọ ở An Nhơn", plan, fields)
+    assert {"field": "category", "op": "eq", "value": "ROOM"} in out.arguments["filters"]

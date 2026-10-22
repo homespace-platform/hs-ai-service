@@ -26,6 +26,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+homespace_ai = ["data/vietmap/*.json", "data/vietmap/*.txt", "data/vietmap/*.md"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
