@@ -9,6 +9,10 @@ from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.application.listing_limits import DEFAULT_RESULTS, DEFAULT_MAX_RESULTS, ABSOLUTE_MAX_RESULTS
 
 
+MAX_SURROUNDING_CANDIDATES = 10
+SURROUNDINGS_TIMEOUT_SECONDS = 40.0  # Core's own scan deadline is 25 s; the default 15 s client timeout is too short
+
+
 class ListingToolError(Exception):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
@@ -44,6 +48,35 @@ class ListingTools:
         # Defense against a changed/misconfigured upstream: never fan out into 1,000 detail requests.
         return {name: result[name] for name in ('total', 'readAt') if name in result} | {
             'listingIds': list(dict.fromkeys(ids))[:payload['limit']]}
+
+    async def compare_surroundings(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Authenticated nearby-amenity comparison. Core owns coordinates, Geoapify access and ranking."""
+        ids = arguments.get("listingIds")
+        if not isinstance(ids, list) or not 1 <= len(ids) <= MAX_SURROUNDING_CANDIDATES:
+            raise ListingToolError("Invalid surroundings listing IDs")
+        try:
+            safe_ids = list(dict.fromkeys(str(UUID(str(value))) for value in ids))
+        except ValueError as error:
+            raise ListingToolError("Invalid listing ID") from error
+        payload: dict[str, Any] = {
+            "listingIds": safe_ids,
+            "renterProfiles": list(arguments.get("renterProfiles") or []),
+            "priorityCategories": list(arguments.get("priorityCategories") or []),
+        }
+        if arguments.get("radiusMeters") is not None:
+            payload["radiusMeters"] = int(arguments["radiusMeters"])
+        if arguments.get("targetPlaceQuery"):
+            payload["targetPlaceQuery"] = str(arguments["targetPlaceQuery"])[:120]
+        if isinstance(arguments.get("originalPositions"), dict):
+            payload["originalPositions"] = {str(key): int(value) for key, value in arguments["originalPositions"].items()}
+        response = await self.gateway.request("POST", "/api/v1/listings/ai/surroundings/compare",
+                                              request=self.request, json=payload,
+                                              timeout=SURROUNDINGS_TIMEOUT_SECONDS)
+        result = self._result(response)
+        recommended = result.get("recommendedIds")
+        if not isinstance(recommended, list) or not all(isinstance(value, str) for value in recommended):
+            raise ListingToolError("Invalid Core surroundings result")
+        return result
 
     async def detail(self, listing_id: str) -> dict[str, Any]:
         try:

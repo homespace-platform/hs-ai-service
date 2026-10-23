@@ -39,6 +39,8 @@ class AskResult:
     appointment_context: dict[str, Any] | None = None
     appointment_cards: list[dict[str, Any]] = field(default_factory=list)
     data_sources: list[str] = field(default_factory=list)
+    # Renter nearby-recommendation memory (preferences + candidate references, never facts); persisted per conversation.
+    renter_context: dict[str, Any] | None = None
 
     @property
     def listing_positions(self) -> dict[str, int]:

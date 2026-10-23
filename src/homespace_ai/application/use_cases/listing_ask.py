@@ -19,6 +19,10 @@ from homespace_ai.application.vietnamese_text import VietnamesePattern
 from homespace_ai.application.listing_location import LocationClarification
 from homespace_ai.application.listing_evidence import compact_search_listing
 from homespace_ai.application.listing_limits import max_results, requested_count, search_limit, ABSOLUTE_MAX_RESULTS
+from homespace_ai.application import budget_stretch as stretch
+from homespace_ai.application import renter_recommendation as renter
+from homespace_ai.application.renter_recommendation import NearbyRequest, parse_request, wants_nearby
+from homespace_ai.application.listing_context import NEW_SEARCH as NEW_SEARCH_INTENT, valid_ids
 
 
 LISTING_SIGNAL = VietnamesePattern(
@@ -39,9 +43,28 @@ class ListingAsk:
         self.tools = ListingTools(gateway, request, max_results(settings))
         self.planner = ListingToolPlanner(settings)
 
-    async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
+    async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str,
+                         renter_context: dict[str, Any] | None = None, is_guest: bool = False) -> AskResult | None:
         if SUPPORT_INTENT.search(question) and not SEARCH_INTENT.search(question):
             return None
+        parsed = parse_request(question)
+        result = None
+        if wants_nearby(question, parsed, renter_context, has_scope=bool(current_scope(history))):
+            result = await self._nearby(question, history, request_id, renter_context, is_guest, parsed)
+        if result is None:
+            extras: dict[str, Any] = {}
+            result = await self._listing_flow(question, history, request_id, renter_context, is_guest, parsed, extras)
+            result = self._with_stretch(result, extras.get("stretch"))
+        if result is not None and renter_context and result.renter_context is None:
+            # A new search/selection replaces the remembered candidate set; renter preferences are kept.
+            scope_ids = (result.listing_context or {}).get("listingIds")
+            if scope_ids is not None and list(scope_ids) != list(renter_context.get("candidateIds") or []):
+                result.renter_context = {**renter_context, "candidateIds": list(scope_ids), "pending": None}
+        return result
+
+    async def _listing_flow(self, question: str, history: list[dict[str, Any]], request_id: str,
+                            renter_context: dict[str, Any] | None, is_guest: bool,
+                            parsed: NearbyRequest, extras: dict[str, Any] | None = None) -> AskResult | None:
         scope = current_scope(history)
         selection = scoped_selection(question, history)
         if selection == []:
@@ -74,6 +97,11 @@ class ListingAsk:
                 # No function call is not evidence of a Core outage.
                 return self._clarify(request_id, scope)
             return None  # Knowledge question: preserve the existing RAG behavior.
+
+        if plan.name == "compare_listing_surroundings":
+            nearby = await self._nearby(question, history, request_id, renter_context, is_guest, parsed,
+                                        hints=plan.arguments)
+            return nearby if nearby is not None else self._unavailable(request_id, scope)
 
         logger.info("listing_tool_selected", request_id=request_id, tool=plan.name,
                     scope_count=len(scope), scoped_followup=bool(selection))
@@ -129,6 +157,8 @@ class ListingAsk:
                     listings = [item for item in listings if item.get("category") == requested_category]
                 if not listings:
                     raise ListingToolError("Core search and detail disagree on listing category")
+                if extras is not None and not selection:
+                    extras["stretch"] = await self._stretch(plan.arguments, listings, requested_category)
                 evidence: dict[str, Any] = {"total": search.get("total"), "readAt": search.get("readAt"),
                                              "filters": plan.arguments.get("filters"),
                                              "keyword": plan.arguments.get("keyword"),
@@ -212,7 +242,198 @@ class ListingAsk:
                          status="ANSWERED", citations=[], request_id=request_id,
                          listing_context=result_context, listing_ids=selected_ids)
 
+    async def _nearby(self, question: str, history: list[dict[str, Any]], request_id: str,
+                      state: dict[str, Any] | None, is_guest: bool, parsed: NearbyRequest,
+                      hints: dict[str, Any] | None = None) -> AskResult | None:
+        """Nearby-amenity recommendation: app-parsed inputs, Core evidence, deterministic answer, hard cap of 3."""
+        scope = current_scope(history)
+
+        def reply(answer: str, status: str = "ANSWERED", **extra: Any) -> AskResult:
+            return AskResult(answer=answer, status=status, citations=[], request_id=request_id, **extra)
+
+        if parsed.radius_error:
+            return reply(parsed.radius_error, listing_context=context_for(scope) if scope else None)
+        if is_guest:
+            return reply("Tính năng xếp hạng phòng theo tiện ích xung quanh cần đăng nhập. Bạn đăng nhập rồi hỏi lại, "
+                         "hoặc mình vẫn có thể giúp tìm và so sánh giá, diện tích, tiện nghi nhé.",
+                         listing_context=context_for(scope) if scope else None)
+
+        merged = renter.merge_state(state, parsed)
+        if state and state.get("pending") == "TARGET" and not parsed.target and not parsed.priorities \
+                and not parsed.profiles and parsed.radius_meters is None and len(question) <= 120:
+            merged["targetPlace"] = question.strip()  # the customer's answer to "which campus?"
+        if hints:
+            if not merged["profiles"]:
+                merged["profiles"] = [value for value in hints.get("renterProfiles") or [] if value in renter.PROFILE_LABELS]
+            if not merged["priorities"]:
+                merged["priorities"] = [value for value in hints.get("priorityCategories") or [] if value in renter.CATEGORY_LABELS]
+            if not merged["targetPlace"] and isinstance(hints.get("targetPlaceQuery"), str) and hints["targetPlaceQuery"].strip():
+                merged["targetPlace"] = hints["targetPlaceQuery"].strip()[:120]
+            # The model never supplies the radius: only the application's parse (or remembered value) is used.
+
+        # ---- candidate set -------------------------------------------------------------------------
+        base = scope or valid_ids(merged.get("candidateIds") or [])
+        stage = "tool_planning"
+        try:
+            resuming = bool(state and state.get("pending") == "SEARCH")
+            searched = False
+            if resuming or NEW_SEARCH_INTENT.search(question) or not base:
+                # Step 1 of the workflow: find listings by the customer's listing criteria only (area, type,
+                # budget...). The role and amenity wishes are handled in step 2 from those listings' coordinates.
+                criteria = renter.search_text(question)
+                if resuming and state.get("pendingQuestion"):
+                    criteria = f"{state['pendingQuestion']}, {question}"
+                fields = await self.tools.fields()
+                plan = await self.planner.plan(criteria, history, fields)
+                if plan is None or plan.name != "search_listings":
+                    return reply("Bạn cho mình biết khu vực và loại phòng muốn tìm (và ngân sách nếu có) để mình tìm phòng "
+                                 "trước, rồi xếp hạng theo tiện ích xung quanh nhé.", listing_context=context_for(scope) if scope else None)
+                stage = "tool_execution"
+                # A landmark/amenity wish must not turn into a text filter on the listings.
+                search = await self.tools.search({**plan.arguments, "keyword": None, "limit": renter.MAX_CANDIDATES})
+                merged["pending"] = None
+                merged["pendingQuestion"] = None
+                searched = True
+                base = valid_ids(search.get("listingIds") or [])
+                if not base:
+                    return reply("Mình chưa thấy tin đang hiển thị nào khớp để xếp hạng theo tiện ích xung quanh. "
+                                 "Bạn muốn nới tiêu chí nào (giá, khu vực hay loại hình) để mình tìm tiếp?",
+                                 status="NO_RESULTS", listing_context=context_for([]),
+                                 renter_context={**merged, "candidateIds": [], "pending": None})
+                chosen = base[:renter.MAX_CANDIDATES]
+            else:
+                ordinals = [int(value) for value in VietnamesePattern(
+                    r"(?:phòng|căn|nhà|tin)\s*(?:thứ\s*|số\s*)?(\d+)\b").findall(question)]
+                if ordinals:
+                    if any(number < 1 or number > len(base) for number in ordinals):
+                        return self._clarify(request_id, base)
+                    chosen = list(dict.fromkeys(base[number - 1] for number in ordinals))
+                elif hints and isinstance(hints.get("listingIds"), list):
+                    chosen = [value for value in valid_ids(hints["listingIds"]) if value in base] or base
+                else:
+                    chosen = base
+                chosen = chosen[:renter.MAX_CANDIDATES]
+        except LocationClarification as error:
+            # Remember the wish so the customer's answer ("Hồ Chí Minh") resumes this workflow.
+            pending = {**merged, "pending": "SEARCH",
+                       "pendingQuestion": (criteria if not resuming else state.get("pendingQuestion")) or None}
+            return reply(str(error), listing_context=context_for(scope) if scope else None, renter_context=pending)
+        except (ListingToolError, GenerationUnavailableError, HTTPException) as error:
+            self._log_failure(request_id, stage, error, "compare_listing_surroundings")
+            return self._unavailable(request_id, scope)
+
+        merged["candidateIds"] = base
+        positions = {value: index for index, value in enumerate(base, 1)}
+        context = context_for(base)
+
+        # Step 1 result: when this turn found the rooms, they are always shown (as cards), even if the
+        # amenity step below cannot rank them (missing role, no map key, provider outage).
+        show = chosen if searched else []
+        plain_reply = reply
+
+        def reply(answer: str, status: str = "ANSWERED", **extra: Any) -> AskResult:  # noqa: F811
+            if show and "listing_ids" not in extra:
+                answer = f"Mình tìm được {len(show)} phòng khớp tiêu chí của bạn, bạn xem các thẻ bên dưới nhé.\n{answer}"
+                extra["listing_ids"] = show
+            return plain_reply(answer, status, **extra)
+
+        if not (merged["profiles"] or merged["priorities"] or merged["targetPlace"]):
+            merged["pending"] = "PROFILE"
+            return reply(renter.clarification(merged), listing_context=context, renter_context=merged)
+
+        # ---- re-read public facts; hidden listings never reach the amenity step ----------------------
+        details: dict[str, dict[str, Any]] = {}
+        for listing_id in chosen:
+            try:
+                details[listing_id] = compact_search_listing(await self.tools.detail(listing_id))
+            except (ListingToolError, HTTPException, ValueError, TypeError, KeyError) as error:
+                self._log_failure(request_id, "listing_detail", error, "compare_listing_surroundings")
+        show = [value for value in show if value in details]  # never show a card for a hidden listing
+        if not details:
+            merged["pending"] = None
+            return reply(renter.fallback_answer("NO_VALID_CANDIDATES", merged), listing_context=context,
+                         renter_context=merged)
+        try:
+            response = await self.tools.compare_surroundings({
+                "listingIds": list(details), "renterProfiles": merged["profiles"],
+                "priorityCategories": merged["priorities"], "radiusMeters": merged["radiusMeters"],
+                "targetPlaceQuery": merged["targetPlace"],
+                "originalPositions": {value: positions[value] for value in details}})
+        except ListingToolError as error:
+            self._log_failure(request_id, "compare_surroundings", error, "compare_listing_surroundings")
+            code = error.status_code
+            if code in {401, 403}:
+                text = "Bạn cần đăng nhập lại để mình xem tiện ích xung quanh các phòng nhé."
+            elif code == 429:
+                text = "Bạn vừa yêu cầu khá nhiều lần liên tiếp nên mình tạm dừng một chút. Bạn thử lại sau ít phút nhé."
+            elif code == 400:
+                text = ("Yêu cầu tiện ích xung quanh chưa hợp lệ (bán kính, nhóm đối tượng hoặc số phòng quá lớn). "
+                        "Bạn thử mô tả lại ngắn gọn hơn nhé.")
+            else:
+                text = renter.fallback_answer("PROVIDER_UNAVAILABLE", merged)
+            return reply(text, status="TOOL_UNAVAILABLE" if code not in {400, 401, 403, 429} else "ANSWERED",
+                         listing_context=context, renter_context=merged)
+        except HTTPException as error:
+            self._log_failure(request_id, "compare_surroundings", error, "compare_listing_surroundings")
+            return reply(renter.fallback_answer("PROVIDER_UNAVAILABLE", merged), status="TOOL_UNAVAILABLE",
+                         listing_context=context, renter_context=merged)
+
+        target = response.get("target") or {}
+        if target.get("status") == "NEEDS_CONFIRMATION" and target.get("options"):
+            merged["pending"] = "TARGET"
+            return reply(renter.target_clarification(target), listing_context=context, renter_context=merged)
+        merged["pending"] = None
+        status = str(response.get("status"))
+        # Application-side cap: Core already limits to 3, but a changed upstream must never widen it.
+        recommended = [value for value in dict.fromkeys(response.get("recommendedIds") or [])
+                       if value in details][:renter.RECOMMENDATION_LIMIT]
+        if not recommended:
+            answer = renter.fallback_answer(status, merged) or (
+                "Mình đã kiểm tra nhưng dữ liệu tiện ích quanh các phòng này chưa đủ để chọn ra phòng nổi bật theo nhu cầu của bạn. "
+                "Bạn thử tăng bán kính hoặc đổi tiện ích ưu tiên nhé.")
+            return reply(answer, listing_context=context, renter_context=merged)
+        answer = renter.build_answer(response, merged, details, positions, recommended)
+        return reply(answer, listing_context=context, listing_ids=recommended, renter_context=merged)
+
     _CATEGORY_NAMES = {"ROOM": "phòng trọ", "HOUSE": "nhà nguyên căn", "APARTMENT": "căn hộ"}
+
+    async def _stretch(self, arguments: dict[str, Any], listings: list[dict[str, Any]],
+                       category: str | None) -> dict[str, Any] | None:
+        """One room just above budget (at most +500k) that is clearly larger than the in-budget rooms."""
+        filters = [item for item in arguments.get("filters") or [] if isinstance(item, dict)]
+        budget = stretch.budget_of(filters)
+        if budget is None:
+            return None
+        try:
+            found = await self.tools.search({**arguments, "filters": stretch.stretch_filters(filters, budget),
+                                             "sort": "area_desc", "limit": 5})
+            candidates = [compact_search_listing(await self.tools.detail(value))
+                          for value in list(dict.fromkeys(found.get("listingIds") or []))[:5]]
+        except (ListingToolError, HTTPException, ValueError, TypeError, KeyError) as error:
+            logger.warning("listing_stretch_failed", error=type(error).__name__)
+            return None  # Optional extra: never fail the main answer because of it.
+        if category:
+            candidates = [item for item in candidates if item.get("category") == category]
+        pick = stretch.pick_standout(candidates, listings, budget)
+        return {"listing": pick, "budget": budget, "inBudget": listings}
+
+    @staticmethod
+    def _with_stretch(result: AskResult | None, found: dict[str, Any] | None) -> AskResult | None:
+        if result is None or not found or result.status != "ANSWERED" or not result.listing_ids:
+            return result
+        item = found["listing"]
+        if item is None:
+            result.answer = (result.answer.rstrip() + "\n\n" + stretch.no_standout_note(found["budget"]))
+            return result
+        if item["id"] in result.listing_ids:
+            return result
+        shown = list(result.listing_ids)
+        result.answer = (result.answer.rstrip() + "\n\n"
+                         + stretch.stretch_note(item, found["inBudget"], found["budget"], len(shown) + 1))
+        result.listing_ids = shown + [item["id"]]
+        context_ids = list((result.listing_context or {}).get("listingIds") or shown)
+        result.listing_context = context_for(context_ids + [item["id"]])
+        return result
 
     async def _nearby_alternative(self, arguments: dict[str, Any]):
         """Never dead-end: keep the user's location/budget and relax only category, then street.

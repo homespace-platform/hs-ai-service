@@ -48,11 +48,13 @@ async def ask_agent(
     conversation_id = body.effective_conversation_id
     conversation_repository = None
     history: list[dict[str, Any]] = []
+    renter_context: dict[str, Any] | None = None
     if conversation_id:
         conversation_repository = get_conversation_repository()
         conversation = await conversation_repository.get(user.user_id, conversation_id)
         if conversation is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+        renter_context = conversation.get("renterRecommendationContext")
         history = [{"role": message.get("role", "user"), "content": message.get("content", ""),
                     "status": message.get("status"), "listingContext": message.get("listingContext"),
                     "contractContext": message.get("contractContext"),
@@ -67,9 +69,12 @@ async def ask_agent(
                 detail="Conversation not found.",
             )
 
-    result = await generate_answer(question, history, request, user, session, settings, embedder, conversation_id)
+    result = await generate_answer(question, history, request, user, session, settings, embedder, conversation_id,
+                                   renter_context=renter_context)
 
     if conversation_repository is not None:
+        if result.renter_context is not None:
+            await conversation_repository.set_renter_context(user.user_id, conversation_id, result.renter_context)
         await conversation_repository.append_message(
             user.user_id, conversation_id, role="assistant",
             content=result.answer, status=result.status,
@@ -86,6 +91,7 @@ async def ask_agent(
 async def generate_answer(
     question: str, history: list[dict[str, Any]], request: Request, user: UserContext,
     session: AsyncSession, settings: Settings, embedder, conversation_id: str | None = None,
+    renter_context: dict[str, Any] | None = None,
 ) -> AskResult:
     """Shared pipeline; persistence is explicitly handled by each caller."""
     generative_client = get_generative_client(settings)
@@ -143,7 +149,7 @@ async def generate_answer(
             gateway = GatewayApiClient(str(settings.gateway_base_url), settings.gateway_request_timeout_seconds)
         try:
             result = await ListingAsk(settings, generative_client, gateway, request).try_answer(
-                question, history, request_id)
+                question, history, request_id, renter_context=renter_context, is_guest=is_guest)
         finally:
             if temporary_gateway:
                 await gateway.aclose()

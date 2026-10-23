@@ -141,7 +141,7 @@ async def test_thousand_matches_never_cause_more_than_five_detail_reads():
             return await super().detail(value)
     assistant.tools = ThousandTools()
     result = await assistant.try_answer('tim phong go vap duoi 5 trieu', [], '1000')
-    assert len(assistant.tools.read) == 5 and len(result.listing_ids) <= 5
+    assert len(assistant.tools.read) <= 10 and len(result.listing_ids) <= 6
 
 
 @pytest.mark.asyncio

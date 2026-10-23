@@ -21,6 +21,7 @@ class GatewayApiClient:
         request: Request,
         params: dict[str, str] | None = None,
         json: object | None = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         if not path.startswith("/api/v1/") or path.startswith("/api/v1/ai/"):
             raise ValueError("Gateway client only accepts non-AI /api/v1 paths")
@@ -39,6 +40,7 @@ class GatewayApiClient:
                 f"{self._base_url}{path}",
                 params=params,
                 json=json,
+                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
                 headers={"Authorization": authorization} if authorization else {},
             )
         except httpx.TimeoutException as error:

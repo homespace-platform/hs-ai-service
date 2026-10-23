@@ -135,7 +135,7 @@ async def test_guest_rag_is_public_ignores_forged_admin(guest_repo, monkeypatch)
 async def test_guest_signed_followup_tool_context_and_login_claim(guest_repo, monkeypatch):
     observed = []
     listing_id = str(uuid4())
-    async def listing(self, question, history, request_id):
+    async def listing(self, question, history, request_id, renter_context=None, is_guest=False):
         observed.append(deepcopy(history))
         return AskResult(answer="Tin công khai", status="ANSWERED", citations=[], request_id=request_id,
                          listing_ids=[listing_id], listing_context={"listingIds": [listing_id], "displayedIds": [listing_id]})

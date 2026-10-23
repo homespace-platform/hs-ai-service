@@ -15,7 +15,7 @@ async def test_agent_ask_routes_listing_to_tool_without_rag(monkeypatch):
     async def fake_db():
         yield None
 
-    async def fake_listing_answer(self, question, history, request_id):
+    async def fake_listing_answer(self, question, history, request_id, renter_context=None, is_guest=False):
         return AskResult(answer="Dữ liệu từ Core API", status="ANSWERED", citations=[], request_id=request_id)
 
     async def fail_rag(self, **kwargs):
@@ -55,7 +55,7 @@ async def test_listing_followup_receives_previous_conversation_messages(monkeypa
 
     repository = Repository()
     observed = {}
-    async def fake_listing_answer(self, question, history, request_id):
+    async def fake_listing_answer(self, question, history, request_id, renter_context=None, is_guest=False):
         observed["history"] = history
         return AskResult(answer="Có thu phí gửi xe.", status="ANSWERED", citations=[], request_id=request_id,
                          listing_context=history[-1]["listingContext"],

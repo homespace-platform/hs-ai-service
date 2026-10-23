@@ -164,6 +164,14 @@ class ConversationRepository:
             )
         return bool(result.matched_count)
 
+    async def set_renter_context(self, owner_id: str, conversation_id: str, context: dict[str, Any]) -> bool:
+        """Conversation-level memory of renter preferences and candidate references (never listing facts)."""
+        result = await self.collection.update_one(
+            {"_id": conversation_id, **self.owner_filter(owner_id)},
+            {"$set": {"renterRecommendationContext": context}},
+        )
+        return bool(result.matched_count)
+
     async def set_pinned(self, owner_id: str, conversation_id: str, pinned: bool) -> bool:
         result = await self.collection.update_one(
             {"_id": conversation_id, **self.owner_filter(owner_id)},
