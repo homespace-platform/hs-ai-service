@@ -1,4 +1,4 @@
-﻿from decimal import Decimal
+from decimal import Decimal
 
 from homespace_ai.application import budget_stretch as stretch
 from homespace_ai.application.use_cases.listing_ask import ListingAsk
