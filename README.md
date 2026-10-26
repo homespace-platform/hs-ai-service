@@ -18,11 +18,11 @@ FastAPI microservice for HomeSpace AI capabilities, local RAG knowledge base, an
 
 ### Step 1: Start PostgreSQL AI (pgvector)
 
-In `hs-infrastructure`, the `postgres-ai` container runs `pgvector/pgvector:pg16` on host port `5433`:
+In `hs-infra`, the `postgres-ai` container runs `pgvector/pgvector:pg16` on host port `5433`:
 
 ```powershell
-cd D:\Workspace\homespace\hs-infrastructure
-docker compose -f docker-infrastructure.yml up -d postgres-ai mongodb
+cd D:\Workspace\homespace\hs-infra
+docker compose -f docker-infra.yml up -d postgres-ai mongodb
 ```
 
 > **Kiểm tra cổng 5433:**
@@ -31,7 +31,7 @@ docker compose -f docker-infrastructure.yml up -d postgres-ai mongodb
 > Get-NetTCPConnection -LocalPort 5433 -ErrorAction SilentlyContinue
 > ```
 >
-> Nếu cổng 5433 đã bị chiếm bởi tiến trình khác, bạn có thể đổi port mapping trong `docker-infrastructure.yml` (ví dụ `5434:5432`) và cập nhật `AI_DATABASE_URL` trong `.env` tương ứng.
+> Nếu cổng 5433 đã bị chiếm bởi tiến trình khác, bạn có thể đổi port mapping trong `docker-infra.yml` (ví dụ `5434:5432`) và cập nhật `AI_DATABASE_URL` trong `.env` tương ứng.
 
 The AI service also needs `AI_MONGODB_URI` (see `.env.example`). Conversation endpoints
 create their index automatically at startup. History is scoped to the authenticated
@@ -151,7 +151,7 @@ uv run uvicorn homespace_ai.main:app --app-dir src --host 0.0.0.0 --port 8084 --
 Use Admin at `http://localhost:5000/operations/knowledge` to drag/drop or select up to 50 Markdown files (1 MB each). Upload creates the next numeric version and queues a worker job, even when contents are unchanged. `README.md` is excluded. `visibility: admin` remains restricted to admins. You can also use the CLI:
 
 ```powershell
-uv run python -m homespace_ai.knowledge.ingestion.cli_import --dir ../hs-infrastructure/documents/knowledge
+uv run python -m homespace_ai.knowledge.ingestion.cli_import --dir ../hs-infra/documents/rag
 ```
 
 Identity is the normalized filename (Unicode NFC, case-insensitive), not the front-matter document_id. Version numbers are server-managed: 1, 2, 3, ...; migration preserves existing document IDs. Do not re-import after every restart: PostgreSQL persists the documents and vectors.

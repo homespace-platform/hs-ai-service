@@ -427,7 +427,7 @@ Các repo liên quan, tính từ `D:/Workspace/homespace/`:
 - `hs-gateway-server/src/main/java/com/hs/gateway/filter/UserHeaderFilter.java`: sanitize/trusted headers.
 - `hs-core-api/hs-api-service/src/main/java/com/hs/api/controller/publish/PublicListingController.java`: public AI field/search/detail endpoints.
 - `hs-core-api/hs-listing-service/src/main/java/com/hs/listing/service/AiListingSearchService.java`: whitelist fields, parameterized search.
-- `hs-infrastructure/postgres/`: seed fixtures; chỉ là dữ liệu để đối chiếu test, không thay thế CSDL đang chạy.
+- `hs-infra/postgres/`: seed fixtures; chỉ là dữ liệu để đối chiếu test, không thay thế CSDL đang chạy.
 
 Thứ tự ưu tiên khi thông tin mâu thuẫn: **source/config đang dùng → migration/contracts/tests → tài liệu context này → README/đề xuất cũ**.
 
@@ -445,7 +445,7 @@ Thứ tự ưu tiên khi thông tin mâu thuẫn: **source/config đang dùng �
 
 **Response/frontend:** thêm `contractCards`, `dataSources` (`CORE_CONTRACT`, `RAG`). Link thẻ do app dựng theo vai trò (`/dashboard/{tenant|landlord}/contracts/{id}`) trong `hs-web-app/lib/ai-contract-cards.ts`; output model bị lọc link/URL/route/UUID. Trạng thái: chưa đăng nhập, cần làm rõ, không có kết quả, thiếu dữ liệu, lỗi tool/Core/provider được hiển thị riêng, lỗi không bị biến thành “không có hợp đồng”.
 
-**Kiến thức:** các tài liệu `01`, `07`, `08`, `13`, `14`, `README` trong `hs-infrastructure/documents/knowledge` mô tả ranh giới RAG/Contract; sửa Markdown không thay RAG đang chạy — cần Admin upload/apply (xem README).
+**Kiến thức:** các tài liệu `01`, `07`, `08`, `13`, `14`, `README` trong `hs-infra/documents/rag` mô tả ranh giới RAG/Contract; sửa Markdown không thay RAG đang chạy — cần Admin upload/apply (xem README).
 
 **Test:** Core `AiContractQueryServiceTest` (19); AI `tests/unit/test_contract_ask.py`, `test_agent_contract_route.py`; web `tests/ai-contract-cards.test.cjs`, `home-ai-chat.test.cjs`.
 
@@ -467,7 +467,7 @@ Thứ tự ưu tiên khi thông tin mâu thuẫn: **source/config đang dùng �
 
 **Response/frontend:** `appointmentCards`, `dataSources` (`CORE_APPOINTMENT`, `RAG`); mọi kết quả của module, kể cả `LOGIN_REQUIRED`/`TOOL_UNAVAILABLE`, mang `CORE_APPOINTMENT` để UI không diễn đạt thành lỗi hợp đồng/tin đăng (`lib/ai-contract-cards.ts: aiStatusNote/aiSourceNote`). Link do app dựng: chủ nhà `/dashboard/viewing-schedules?appointmentId=…&status=…`, người thuê `/dashboard/viewing-schedules/my-bookings?appointmentId=…&status=…` (`lib/ai-appointment-cards.ts`). Trang đích mở đúng lịch theo id bằng `components/appointment/useAppointmentDeepLink.ts` (id phải là UUID, `status` chỉ là gợi ý đã whitelist, tra qua API danh sách theo quyền; không thấy thì thông báo). Thẻ trong lịch sử là snapshot tại `readAt`; hội thoại cũ không có `appointmentCards` vẫn mở bình thường.
 
-**Kiến thức:** `01`, `05`, `13`, `README` trong `hs-infrastructure/documents/knowledge` được cập nhật ranh giới RAG/Appointment. Sửa Markdown không thay RAG đang chạy — cần Admin upload/apply.
+**Kiến thức:** `01`, `05`, `13`, `README` trong `hs-infra/documents/rag` được cập nhật ranh giới RAG/Appointment. Sửa Markdown không thay RAG đang chạy — cần Admin upload/apply.
 
 **Test:** Core `AiAppointmentQueryPostgresTest` (PostgreSQL, opt-in qua biến môi trường), `AppointmentAiControllerTest`, `AppointmentActionRulesParityTest`; AI `tests/unit/test_appointment_ask.py`, `test_agent_appointment_route.py`; web `tests/ai-appointment-cards.test.cjs`, `home-ai-chat.test.cjs`. Bộ câu hỏi thủ công: `hs-web-app/docs/AI_APPOINTMENT_TOOL_TEST_QUESTIONS.md`.
 

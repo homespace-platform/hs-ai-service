@@ -61,8 +61,8 @@ def main() -> None:
     parser.add_argument(
         "--dir",
         "-d",
-        default="../hs-infrastructure/documents/knowledge",
-        help="Path to folder containing knowledge .md files (default: ../hs-infrastructure/documents/knowledge)",
+        default="../hs-infra/documents/rag",
+        help="Path to folder containing knowledge .md files (default: ../hs-infra/documents/rag)",
     )
     args = parser.parse_args()
     asyncio.run(import_knowledge_directory(args.dir))
