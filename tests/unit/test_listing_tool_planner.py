@@ -51,6 +51,20 @@ async def test_openai_detail_tool_call(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_removed_map_tool_is_neither_advertised_nor_accepted(monkeypatch):
+    planner = ListingToolPlanner(config())
+
+    async def fake_post(payload):
+        assert {tool["name"] for tool in payload["tools"]} == {
+            "search_listings", "get_listing_detail", "get_listing_details"}
+        return call("compare_listing_surroundings", {"listingIds": []})
+
+    monkeypatch.setattr(planner, "_post", fake_post)
+    with pytest.raises(GenerationUnavailableError, match="Malformed OpenAI tool call"):
+        await planner.plan("Tư vấn giúp mình chọn phòng", [], {})
+
+
+@pytest.mark.asyncio
 async def test_planner_cannot_invent_a_known_listing_id(monkeypatch):
     planner = ListingToolPlanner(config())
     async def fake_post(payload):

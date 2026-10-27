@@ -57,28 +57,10 @@ _MULTI_DETAIL_PARAMETERS: dict[str, Any] = {
     "required": ["listingIds"],
 }
 
-_PROFILE_ENUM = ["STUDENT", "WORKER", "FAMILY_WITH_CHILDREN", "REMOTE_WORKER"]
-_CATEGORY_ENUM = ["UNIVERSITY", "SCHOOL", "KINDERGARTEN", "HOSPITAL", "CLINIC", "PHARMACY", "SUPERMARKET",
-                  "SHOPPING_MALL", "MARKET", "PARK", "BANK", "FOOD", "CONVENIENCE_STORE", "PUBLIC_TRANSPORT", "GYM"]
-
-_SURROUNDINGS_PARAMETERS: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "listingIds": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10},
-        "renterProfiles": {"type": "array", "items": {"type": "string", "enum": _PROFILE_ENUM}},
-        "priorityCategories": {"type": "array", "items": {"type": "string", "enum": _CATEGORY_ENUM}},
-        "radiusMeters": {"type": ["integer", "null"]},
-        "targetPlaceQuery": {"type": ["string", "null"], "maxLength": 120},
-    },
-    "required": ["listingIds", "renterProfiles", "priorityCategories", "radiusMeters", "targetPlaceQuery"],
-    "additionalProperties": False,
-}
-
 _DESCRIPTIONS = {
     "search_listings": "Find NEW current published rental listings using exact typed field predicates. Do not use for choosing among the displayed selection; read the known IDs instead.",
     "get_listing_detail": "Read all current public fields of one listing by its UUID, including prices, charges, amenities and furnishing assets.",
     "get_listing_details": "Read known listing UUIDs together within the configured page limit for follow-up comparison, recommendation, or evaluating changed preferences WITHIN the displayed selection. Re-read facts; do not run a new search.",
-    "compare_listing_surroundings": "Compare amenities around KNOWN displayed listings (schools, universities, hospitals, markets, supermarkets, parks, transport...) for a renter profile or priorities. Use for suitability near a place or amenity; only known displayed listing UUIDs (max 10). Radius is parsed by application code, never guess it.",
 }
 
 
@@ -270,7 +252,7 @@ class ListingToolPlanner:
             "Budgets: '3 triệu', '3tr', '3 củ' = 3000000 VND/month; 'dưới/tối đa/không quá' = lte, 'trên/ít nhất' = gte, "
             "'khoảng/tầm X' = a range from 0.8X to 1.2X, never equality. 'Rộng rãi' or 'thoáng' alone is not a numeric filter. "
             "A street name belongs in the street filter (e.g. 'Đường Nguyễn Oanh'), a ward in ward; never mix them. "
-            "NEARBY AMENITIES: for suitability/ranking around known displayed listings by renter type or nearby amenities (e.g. 'phòng nào gần trường/bệnh viện/siêu thị hợp sinh viên/gia đình') call compare_listing_surroundings with only displayed IDs. Never put a radius in your own words; use null unless the user stated one with a unit. "
+            "No map scanning, radius lookup or distance-ranking tool is available. Do not claim to scan nearby places or invent distances. "
             "Do not call a tool when the user only greets, asks how HomeSpace works, or the message has no rental need. "
             "Return at most one tool call. Available fields: " + catalog
         )
@@ -289,10 +271,6 @@ class ListingToolPlanner:
         tools = []
         for name, description in _DESCRIPTIONS.items():
             if name == 'get_listing_details' and max_results(self.settings) < 2:
-                continue
-            if name == "compare_listing_surroundings":
-                tools.append({"type": "function", "name": name, "description": description,
-                              "parameters": deepcopy(_SURROUNDINGS_PARAMETERS), "strict": True})
                 continue
             parameters = (_search_parameters(fields) if name == "search_listings" else
                           deepcopy(_DETAIL_PARAMETERS if name == "get_listing_detail" else _MULTI_DETAIL_PARAMETERS))
@@ -351,12 +329,6 @@ class ListingToolPlanner:
             raise ValueError("Listing ID is required")
         if name == "get_listing_details" and not isinstance(args.get("listingIds"), list):
             raise ValueError("Listing IDs are required")
-        if name == "compare_listing_surroundings":
-            if not isinstance(args.get("listingIds"), list) or not 1 <= len(args["listingIds"]) <= 10:
-                raise ValueError("Surroundings listing IDs are required")
-            if not all(value in _PROFILE_ENUM for value in args.get("renterProfiles") or []) or not all(
-                    value in _CATEGORY_ENUM for value in args.get("priorityCategories") or []):
-                raise ValueError("Unsupported renter profile or amenity category")
         return ToolPlan(name=name, arguments=args)
 
     async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:

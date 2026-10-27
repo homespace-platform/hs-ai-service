@@ -59,3 +59,16 @@ def test_new_search_or_rag_does_not_use_old_set():
     assert scoped_selection("Nên chọn phương thức thanh toán nào?", history()) is None
     assert scoped_selection("Tôi muốn ở An Nhơn, nên chọn phòng nào rẻ nhất?", history()) is None
     assert scoped_selection("Chuyển sang căn hộ, căn nào rẻ nhất?", history()) is None
+
+
+def test_past_search_reference_keeps_selection_but_a_separate_new_command_does_not():
+    for question in [
+        "Trong các phòng vừa tìm, mình ở một người, nên chọn phòng nào?",
+        "So sánh các phòng đã tìm giúp mình",
+        "Trong cac phong vua tim kiem, phong nao re nhat?",
+        "Trong các phòng vừa tìm, mình ở một người và muốn tiết kiệm, nên chọn phòng nào?",
+        "Trong những phòng này, muốn tiết kiệm thì nên chọn phòng nào?",
+    ]:
+        assert scoped_selection(question, history()) == IDS[:4]
+    assert scoped_selection("Các phòng vừa tìm không hợp, tìm thêm phòng khác rẻ nhất", history()) is None
+    assert scoped_selection("Muốn tiết kiệm, tìm phòng khác rẻ nhất", history()) is None

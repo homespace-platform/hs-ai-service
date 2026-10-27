@@ -12,6 +12,10 @@ FastAPI microservice for HomeSpace AI capabilities, local RAG knowledge base, an
 - Local Embedding: `intfloat/multilingual-e5-small` via `sentence-transformers` running on CPU (384-dimensional vector, normalized).
 - Generative Layer: OpenAI Responses / Disabled mode for synthesis with source citations.
 
+Listing search and comparison use live Core listing data. Map scans, radius searches and
+nearby-place distance ranking are currently unavailable. Landmark keyword searches only
+match listing text; they do not verify geographic proximity. No nearby-places API key is required.
+
 ---
 
 ## 1. Quick Start Locally

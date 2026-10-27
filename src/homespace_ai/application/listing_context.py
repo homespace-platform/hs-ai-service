@@ -3,7 +3,7 @@
 import re
 from typing import Any
 from uuid import UUID
-from homespace_ai.application.vietnamese_text import VietnamesePattern
+from homespace_ai.application.vietnamese_text import VietnamesePattern, fold_text
 from homespace_ai.application.listing_limits import ABSOLUTE_MAX_RESULTS
 
 History = list[dict[str, Any]]
@@ -59,7 +59,13 @@ def scoped_selection(question: str, history: History) -> list[str] | None:
     None means this is not an unambiguous scoped follow-up.
     """
     ids = current_scope(history)
-    if not ids or NEW_SEARCH.search(question) or not FOLLOWUP.search(question):
+    # "Các phòng vừa tìm" refers to the displayed selection, not a command to search again.
+    # Folding accents also makes "tiết kiệm" look like the search verb "kiếm".
+    # Keep any separate command, e.g. "các phòng vừa tìm không hợp, tìm thêm phòng khác".
+    search_command = re.sub(
+        r"\b(?:vua|da)(?:\s+moi)?\s+(?:tim(?:\s+kiem)?|kiem)(?:\s+(?:duoc|thay))?\b|\btiet\s+kiem\b",
+        "", fold_text(question))
+    if not ids or NEW_SEARCH.search(search_command) or not FOLLOWUP.search(question):
         return None
     # A prior listing selection must not turn general contract/payment/account help into
     # a recommendation about rooms. Explicit listing ordinals remain valid detail questions.

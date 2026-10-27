@@ -59,6 +59,48 @@ def make_assistant(plan, ids=None):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("question", [
+    "Quét các tiện ích trong bán kính 3 km giúp mình.",
+    "Trong các phòng này, phòng nào gần bệnh viện hơn?",
+    "Cho mình xem tiện ích xung quanh các phòng vừa tìm.",
+    "Trong các phòng này, phòng nào gần trường nhất?",
+    "Phòng nào gần nhất với siêu thị?",
+])
+async def test_map_requests_preserve_selection_without_calling_tools(question, monkeypatch):
+    assistant = make_assistant(ToolPlan("search_listings", {"filters": []}))
+    listing_id = "00000000-0000-0000-0000-000000000001"
+    history = [{"role": "assistant", "content": "Mình đã tìm được một phòng.",
+                "listingContext": {"version": 1, "listingIds": [listing_id]}}]
+
+    async def unexpected_call(*args, **kwargs):
+        pytest.fail("An unavailable map capability must not call a provider or listing tools")
+
+    monkeypatch.setattr(assistant.tools, "fields", unexpected_call)
+    monkeypatch.setattr(assistant.planner, "plan", unexpected_call)
+    monkeypatch.setattr(assistant.generative_client, "generate_listing_answer", unexpected_call)
+    result = await assistant.try_answer(question, history, "map-unavailable")
+
+    assert result.status == "ANSWERED"
+    assert "chưa có dữ liệu" in result.answer
+    assert not result.listing_ids
+    assert result.listing_context["listingIds"] == [listing_id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("question", [
+    "Tìm phòng gần ĐH Công nghiệp",
+    "Có phòng nào gần trường Đại học Công nghiệp dưới 4 triệu không?",
+    "Tìm 10 tin đăng mới gần nhất",
+])
+async def test_plain_landmark_search_still_uses_live_listing_search(question):
+    assistant = make_assistant(ToolPlan("search_listings", {"filters": [], "keyword": "ĐH Công nghiệp"}))
+    result = await assistant.try_answer(question, [], "landmark-search")
+    assert result.status == "ANSWERED"
+    assert result.listing_ids == assistant.tools.ids
+    assert assistant.planner.history == []
+
+
+@pytest.mark.asyncio
 async def test_listing_question_uses_core_data_and_preserves_history():
     plan = ToolPlan("search_listings", {"filters": [{"field": "room.parking_policy", "op": "eq", "value": "PAID"}]})
     assistant = make_assistant(plan)
