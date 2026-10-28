@@ -72,7 +72,7 @@ async def ask_agent(
     if conversation_repository is not None:
         await conversation_repository.append_message(
             user.user_id, conversation_id, role="assistant",
-            content=result.answer, status=result.status,
+            content=stored_answer(result), status=result.status,
             listing_context=result.listing_context,
             listing_ids=result.listing_ids,
             listing_positions=result.listing_positions,
@@ -81,6 +81,13 @@ async def ask_agent(
             data_sources=result.data_sources,
         )
     return public_answer(result)
+
+
+def stored_answer(result: AskResult) -> str:
+    # Keep references/preferences, not a permanent second copy of expiring provider facts in Mongo/JWT.
+    if "CORE_NEARBY" in result.data_sources:
+        return "Đã đối chiếu tiện ích xung quanh của nhóm phòng. Hỏi lại để đọc dữ liệu mới nhất; thông tin địa điểm không được lưu cố định trong lịch sử."
+    return result.answer
 
 
 async def generate_answer(

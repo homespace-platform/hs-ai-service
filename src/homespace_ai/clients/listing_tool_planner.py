@@ -9,6 +9,7 @@ from uuid import UUID
 
 from homespace_ai.clients.generative import GenerationUnavailableError, OpenAIResponsesClient
 from homespace_ai.core.config import Settings
+from homespace_ai.core.business_properties import nearby_default_radius_m
 from homespace_ai.application.listing_context import current_scope, History
 from homespace_ai.application.listing_location import resolve_location_filters
 from homespace_ai.application.vietnamese_text import fold_text
@@ -64,6 +65,30 @@ _DESCRIPTIONS = {
 }
 
 
+_NEARBY_GROUPS = ["EDUCATION", "HEALTHCARE", "SHOPPING", "FOOD_DRINK", "FINANCE", "TRANSPORT", "RECREATION", "SPORTS"]
+_NEARBY_DESCRIPTIONS = {
+    "get_listing_nearby_places": "Read cached nearby-place evidence for the KNOWN displayed listing IDs. No provider scan occurs. Use for nearby amenities/radius/which room is closer. Interior amenities remain ordinary listing details. Order groups by the renter's stated priorities: students exact campus then food/transport/shopping; workers workplace then transport/shopping; families child's school then healthcare/parks/shopping; remote workers daily needs/sports, but POIs do not prove quietness. Ask only missing material needs, never force a persona questionnaire.",
+    "find_listings_near_place": "Find NEW published rental listings near one named place/campus or a generic nearby category, with ALL price/area/occupancy filters applied by Core before LIMIT. Set placeQuery and group=null for a named place; group and placeQuery=null for a generic category. Never guess place IDs or coordinates.",
+}
+
+def _nearby_parameters(name: str, fields: dict[str, str], cap: int) -> dict[str, Any]:
+    cap = min(cap, 20)
+    if name == "get_listing_nearby_places":
+        properties = {"listingIds": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": cap},
+                      "radiusMeters": {"type": "integer", "minimum": 100, "maximum": 5000},
+                      "groups": {"type": "array", "items": {"type": "string", "enum": _NEARBY_GROUPS}},
+                      "placeQuery": {"type": ["string", "null"], "description": "Exact school/campus/workplace name if specified, otherwise null; do not substitute generic education for the named target."}}
+    else:
+        properties = deepcopy(_search_parameters(fields)["properties"])
+        properties.pop("keyword", None)
+        properties.update({"placeQuery": {"type": ["string", "null"]},
+                           "group": {"type": ["string", "null"], "enum": [*_NEARBY_GROUPS, None]},
+                           "radiusMeters": {"type": "integer", "minimum": 100, "maximum": 5000}})
+        properties["filters"]["items"]["additionalProperties"] = False
+        properties["limit"].update(minimum=1, maximum=cap)
+    return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
+
+
 def _search_parameters(fields: dict[str, str]) -> dict[str, Any]:
     parameters = deepcopy(_SEARCH_PARAMETERS)
     parameters["properties"]["filters"]["items"]["properties"]["field"]["enum"] = sorted(fields)
@@ -78,6 +103,12 @@ class ListingToolPlanner:
         if self.settings.generation_provider != "openai":
             raise GenerationUnavailableError("Listing tool planning requires OpenAI.", retryable=False)
         plan = await self._openai(question, history, fields)
+        if plan is not None and plan.name == "find_listings_near_place":
+            normalized = self._normalize_search(question, ToolPlan("search_listings", plan.arguments), fields, history)
+            args = {**plan.arguments, "filters": resolve_location_filters(normalized.arguments["filters"], question, history, fields),
+                    "limit": search_limit(question, self.settings)}
+            args.pop("keyword", None)
+            return ToolPlan(plan.name, args)
         plan = self._normalize_search(question, plan, fields, history)
         if plan is not None and plan.name == 'search_listings':
             arguments = {**plan.arguments, 'filters': resolve_location_filters(plan.arguments['filters'], question, history, fields),
@@ -287,9 +318,19 @@ class ListingToolPlanner:
             tools.append({"type": "function", "name": name, "description": description,
                           "parameters": parameters, "strict": True})
         transport = OpenAIResponsesClient(self.settings)
+        nearby_enabled = getattr(self.settings, "nearby_query_enabled", False)
+        if nearby_enabled:
+            tools.extend({"type": "function", "name": name, "description": description,
+                          "parameters": _nearby_parameters(name, fields, max_results(self.settings)), "strict": True}
+                         for name, description in _NEARBY_DESCRIPTIONS.items())
+        instructions = self._instructions(fields)
+        if nearby_enabled:
+            instructions = instructions.replace(
+                "No map scanning, radius lookup or distance-ranking tool is available. Do not claim to scan nearby places or invent distances.",
+                f"Cached nearby-place lookup is available; default radiusMeters={self.settings.nearby_default_radius_m}, honor an explicit radius up to 5000. Never call a POI provider or invent distances. Named landmarks use find_listings_near_place, not keyword matching. Disclose coverage, freshness and STRAIGHT_LINE distance. Missing coverage is unknown, not absence. For a student ask for the exact school/campus when missing; not every school is the target university.")
         payload = transport.payload(
             self.settings.openai_tool_model,
-            self._instructions(fields) + f" When unspecified use sort=newest and limit=5. Respect an explicit requested count, up to {max_results(self.settings)} per request.",
+            instructions + f" When unspecified use sort=newest and limit=5. Respect an explicit requested count, up to {max_results(self.settings)} per request.",
             self._dialog(question, history), self.settings.openai_tool_max_output_tokens,
         )
         payload.update({"tools": tools, "tool_choice": "auto", "parallel_tool_calls": False})
@@ -307,7 +348,9 @@ class ListingToolPlanner:
             if len(calls) != 1:
                 raise ValueError("Expected one tool call")
             plan = self._validated(calls[0]["name"], json.loads(calls[0]["arguments"]))
-            if plan.name != "search_listings":
+            if plan.name in _NEARBY_DESCRIPTIONS and not nearby_enabled:
+                raise ValueError("Nearby tools are disabled")
+            if plan.name not in {"search_listings", "find_listings_near_place"}:
                 known_ids = set(current_scope(history))
                 known_ids.update(match.lower() for match in re.findall(
                     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", question))
@@ -321,7 +364,7 @@ class ListingToolPlanner:
 
     @staticmethod
     def _validated(name: str, args: Any) -> ToolPlan:
-        if name not in _DESCRIPTIONS or not isinstance(args, dict):
+        if name not in {*_DESCRIPTIONS, *_NEARBY_DESCRIPTIONS} or not isinstance(args, dict):
             raise ValueError("Unknown listing tool")
         if name == "search_listings" and not isinstance(args.get("filters"), list):
             raise ValueError("Search filters are required")
@@ -329,6 +372,21 @@ class ListingToolPlanner:
             raise ValueError("Listing ID is required")
         if name == "get_listing_details" and not isinstance(args.get("listingIds"), list):
             raise ValueError("Listing IDs are required")
+        if name == "get_listing_nearby_places" and not isinstance(args.get("listingIds"), list):
+            raise ValueError("Listing IDs are required")
+        if name in _NEARBY_DESCRIPTIONS:
+            radius = args.get("radiusMeters", nearby_default_radius_m())
+            if type(radius) is not int or not 100 <= radius <= 5000:
+                raise ValueError("Invalid nearby radius")
+            if name == "find_listings_near_place" and (not isinstance(args.get("filters"), list)
+                    or bool(args.get("placeQuery")) == bool(args.get("group"))):
+                raise ValueError("Select a named place or a category")
+            if args.get("group") and args["group"] not in _NEARBY_GROUPS:
+                raise ValueError("Unknown nearby group")
+            if name == "get_listing_nearby_places" and (not isinstance(args.get("groups"), list)
+                    or len(args["groups"]) > 8 or len(set(args["groups"])) != len(args["groups"])
+                    or any(group not in _NEARBY_GROUPS for group in args["groups"])):
+                raise ValueError("Unknown nearby group")
         return ToolPlan(name=name, arguments=args)
 
     async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:

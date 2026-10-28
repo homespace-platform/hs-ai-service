@@ -27,7 +27,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-homespace_ai = ["data/vietmap/*.json", "data/vietmap/*.txt", "data/vietmap/*.md"]
+homespace_ai = ["application.properties", "data/vietmap/*.json", "data/vietmap/*.txt", "data/vietmap/*.md"]
 
 [dependency-groups]
 dev = [

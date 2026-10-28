@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from homespace_ai.api.v1.admin_knowledge import get_embedder
-from homespace_ai.api.v1.agent_ask import generate_answer, public_answer
+from homespace_ai.api.v1.agent_ask import generate_answer, public_answer, stored_answer
 from homespace_ai.api.v1.schemas import GuestAskRequest, GuestAskResponse, GuestConversationDetail, ConversationSummary
 from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.config import Settings, get_settings
@@ -87,7 +87,7 @@ async def ask(body: GuestAskRequest, request: Request, user=Depends(get_guest_us
         now = datetime.now(timezone.utc).isoformat()
         state["messages"].extend([
             {"id": str(uuid4()), "role": "user", "content": question, "createdAt": now},
-            {"id": str(uuid4()), "role": "assistant", "content": result.answer, "createdAt": now,
+            {"id": str(uuid4()), "role": "assistant", "content": stored_answer(result), "createdAt": now,
              "status": result.status, "listingContext": result.listing_context,
              "listingIds": result.listing_ids, "listingPositions": result.listing_positions,
              "contractContext": result.contract_context, "contractCards": result.contract_cards,

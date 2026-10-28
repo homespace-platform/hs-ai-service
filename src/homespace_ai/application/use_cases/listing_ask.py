@@ -20,6 +20,7 @@ from homespace_ai.application.listing_location import LocationClarification
 from homespace_ai.application.listing_evidence import compact_search_listing
 from homespace_ai.application.listing_limits import max_results, requested_count, search_limit, ABSOLUTE_MAX_RESULTS
 from homespace_ai.application import budget_stretch as stretch
+from homespace_ai.application.nearby_listing_advice import NEARBY_INTENT, answer_nearby
 
 
 LISTING_SIGNAL = VietnamesePattern(
@@ -51,7 +52,7 @@ class ListingAsk:
     async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
         if SUPPORT_INTENT.search(question) and not SEARCH_INTENT.search(question):
             return None
-        if MAP_EVIDENCE_REQUEST.search(question):
+        if MAP_EVIDENCE_REQUEST.search(question) and not getattr(self.settings, "nearby_query_enabled", False):
             return AskResult(
                 answer="Hiện mình chưa có dữ liệu quét tiện ích xung quanh hoặc đo khoảng cách để xếp hạng phòng theo vị trí. "
                        "Mình vẫn có thể giúp tìm và so sánh phòng theo khu vực, giá thuê, diện tích và tiện nghi có trong tin đăng.",
@@ -72,7 +73,11 @@ class ListingAsk:
             return None
         stage = "field_catalog"
         try:
-            if selection:
+            nearby_memory = next((item.get("listingContext", {}).get("nearby") for item in reversed(history)
+                                  if item.get("role") == "assistant" and isinstance(item.get("listingContext"), dict)), None)
+            if selection and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
+                plan = ToolPlan("get_listing_nearby_places", {**nearby_memory, "listingIds": selection})
+            elif selection and not (getattr(self.settings, "nearby_query_enabled", False) and NEARBY_INTENT.search(question)):
                 # References already known by the application need neither a field catalog nor a
                 # paid planner call. Still read every selected listing from Core, never old facts.
                 plan = ToolPlan("get_listing_detail", {"listingId": selection[0]}) if len(selection) == 1 else (
@@ -100,6 +105,15 @@ class ListingAsk:
                     scope_count=len(scope), scoped_followup=bool(selection))
         stage = "tool_execution"
         try:
+            if plan.name == "get_listing_nearby_places":
+                return await answer_nearby(self, question, history, request_id, plan.arguments)
+            if plan.name == "find_listings_near_place":
+                resolved = await self.tools.resolve_nearby_search(plan.arguments)
+                if resolved.get("needsClarification"):
+                    names = "; ".join(str(item.get("name", "")) for item in resolved.get("candidates", [])[:5])
+                    return AskResult(answer=("Bạn muốn tìm quanh trường/cơ sở nào? " + names) if names else "Mình chưa tìm thấy địa điểm đó trong kho tiện ích hiện tại. Bạn cho mình tên đầy đủ và cơ sở nhé.",
+                                     status="ANSWERED", citations=[], request_id=request_id, listing_context=context_for(scope), data_sources=["CORE_NEARBY"])
+                plan = ToolPlan("search_listings", resolved["arguments"])
             if plan.name == "search_listings":
                 limit = search_limit(question, self.settings)
                 plan = ToolPlan(plan.name, {**plan.arguments, 'limit': limit})
@@ -111,7 +125,7 @@ class ListingAsk:
                     retries = 0
                     for index in range(len(original_filters) - 1, -1, -1):
                         field = original_filters[index].get("field", "") if isinstance(original_filters[index], dict) else ""
-                        if field in {"category", "city_id", "city", "ward_id", "ward", "street", "display", "price_amount", "area_m2"}:
+                        if field in {"category", "city_id", "city", "ward_id", "ward", "street", "display", "price_amount", "area_m2"} or plan.arguments.get("nearby"):
                             continue
                         remaining = original_filters[:index] + original_filters[index + 1:]
                         if not remaining:

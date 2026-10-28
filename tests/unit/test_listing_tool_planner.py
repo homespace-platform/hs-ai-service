@@ -51,12 +51,17 @@ async def test_openai_detail_tool_call(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_removed_map_tool_is_neither_advertised_nor_accepted(monkeypatch):
-    planner = ListingToolPlanner(config())
+@pytest.mark.parametrize("nearby_enabled", [False, True])
+async def test_removed_map_tool_is_neither_advertised_nor_accepted(monkeypatch, nearby_enabled):
+    settings = config()
+    settings.nearby_query_enabled = nearby_enabled
+    planner = ListingToolPlanner(settings)
 
     async def fake_post(payload):
-        assert {tool["name"] for tool in payload["tools"]} == {
-            "search_listings", "get_listing_detail", "get_listing_details"}
+        expected = {"search_listings", "get_listing_detail", "get_listing_details"}
+        if nearby_enabled:
+            expected |= {"get_listing_nearby_places", "find_listings_near_place"}
+        assert {tool["name"] for tool in payload["tools"]} == expected
         return call("compare_listing_surroundings", {"listingIds": []})
 
     monkeypatch.setattr(planner, "_post", fake_post)

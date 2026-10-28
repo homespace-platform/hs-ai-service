@@ -1,8 +1,10 @@
 from functools import lru_cache
 from typing import ClassVar, Literal
 
-from pydantic import Field, HttpUrl, SecretStr, field_validator
+from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from homespace_ai.core.business_properties import nearby_query_enabled as load_nearby_query_enabled
+from homespace_ai.core.business_properties import nearby_default_radius_m as load_nearby_default_radius_m
 
 
 class Settings(BaseSettings):
@@ -37,6 +39,18 @@ class Settings(BaseSettings):
     gateway_request_timeout_seconds: float = Field(
         default=15, gt=0, le=120, alias="GATEWAY_REQUEST_TIMEOUT_SECONDS"
     )
+
+    # Non-secret business configuration is required in the packaged application.properties.
+    nearby_query_enabled: bool
+    nearby_default_radius_m: int
+
+    @model_validator(mode="before")
+    @classmethod
+    def required_business_configuration(cls, values):
+        # Windows environment lookup is case-insensitive: remove any legacy env override
+        # by always sourcing this business flag from the required properties file.
+        return {**values, "nearby_query_enabled": load_nearby_query_enabled(),
+                "nearby_default_radius_m": load_nearby_default_radius_m()}
 
     # Internal secret shared between Gateway and AI service to prevent forged headers
     gateway_internal_secret: str = Field(

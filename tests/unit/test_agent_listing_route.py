@@ -40,7 +40,7 @@ async def test_agent_ask_routes_listing_to_tool_without_rag(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_real_listing_pipeline_search_detail_recommend_and_resume_after_map_request(monkeypatch):
+async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nearby_disabled(monkeypatch):
     """Exercise routing, native tool validation, Core HTTP tools and saved selection together.
 
     Only external boundaries (model transport, Core HTTP and persistence) are replaced.
@@ -48,6 +48,7 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_after_ma
     ids = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 1001)]
     calls, plans, generations = [], [], []
     settings = Settings(_env_file=None, GENERATION_PROVIDER="openai", OPENAI_API_KEY="test-only-key")
+    settings.nearby_query_enabled = False
 
     class Repository:
         def __init__(self):
