@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
 from homespace_ai.application.listing_context import context_for
-from homespace_ai.application.nearby_listing_advice import radius_for
+from homespace_ai.application.nearby_listing_advice import radius_for, answer_nearby
 from homespace_ai.application.use_cases.ask_use_cases import AskResult
 from homespace_ai.api.v1.agent_ask import stored_answer
 from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
@@ -41,6 +41,68 @@ def assistant(complete=True, enabled=True, place_query=None):
     a.settings = SimpleNamespace(nearby_query_enabled=True)
     a.tools = NearbyTools(complete, enabled)
     return a
+
+@pytest.mark.asyncio
+async def test_default_advice_uses_seven_collected_groups_and_still_selects_only_three():
+    a = assistant()
+    result = await answer_nearby(a, "Tiện ích xung quanh thì nên chọn phòng nào?", HISTORY, "combined",
+                                {"listingIds": IDS, "radiusMeters": 2000})
+    assert result.status == "ANSWERED" and len(result.listing_ids) == 3
+    assert len(a.tools.nearby_calls[0][2]) == 7
+    assert "SPORTS" not in a.tools.nearby_calls[0][2]
+
+@pytest.mark.asyncio
+async def test_uncollected_sports_is_unknown_and_does_not_support_a_recommendation():
+    a = assistant()
+    nearby = a.tools.nearby
+    async def not_collected(*args):
+        result = await nearby(*args)
+        for summary in result["summaries"]:
+            for group in summary["groups"]:
+                group.update(coverageStatus="NOT_REQUESTED", nearest=[], knownCount=0, radiusCoveredMeters=None)
+        return result
+    a.tools.nearby = not_collected
+    result = await answer_nearby(a, "Phòng nào gần phòng gym thì nên chọn?", HISTORY, "sports",
+                                {"listingIds": IDS, "radiusMeters": 2000, "groups": ["SPORTS"]})
+    assert "chưa đủ" in result.answer
+    assert not result.listing_ids and not a.tools.read
+    assert a.generative_client.kwargs is None
+
+@pytest.mark.asyncio
+async def test_limited_hundred_result_sample_can_compare_positive_evidence_and_only_recommend_three():
+    a = assistant()
+    original = a.tools.nearby
+    async def limited(*args):
+        evidence = await original(*args)
+        for summary in evidence["summaries"]:
+            for group in summary["groups"]:
+                group["coverageStatus"] = "LIMITED_PROVIDER_RESPONSE"
+                if group["code"] == "EDUCATION":
+                    group.update(nearest=[], knownCount=0)
+        return evidence
+    a.tools.nearby = limited
+    result = await a.try_answer("Trong các phòng này, tiện ích xung quanh thì nên chọn phòng nào?", HISTORY, "single-request")
+    assert len(result.listing_ids) == len(a.tools.read) == 3
+    evidence = json.loads(a.generative_client.kwargs["context_chunks"][0]["content"])
+    assert evidence["limitedSelection"] is True
+    assert evidence["comparisonGroups"] == ["SHOPPING"]
+    assert "không kết luận nhóm 0 kết quả" in evidence["limitations"]
+
+@pytest.mark.asyncio
+async def test_limited_sample_with_no_school_evidence_cannot_claim_a_school_recommendation():
+    a = assistant()
+    original = a.tools.nearby
+    async def no_evidence(*args):
+        evidence = await original(*args)
+        for summary in evidence["summaries"]:
+            for group in summary["groups"]:
+                group.update(coverageStatus="LIMITED_PROVIDER_RESPONSE", nearest=[], knownCount=0)
+        return evidence
+    a.tools.nearby = no_evidence
+    result = await answer_nearby(a, "Phòng nào gần trường học thì nên chọn?", HISTORY, "unknown-school",
+                                {"listingIds": IDS, "radiusMeters": 2000, "groups": ["EDUCATION"]})
+    assert not result.listing_ids and not a.tools.read
+    assert a.generative_client.kwargs is None
 
 @pytest.mark.asyncio
 async def test_scoped_ten_are_ranked_from_cached_summary_but_only_three_details_reach_model():

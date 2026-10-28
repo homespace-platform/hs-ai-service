@@ -50,7 +50,8 @@ async def answer_nearby(assistant, question, history, request_id, arguments):
                     text += " Mình chưa tìm thấy địa điểm đó trong kho dữ liệu hiện tại."
                 return AskResult(answer=text, status="ANSWERED", citations=[], request_id=request_id, listing_context=context_for(scope), data_sources=["CORE_NEARBY"])
             target_id = resolved["arguments"]["nearby"]["placeId"]
-        groups = arguments.get("groups") or list(GROUP_LABELS)
+        # The combined ten-category query covers seven groups; gym/sports are not collected.
+        groups = arguments.get("groups") or [code for code in GROUP_LABELS if code != "SPORTS"]
         evidence = await assistant.tools.nearby(ids, radius, groups, target_id)
         summaries = evidence["summaries"]
         if any(not s.get("enabled") for s in summaries):
@@ -62,7 +63,15 @@ async def answer_nearby(assistant, question, history, request_id, arguments):
                            and (g.get("radiusCoveredMeters") or 0) >= radius
                            for g in s.get("groups", [])) and len(s.get("groups", [])) == len(groups)
                        for s in summaries)
-        ranking = bool(target_known or complete)
+        limited = any(g.get("coverageStatus") == "LIMITED_PROVIDER_RESPONSE" for s in summaries for g in s.get("groups", []))
+        usable_sample = all(all(g.get("coverageStatus") in {"COMPLETE_PROVIDER_RESPONSE", "LIMITED_PROVIDER_RESPONSE"}
+                                and (g.get("radiusCoveredMeters") or 0) >= radius for g in s.get("groups", []))
+                            and len(s.get("groups", [])) == len(groups) for s in summaries)
+        # A missing group in the first 100 is unknown. Compare positive evidence shared by all candidates.
+        common_groups = [code for code in groups if all(any(g.get("code") == code and g.get("nearest")
+                                                           for g in s.get("groups", [])) for s in summaries)]
+        comparison_groups = groups if complete else common_groups
+        ranking = bool(target_known or complete or (usable_sample and common_groups))
         if RECOMMENDATION.search(question) and not ranking:
             return AskResult(
                 answer="Dữ liệu tiện ích của nhóm phòng này chưa đủ hoặc chưa phủ hết bán kính bạn yêu cầu, nên mình chưa thể chọn phòng tốt hơn theo vị trí một cách đáng tin cậy. "
@@ -75,7 +84,7 @@ async def answer_nearby(assistant, question, history, request_id, arguments):
             def score(summary):
                 by_group = {g["code"]: g for g in summary["groups"]}
                 distances = [by_group[code]["nearest"][0]["distanceMeters"] if by_group[code].get("nearest") else radius * 2
-                             for code in groups]
+                             for code in comparison_groups]
                 return sum(distance / (i + 1) for i, distance in enumerate(distances))
             summaries.sort(key=score)
         summaries = summaries[:3]
@@ -87,9 +96,10 @@ async def answer_nearby(assistant, question, history, request_id, arguments):
         listings = [await assistant.tools.detail(value) for value in selected]
         data = {"listings": listings, "nearby": summaries, "scopeOnly": True, "rankingSupported": ranking,
                 "radiusMeters": radius, "distanceType": "STRAIGHT_LINE", "recommendationLimit": 3,
+                "limitedSelection": limited, "comparisonGroups": comparison_groups,
                 "selectionScope": [{"listingId": value, "position": scope.index(value) + 1} for value in selected],
                 "recentUserRequests": [m["content"][:1200] for m in history[-8:] if m.get("role") == "user"],
-                "limitations": "POI chưa chứng minh đang hoạt động. Thiếu coverage là chưa biết, không phải không có. Không suy thời gian đi lại hoặc độ ồn."}
+                "limitations": "Mỗi listing lấy tối đa 100 địa điểm từ một request. Khi limitedSelection=true, chỉ so sánh theo comparisonGroups có bằng chứng; nêu rõ giới hạn mẫu và không kết luận nhóm 0 kết quả là không có tiện ích. POI chưa chứng minh đang hoạt động. Không suy thời gian đi lại hoặc độ ồn."}
         generated = await assistant.generative_client.generate_listing_answer(question=question, evidence=data)
         if any(value not in selected for value in generated.listing_ids):
             raise GenerationUnavailableError("Unknown nearby recommendation", retryable=False)
