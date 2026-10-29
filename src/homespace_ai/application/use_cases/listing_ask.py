@@ -39,7 +39,7 @@ from homespace_ai.application.renter_dates import request_today
 LISTING_SIGNAL = VietnamesePattern(
     r"\b(tìm|kiếm|còn|so sánh|phòng|căn hộ|chung cư|studio|nhà|trọ|chỗ ở|nơi ở|chỗ thuê|thuê|tin đăng|bài đăng|"
     r"gửi xe|nội thất|tiện ích|ngân sách|triệu|tr/tháng|giá rẻ|rẻ nhất|ở ghép|ở một mình|thang máy|ban công|"
-    r"toàn quốc|cả nước|xem thêm|tin khác)\b")
+    r"xem thêm|tin khác)\b")
 SEARCH_INTENT = VietnamesePattern(
     r"\b(tìm|kiếm|còn phòng|phòng nào|căn nào|nhà nào|so sánh|cần thuê|muốn thuê|cần tìm|muốn tìm|"
     r"chỗ ở|nơi ở|chỗ thuê|cần chỗ|kiếm chỗ|xem thêm|tin khác)\b")
@@ -94,8 +94,6 @@ def criteria_lines(state: dict[str, Any] | None, catalog: SearchCatalog | None) 
     location = state.get("location") or {}
     if location.get("ward") or location.get("city"):
         lines.append("Khu vực: " + ", ".join(v for v in (location.get("ward"), location.get("city")) if v))
-    elif state.get("nationwide"):
-        lines.append("Khu vực: toàn quốc")
     if state.get("target"):
         lines.append(f"Trong {state['target']['radiusMeters']} m (đường chim bay) quanh {state['target']['name']}")
     for item in state.get("nearby") or []:
@@ -311,8 +309,8 @@ class ListingAsk:
             return self._ask(request_id, scope, merged, text)
         within = bool(update.get("withinDisplayed") and scope)
         if not within and not rs.has_scope(merged):
-            text = ("Bạn muốn tìm ở khu vực nào? Bạn cho mình phường/xã và tỉnh/thành phố (ví dụ: Phường Hạnh Thông, TP. Hồ Chí Minh), "
-                    "hoặc tên trường/nơi làm việc cụ thể; nếu không giới hạn khu vực, bạn nói “tìm toàn quốc” nhé.")
+            text = ("Bạn muốn tìm ở khu vực nào? Cho mình phường/xã và tỉnh/thành phố "
+                    "(ví dụ: Phường Hạnh Thông, Thành phố Hồ Chí Minh), hoặc tên trường/nơi làm việc cụ thể nhé.")
             merged["pending"] = self._pending("LOCATION", text)
             return self._ask(request_id, scope, merged, text)
         persist = deepcopy(state) if update.get("hypothetical") and state else merged

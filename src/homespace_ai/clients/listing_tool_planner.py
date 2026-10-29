@@ -120,7 +120,8 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "Same charge/furniture/policy predicates share one row in Core. 'Ít nhất 2 giường còn tốt' = furnishing.BED.handover_condition gte GOOD AND furnishing.BED.total_quantity gte 2.",
         "Elevator=amenity.ELEVATOR; private WC=room.restroom_type PRIVATE; free hours=room.access_hours_type FLEXIBLE; private balcony=room.balcony_type PRIVATE; "
         "gym in building=amenity.GYM, gym nearby is a nearby need. Pets: policy.petPolicy.value ALLOWED (APPROVAL_REQUIRED is not certain permission; 'có thể xin phép' may use in [ALLOWED, APPROVAL_REQUIRED]).",
-        "Location: ward/city names exactly as said (no guessed codes); never the account address. If no area, no named place and no explicit 'toàn quốc', call ask_clarification for LOCATION before searching. "
+        "Location: ward/city names exactly as said (no guessed codes); never the account address or the site header. "
+        "If no area and no named place, call ask_clarification for LOCATION before searching; do not invent a 'toàn quốc' search. "
         "Do not ask budget/persona/amenities when the scope is already clear.",
         "Contradictory bounds in one message (e.g. từ 5 đến 4 triệu): output them exactly as said; never swap or drop.",
         "Reading a displayed listing ('phòng 2 có thang máy không?', 'phí xe phòng này') uses get_listing_detail and adds NO criteria. "

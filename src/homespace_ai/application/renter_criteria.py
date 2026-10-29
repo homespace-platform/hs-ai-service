@@ -16,7 +16,7 @@ from homespace_ai.application.renter_dates import resolve as resolve_dates
 from homespace_ai.application.renter_search_state import CONTEXT_KEYS, categories as state_categories
 from homespace_ai.application.vietnamese_text import fold_text
 
-NATIONWIDE = re.compile(r"\b(?:toan quoc|ca nuoc|moi noi|o dau cung duoc|dau cung duoc|bat ky dau|khong gioi han khu vuc|tat ca khu vuc)\b")
+# Nationwide browse was removed from web/Core; chat search always needs a place.
 HYPOTHETICAL = re.compile(r"\b(?:neu|gia su|gia nhu)\b.{0,40}\b(?:thi sao|thi the nao|thi co|the nao)\b")
 DROP_WORDS = re.compile(r"\b(?:khong can|khong bat buoc|bo (?:yeu cau|dieu kien|tieu chi|loc)|khong quan trong|sao cung duoc|khong yeu cau)\b")
 SELF_DESCRIPTION = re.compile(r"\b(?:minh|toi|em|tui|tu(?:i)? minh|chung toi|chung minh|ban minh)\s+(?:khong|ko|chua bao gio)\s+(?:hut thuoc|nuoi|uong ruou|nhau|nau an)")
@@ -387,7 +387,7 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         "constraints": validated, "alternatives": validated_alternatives, "removeFields": remove,
         "location": {"ward": location.get("ward"), "city": location.get("city")}
         if isinstance(location.get("ward"), str) or isinstance(location.get("city"), str) else None,
-        "nationwide": bool(NATIONWIDE.search(text)),
+        "nationwide": False,
         "placeQuery": place_text, "placeRadiusMeters": place.get("radiusMeters") if type(place.get("radiusMeters")) is int else None,
         "nearby": nearby, "context": context, "sort": sort, "keyword": keyword,
         "limit": args.get("limit") if type(args.get("limit")) is int and args["limit"] > 0 else None,

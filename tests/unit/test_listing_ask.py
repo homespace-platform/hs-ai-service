@@ -44,7 +44,7 @@ async def test_t01_elevator_only_asks_for_area_and_never_searches():
     assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true")))
     result = await assistant.try_answer("Tìm phòng có thang máy", [], "t01")
     assert result.status == "ANSWERED"
-    assert "khu vực" in result.answer and "toàn quốc" in result.answer
+    assert "khu vực" in result.answer and "toàn quốc" not in result.answer
     assert assistant.tools.search_calls == 0
     state = result.listing_context["searchState"]
     assert state["pending"]["type"] == "LOCATION"
@@ -373,13 +373,17 @@ async def test_hypothetical_extra_person_is_answered_but_not_persisted():
 
 
 @pytest.mark.asyncio
-async def test_nationwide_must_be_said_by_the_customer():
-    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true")))
-    result = await assistant.try_answer("Tìm phòng trọ có thang máy toàn quốc", [], "nationwide")
-    assert assistant.tools.search_calls == 1 and result.listing_ids == [ID]
-    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true"), nationwide=True))
-    await assistant.try_answer("Tìm phòng trọ có thang máy", [], "model-only")
-    assert assistant.tools.search_calls == 0
+async def test_nationwide_is_not_a_chat_search_scope():
+    """Web/Core have no nationwide search; chat always asks for a real place."""
+    for question, plan in [
+        ("Tìm phòng trọ có thang máy toàn quốc", search(c("amenity.ELEVATOR", "eq", "true"))),
+        ("Tìm phòng trọ có thang máy", search(c("amenity.ELEVATOR", "eq", "true"), nationwide=True)),
+        ("Cứ tìm trên toàn quốc giúp mình", search(nationwide=True)),
+    ]:
+        assistant = make_assistant(plan)
+        result = await assistant.try_answer(question, [], "nationwide")
+        assert assistant.tools.search_calls == 0 and "khu vực" in result.answer
+        assert "toàn quốc" not in result.answer
 
 
 @pytest.mark.asyncio

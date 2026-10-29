@@ -313,8 +313,9 @@ def without(state: dict[str, Any], removed: list[dict[str, Any]]) -> dict[str, A
 
 
 def has_scope(state: dict[str, Any]) -> bool:
+    """Search needs a place: ward/city, or a chosen landmark. Nationwide browse is not supported."""
     location = state.get("location") or {}
-    return bool(location.get("wardId") or location.get("cityId") or state.get("target") or state.get("nationwide"))
+    return bool(location.get("wardId") or location.get("cityId") or state.get("target"))
 
 
 def fingerprint(state: dict[str, Any]) -> str:

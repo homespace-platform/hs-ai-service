@@ -7,9 +7,10 @@ Kỳ vọng chi tiết cho từng ID (tiêu chí bắt buộc/cấm, câu hỏi 
 
 ## Khi nào hỏi lại
 
-- **Chưa có phạm vi tìm**: chưa có phường/tỉnh, chưa có địa điểm mốc duy nhất và khách chưa nói "toàn quốc".
+- **Chưa có phạm vi tìm**: chưa có phường/tỉnh và chưa có địa điểm mốc duy nhất.
   Ví dụ "Tìm phòng có thang máy" → hỏi khu vực và **không** tìm. Trợ lý nhắc lại điều đã hiểu ("thang máy").
-  Không tự lấy địa chỉ tài khoản.
+  Không tự lấy địa chỉ tài khoản hay tỉnh trên header. Web/Core **không** có tìm toàn quốc: phải chọn tỉnh/thành
+  (hoặc địa điểm mốc) trước khi tìm; trợ lý không gợi "nói tìm toàn quốc".
 - **Địa điểm mốc mơ hồ**: "gần IUH" mà có nhiều cơ sở → đưa danh sách cơ sở để chọn; khách trả lời
   ngắn "cơ sở 2" thì giữ nguyên giá/số người/tiện ích đã nói.
 - **Tên quận cũ hoặc tên phường trùng** → hỏi phường mới cụ thể.
