@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from pymongo import ASCENDING, DESCENDING, AsyncMongoClient, ReturnDocument
 
+from homespace_ai.application.renter_search_state import latest_state, sanitize
 from homespace_ai.core.config import get_settings
 
 
@@ -153,9 +154,22 @@ class ConversationRepository:
                 message["appointmentCards"] = appointment_cards  # snapshot at readAt
             if data_sources:
                 message["dataSources"] = data_sources
+        search_state = (listing_context or {}).get("searchState") if role == "assistant" else None
+        owned = {"_id": conversation_id, **self.owner_filter(owner_id)}
+        if isinstance(search_state, dict) and isinstance(search_state.get("revision"), int):
+            # Optimistic revision: a slower concurrent request must not overwrite newer criteria.
+            result = await self.collection.update_one(
+                {**owned, "$or": [{"renterSearchState": {"$exists": False}},
+                                  {"renterSearchState.revision": {"$lt": search_state["revision"]}},
+                                  {"renterSearchState": search_state}]},
+                {"$push": {"messages": message}, "$set": {"updatedAt": now, "renterSearchState": search_state}},
+            )
+            if result.matched_count:
+                return True
+            message["listingContext"] = {key: value for key, value in listing_context.items() if key != "searchState"} | {
+                "stateConflict": True}
         result = await self.collection.update_one(
-            {"_id": conversation_id, **self.owner_filter(owner_id)},
-            {"$push": {"messages": message}, "$set": {"updatedAt": now}},
+            owned, {"$push": {"messages": message}, "$set": {"updatedAt": now}},
         )
         if result.matched_count and role == "user":
             await self.collection.update_one(
@@ -176,6 +190,11 @@ class ConversationRepository:
             {"_id": conversation_id, **self.owner_filter(owner_id)}
         )
         return bool(result.deleted_count)
+
+
+def conversation_search_state(conversation: dict[str, Any]) -> dict[str, Any] | None:
+    """Conversation-level criteria first; else the newest message state over the full transcript."""
+    return sanitize(conversation.get("renterSearchState")) or latest_state(conversation.get("messages") or [])
 
 
 @lru_cache

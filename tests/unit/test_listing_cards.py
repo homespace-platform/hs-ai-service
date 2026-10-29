@@ -40,7 +40,7 @@ async def test_listing_request_instructs_bullets_and_preserves_markdown_and_card
     instructions = payload["instructions"]
     assert "BẮT BUỘC tách thành gạch đầu dòng Markdown '- '" in instructions
     assert "mỗi tin một gạch đầu dòng theo số thứ tự selectionScope" in instructions
-    assert "giữ bảng Markdown ngắn" in instructions
+    assert "KHÔNG tự vẽ bảng Markdown" in instructions and "Không bao giờ bảo khách phải yêu cầu 'lập bảng'" in instructions
     assert "không phải dữ kiện để trả lời" in instructions
     assert json.dumps(evidence, ensure_ascii=False) in payload["input"][0]["content"]
     assert result.answer == answer
@@ -66,8 +66,10 @@ async def test_recommendation_cards_are_separate_from_followup_scope_and_remove_
     result = await assistant.try_answer("Nên chọn phòng nào rẻ nhất?", previous(), "cards")
     assert result.listing_ids == [IDS[2]]
     assert result.listing_positions == {IDS[2]: 3}
-    assert result.listing_context == context_for(IDS[:4])
-    assert "/rent/" not in result.answer
+    assert result.listing_context["listingIds"] == IDS[:4]
+    prose, _, table = result.answer.partition("\n\n|")
+    assert prose == "Mình chọn Phòng 3 cho bạn.", "Model-written links are removed"
+    assert f"[Phòng 3](/rent/{IDS[2]}" in table, "Only the server table header links the listing"
 
 
 @pytest.mark.asyncio

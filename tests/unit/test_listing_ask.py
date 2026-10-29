@@ -1,312 +1,470 @@
-from types import SimpleNamespace
+"""Listing flow v2: criteria state, clarification, hard filters, no silent relaxation (T01–T37)."""
 import json
 
 import pytest
 
-from homespace_ai.application.use_cases.listing_ask import ListingAsk
-from homespace_ai.clients.generative import GenerationUnavailableError, ListingGeneratedAnswer
+from homespace_ai.application.listing_location import resolve_location_filters
+from homespace_ai.application.renter_search_state import latest_state
+from homespace_ai.clients.generative import GenerationUnavailableError, LISTING_SYSTEM_PROMPT
 from homespace_ai.clients.listing_tool_planner import ToolPlan
+from homespace_ai.tools.listings import ListingSearchRejected
+from tests.unit.listing_fakes import (CATALOG, Conversation, FakeTools, ID, IDS, c, leaves, make_assistant,
+                                      room, search)
 
-
-class FakeTools:
-    def __init__(self, ids=None):
-        self.ids = ids if ids is not None else ["00000000-0000-0000-0000-000000000001"]
-
-    async def fields(self):
-        return {"room.parking_policy": "TEXT", "charge.MOTORBIKE_PARKING.amount": "NUMBER"}
-
-    async def search(self, arguments):
-        return {"listingIds": self.ids, "total": len(self.ids), "readAt": "2026-10-09T00:00:00Z"}
-
-    async def detail(self, listing_id):
-        return {"id": listing_id, "title": "Phòng thử nghiệm", "category": "ROOM",
-                "roomDetail": {"parkingPolicy": "PAID"},
-                "charges": [{"chargeType": "MOTORBIKE_PARKING", "amount": 80000,
-                             "includedInRent": False}]}
-
-
-class FakePlanner:
-    def __init__(self, plan):
-        self.plan_result = plan
-        self.history = None
-
-    async def plan(self, question, history, fields):
-        self.history = history
-        return self.plan_result
-
-
-class FakeGenerator:
-    def __init__(self):
-        self.kwargs = None
-
-    async def generate_answer(self, **kwargs):
-        self.kwargs = kwargs
-        return "Phòng này có chỗ gửi xe có phí 80.000 đ/tháng."
-
-    async def generate_listing_answer(self, question, evidence):
-        answer = await self.generate_answer(question=question,
-            context_chunks=[{"content": json.dumps(evidence, ensure_ascii=False)}], audience="USER", mode="listing")
-        return ListingGeneratedAnswer(answer, [item["id"] for item in evidence["listings"]])
-
-
-def make_assistant(plan, ids=None):
-    assistant = ListingAsk.__new__(ListingAsk)
-    assistant.settings = SimpleNamespace()
-    assistant.tools = FakeTools(ids)
-    assistant.planner = FakePlanner(plan)
-    assistant.generative_client = FakeGenerator()
-    return assistant
+HANH_THONG = next(item["value"] for item in resolve_location_filters(
+    [{"field": "ward", "op": "eq", "value": "Hạnh Thông"}, {"field": "city", "op": "eq", "value": "HCM"}],
+    "phường Hạnh Thông HCM", [], {"ward_id": "TEXT", "city_id": "TEXT"}) if item["field"] == "ward_id")
+WARD = {"field": "ward_id", "op": "eq", "value": HANH_THONG}
+CITY = {"field": "city_id", "op": "eq", "value": "12"}
+ELEVATOR = {"field": "amenity.ELEVATOR", "op": "eq", "value": "true"}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("question", [
     "Quét các tiện ích trong bán kính 3 km giúp mình.",
     "Trong các phòng này, phòng nào gần bệnh viện hơn?",
-    "Cho mình xem tiện ích xung quanh các phòng vừa tìm.",
-    "Trong các phòng này, phòng nào gần trường nhất?",
     "Phòng nào gần nhất với siêu thị?",
 ])
-async def test_map_requests_preserve_selection_without_calling_tools(question, monkeypatch):
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": []}))
-    listing_id = "00000000-0000-0000-0000-000000000001"
-    history = [{"role": "assistant", "content": "Mình đã tìm được một phòng.",
-                "listingContext": {"version": 1, "listingIds": [listing_id]}}]
+async def test_map_requests_when_nearby_disabled_preserve_selection_without_tools(question, monkeypatch):
+    assistant = make_assistant(search(), nearby_query_enabled=False)
+    history = [{"role": "assistant", "content": "Mình đã tìm được một phòng.", "listingContext": {"version": 1, "listingIds": [ID]}}]
 
-    async def unexpected_call(*args, **kwargs):
-        pytest.fail("An unavailable map capability must not call a provider or listing tools")
+    async def unexpected(*args, **kwargs):
+        pytest.fail("An unavailable map capability must not call tools or the planner")
 
-    monkeypatch.setattr(assistant.tools, "fields", unexpected_call)
-    monkeypatch.setattr(assistant.planner, "plan", unexpected_call)
-    monkeypatch.setattr(assistant.generative_client, "generate_listing_answer", unexpected_call)
+    monkeypatch.setattr(assistant.tools, "catalog", unexpected)
+    monkeypatch.setattr(assistant.planner, "plan", unexpected)
     result = await assistant.try_answer(question, history, "map-unavailable")
-
-    assert result.status == "ANSWERED"
-    assert "chưa có dữ liệu" in result.answer
-    assert not result.listing_ids
-    assert result.listing_context["listingIds"] == [listing_id]
+    assert result.status == "ANSWERED" and "chưa có dữ liệu" in result.answer
+    assert result.listing_context["listingIds"] == [ID]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("question", [
-    "Tìm phòng gần ĐH Công nghiệp",
-    "Có phòng nào gần trường Đại học Công nghiệp dưới 4 triệu không?",
-    "Tìm 10 tin đăng mới gần nhất",
-])
-async def test_plain_landmark_search_still_uses_live_listing_search(question):
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": [], "keyword": "ĐH Công nghiệp"}))
-    result = await assistant.try_answer(question, [], "landmark-search")
+async def test_t01_elevator_only_asks_for_area_and_never_searches():
+    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true")))
+    result = await assistant.try_answer("Tìm phòng có thang máy", [], "t01")
     assert result.status == "ANSWERED"
-    assert result.listing_ids == assistant.tools.ids
-    assert assistant.planner.history == []
+    assert "khu vực" in result.answer and "toàn quốc" in result.answer
+    assert assistant.tools.search_calls == 0
+    state = result.listing_context["searchState"]
+    assert state["pending"]["type"] == "LOCATION"
+    assert [(x["field"], x["value"]) for x in state["constraints"]] == [("amenity.ELEVATOR", True)]
 
 
 @pytest.mark.asyncio
-async def test_listing_question_uses_core_data_and_preserves_history():
-    plan = ToolPlan("search_listings", {"filters": [{"field": "room.parking_policy", "op": "eq", "value": "PAID"}]})
-    assistant = make_assistant(plan)
-    history = [{"role": "assistant", "content": "Mình vừa tìm được một phòng."}]
-    result = await assistant.try_answer("Phòng đó gửi xe có phí không?", history, "req-1")
-    assert result.status == "ANSWERED"
-    assert result.listing_ids == ["00000000-0000-0000-0000-000000000001"]
-    assert "/rent/" not in result.answer
-    assert "có thu phí" in result.answer
-    assert "80.000" in result.answer
-    assert "miễn phí" not in result.answer
-    assert assistant.planner.history == history
-    assert assistant.generative_client.kwargs is None
+async def test_t02_short_location_reply_merges_with_pending_elevator_need():
+    plans = iter([search(c("amenity.ELEVATOR", "eq", "true")), search(ward="Hạnh Thông", city="HCM")])
+    assistant = make_assistant(lambda question: next(plans))
+    talk = Conversation(assistant)
+    await talk.ask("Tìm phòng có thang máy")
+    result = await talk.ask("Hạnh Thông, HCM")
+    assert assistant.tools.search_calls == 1
+    where = leaves(assistant.tools.payloads[0])
+    assert ELEVATOR in where and WARD in where and CITY in where
+    assert result.listing_ids == [ID]
+    assert assistant.planner.state["pending"]["type"] == "LOCATION"
 
 
 @pytest.mark.asyncio
-async def test_no_exact_match_is_not_relabelled_as_rag_answer():
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": []}), ids=[])
-    result = await assistant.try_answer("Tìm phòng", [], "req-2")
+async def test_t03_complete_request_sends_every_hard_filter_and_no_keyword_substitute():
+    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true"), c("rent.monthly_amount", "lte", "5000000"),
+                                      ward="Hạnh Thông", city="HCM", keyword="thang máy"))
+    await assistant.try_answer("Tìm phòng ở Hạnh Thông HCM cho 3 người, tối đa 5 triệu, có thang máy", [], "t03")
+    payload = assistant.tools.payloads[0]
+    where = leaves(payload)
+    for expected in [ELEVATOR, WARD, CITY, {"field": "rent.monthly_amount", "op": "lte", "value": "5000000"},
+                     {"field": "occupancy.max_occupants", "op": "gte", "value": 3}]:
+        assert expected in where
+    assert payload["context"] == {"occupants": 3} and payload["version"] == 2
+    assert not any(item.get("field") == "category" for item in where), "'phòng' alone is not ROOM"
+
+
+@pytest.mark.asyncio
+async def test_search_logs_are_correlated_and_measured_without_customer_text():
+    import structlog
+    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true"), ward="Hạnh Thông", city="HCM"))
+    question = "Tìm phòng ở Hạnh Thông HCM có thang máy, số mình 0909123456"
+    with structlog.testing.capture_logs() as logs:
+        await assistant.try_answer(question, [], "req-log")
+    result = next(entry for entry in logs if entry["event"] == "listing_search_result")
+    assert result["request_id"] == "req-log" and result["filters"] == 3 and result["returned"] == 1
+    assert result["payload_bytes"] > 0 and result["latency_ms"] >= 0
+    assert all("0909123456" not in repr(entry) and question not in repr(entry) for entry in logs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("question,op", [("Tìm phòng ở Hạnh Thông HCM dưới 5 triệu", "lt"),
+                                         ("Tìm phòng ở Hạnh Thông HCM tối đa 5tr", "lte"),
+                                         ("Tìm phòng ở Hạnh Thông HCM không quá 5 củ", "lte"),
+                                         ("Tìm phòng ở Hạnh Thông HCM ít nhất 5 triệu", "gte")])
+async def test_t04_budget_boundaries_follow_the_words_not_the_model(question, op):
+    assistant = make_assistant(search(c("price_amount", "lte", "5000000"), ward="Hạnh Thông", city="HCM"))
+    await assistant.try_answer(question, [], "t04")
+    assert {"field": "rent.monthly_amount", "op": op, "value": "5000000"} in leaves(assistant.tools.payloads[0])
+
+
+@pytest.mark.asyncio
+async def test_t05_empty_hard_search_is_reported_once_never_relaxed():
+    assistant = make_assistant(search(c("room.restroom_type", "eq", "PRIVATE"), c("amenity.ELEVATOR", "eq", "true"),
+                                      ward="Hạnh Thông", city="HCM"), ids=[])
+    result = await assistant.try_answer("Tìm phòng trọ WC riêng có thang máy ở Hạnh Thông HCM", [], "t05")
     assert result.status == "NO_RESULTS"
+    assert assistant.tools.search_calls == 1, "No silent retry that drops a hard filter"
+    assert "không tự nới" in result.answer and "Thang máy" in result.answer
+    assert not result.listing_ids and assistant.generative_client.kwargs is None
+    assert result.listing_context["searchState"]["pending"]["type"] == "EMPTY_RESULT"
+
+
+@pytest.mark.asyncio
+async def test_t06_removing_elevator_keeps_budget_people_and_area():
+    plans = iter([search(c("amenity.ELEVATOR", "eq", "true"), c("rent.monthly_amount", "lte", "5000000"),
+                         ward="Hạnh Thông", city="HCM"),
+                  search(removeFields=["amenity.ELEVATOR"])])
+    assistant = make_assistant(lambda question: next(plans))
+    talk = Conversation(assistant)
+    await talk.ask("Tìm phòng cho 3 người ở Hạnh Thông HCM tối đa 5 triệu có thang máy")
+    await talk.ask("Bỏ yêu cầu thang máy đi")
+    where = leaves(assistant.tools.payloads[1])
+    assert ELEVATOR not in where
+    assert WARD in where and {"field": "rent.monthly_amount", "op": "lte", "value": "5000000"} in where
+    assert {"field": "occupancy.max_occupants", "op": "gte", "value": 3} in where
+
+
+@pytest.mark.asyncio
+async def test_no_need_for_elevator_is_a_removal_not_a_negative_filter():
+    plans = iter([search(c("amenity.ELEVATOR", "eq", "true"), ward="Hạnh Thông", city="HCM"),
+                  search(c("amenity.ELEVATOR", "eq", "false"))])
+    assistant = make_assistant(lambda question: next(plans))
+    talk = Conversation(assistant)
+    await talk.ask("Tìm phòng có thang máy ở Hạnh Thông HCM")
+    await talk.ask("Không cần thang máy nữa")
+    assert not any(item.get("field") == "amenity.ELEVATOR" for item in leaves(assistant.tools.payloads[1]))
+
+
+@pytest.mark.asyncio
+async def test_t07_state_survives_more_than_eight_messages_and_only_budget_changes():
+    plans = [search(c("amenity.ELEVATOR", "eq", "true"), c("rent.monthly_amount", "lte", "3000000"),
+                    c("room.restroom_type", "eq", "PRIVATE"), ward="Hạnh Thông", city="HCM")]
+    plans += [search(c("rent.monthly_amount", "lte", "5000000"))]
+    queue = iter(plans)
+    assistant = make_assistant(lambda question: next(queue))
+    talk = Conversation(assistant)
+    await talk.ask("Tìm phòng trọ WC riêng có thang máy ở Hạnh Thông HCM tối đa 3 triệu")
+    for turn in range(5):
+        await talk.ask(f"Tin vừa rồi có gì đặc biệt (lượt {turn})?")
+    assert len(talk.messages) > 8 and assistant.planner.calls == 1, "Detail reads skip the planner"
+    await talk.ask("Tăng ngân sách lên tối đa 5 triệu")
+    where = leaves(assistant.tools.payloads[-1])
+    assert {"field": "rent.monthly_amount", "op": "lte", "value": "5000000"} in where
+    assert {"field": "rent.monthly_amount", "op": "lte", "value": "3000000"} not in where
+    for expected in [ELEVATOR, WARD, CITY, {"field": "room.restroom_type", "op": "eq", "value": "PRIVATE"},
+                     {"field": "category", "op": "eq", "value": "ROOM"}]:
+        assert expected in where
+
+
+@pytest.mark.asyncio
+async def test_t08_legacy_listing_ids_only_conversation_still_reads_references_without_inventing_criteria():
+    assistant = make_assistant(None)
+    history = [{"role": "assistant", "content": "Phòng cũ", "listingContext": {"version": 1, "listingIds": [ID]}}]
+    assert latest_state(history) is None
+    result = await assistant.try_answer("Phòng 1 có thang máy không?", history, "legacy")
+    assert result.status == "ANSWERED" and assistant.tools.read == [ID]
+    assert assistant.tools.search_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_t09_named_landmark_uses_target_coordinates_not_title_keyword():
+    target = {"placeId": "11111111-1111-1111-1111-111111111111", "name": "Đại Học Công Nghiệp", "address": "12 Nguyễn Văn Bảo"}
+    assistant = make_assistant(search(c("rent.monthly_amount", "lt", "4000000"), place="IUH", keyword="IUH"))
+    assistant.tools.places = {"IUH": [target]}
+    result = await assistant.try_answer("Tìm phòng gần IUH dưới 4 triệu", [], "t09")
+    payload = assistant.tools.payloads[0]
+    assert payload["nearbyAll"] == [{"placeId": target["placeId"], "radiusMeters": 2000}]
+    assert "keyword" not in payload
+    assert result.listing_ids == [ID]
+    assert result.listing_context["searchState"]["target"]["placeId"] == target["placeId"]
+
+
+@pytest.mark.asyncio
+async def test_t10_two_campuses_ask_then_short_choice_keeps_budget_and_people():
+    first = {"placeId": "11111111-1111-1111-1111-111111111111", "name": "Đại Học Công Nghiệp", "address": "12 Nguyễn Văn Bảo"}
+    second = {"placeId": "22222222-2222-2222-2222-222222222222", "name": "Trường Đại Học Công Nghiệp", "address": "12 Nguyễn Văn Nghi"}
+    assistant = make_assistant(search(c("rent.monthly_amount", "lte", "4000000"), place="IUH"))
+    assistant.tools.places = {"IUH": [first, second]}
+    talk = Conversation(assistant)
+    asked = await talk.ask("Tìm phòng cho 2 người gần IUH tối đa 4 triệu")
+    assert "cơ sở nào" in asked.answer and "Nguyễn Văn Nghi" in asked.answer
+    assert assistant.tools.search_calls == 0
+    await talk.ask("cơ sở 2")
+    assert assistant.planner.calls == 1, "The choice is resolved from Core candidates, not re-planned"
+    payload = assistant.tools.payloads[0]
+    assert payload["nearbyAll"][0]["placeId"] == second["placeId"]
+    assert {"field": "rent.monthly_amount", "op": "lte", "value": "4000000"} in leaves(payload)
+    assert payload["context"]["occupants"] == 2
+
+
+@pytest.mark.asyncio
+async def test_unknown_place_asks_without_switching_to_any_school():
+    assistant = make_assistant(search(place="ĐH Không Tồn Tại"))
+    result = await assistant.try_answer("Tìm phòng gần ĐH Không Tồn Tại", [], "no-place")
+    assert "chưa tìm thấy" in result.answer and assistant.tools.search_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_t13_target_and_supermarket_are_two_independent_predicates():
+    target = {"placeId": "11111111-1111-1111-1111-111111111111", "name": "IUH", "address": ""}
+    assistant = make_assistant(search(place="IUH", radius=2000, nearby=[{"kind": "SUPERMARKET", "group": None, "radiusMeters": 500}]))
+    assistant.tools.places = {"IUH": [target]}
+    await assistant.try_answer("Phòng gần IUH trong 2 km và có siêu thị trong 500 m", [], "t13")
+    assert assistant.tools.payloads[0]["nearbyAll"] == [{"placeId": target["placeId"], "radiusMeters": 2000},
+                                                         {"kind": "SUPERMARKET", "radiusMeters": 500}]
+
+
+@pytest.mark.asyncio
+async def test_t16_room_or_apartment_for_three_is_two_categories_with_capacity():
+    assistant = make_assistant(search(c("category", "eq", "APARTMENT"), ward="Hạnh Thông", city="HCM"))
+    await assistant.try_answer("Tìm phòng trọ hoặc căn hộ ở 3 người tại Hạnh Thông HCM", [], "t16")
+    where = leaves(assistant.tools.payloads[0])
+    assert {"field": "category", "op": "in", "value": ["APARTMENT", "ROOM"]} in where
+    assert {"field": "occupancy.max_occupants", "op": "gte", "value": 3} in where
+
+
+@pytest.mark.asyncio
+async def test_t22_total_monthly_cost_uses_computed_field_and_renter_context():
+    assistant = make_assistant(search(c("cost.fixed_monthly_total", "lte", "5000000"), ward="Hạnh Thông", city="HCM"))
+    await assistant.try_answer("Tìm phòng ở Hạnh Thông HCM tổng chi phí tối đa 5 triệu cho 3 người, 2 xe máy", [], "t22")
+    payload = assistant.tools.payloads[0]
+    assert {"field": "cost.fixed_monthly_total", "op": "lte", "value": "5000000"} in leaves(payload)
+    assert payload["context"] == {"occupants": 3, "motorbikes": 2}
+
+
+@pytest.mark.asyncio
+async def test_t23_relative_move_in_date_and_lease_use_the_request_clock():
+    assistant = make_assistant(search(c("available_from", "lte", "2025-01-01"), ward="Hạnh Thông", city="HCM"))
+    await assistant.try_answer("Tìm phòng ở Hạnh Thông HCM vào đầu tháng sau, thuê 3 tháng", [], "t23")
+    where = leaves(assistant.tools.payloads[0])
+    assert {"field": "available_from", "op": "lte", "value": "2026-11-01"} in where
+    assert {"field": "minimum_lease_months", "op": "lte", "value": 3} in where
+
+
+@pytest.mark.asyncio
+async def test_t26_t27_more_results_exclude_shown_and_changed_criteria_restart_paging():
+    plans = iter([search(ward="Hạnh Thông", city="HCM", limit=3), search(moreResults=True, limit=3),
+                  search(c("amenity.ELEVATOR", "eq", "true"), limit=3)])
+    assistant = make_assistant(lambda question: next(plans), ids=IDS)
+    talk = Conversation(assistant)
+    first = await talk.ask("Tìm 3 phòng ở Hạnh Thông HCM")
+    second = await talk.ask("Cho 3 tin khác")
+    assert first.listing_ids == IDS[:3] and second.listing_ids == IDS[3:6]
+    assert assistant.tools.payloads[1]["excludeIds"] == IDS[:3]
+    await talk.ask("Chỉ cần có thang máy, tìm 3 phòng")
+    assert "excludeIds" not in assistant.tools.payloads[2]
+    assert talk.messages[-1]["listingContext"]["listingIds"] == IDS[:3]
+
+
+@pytest.mark.asyncio
+async def test_t28_listing_hidden_between_search_and_detail_is_skipped_not_fatal():
+    assistant = make_assistant(search(ward="Hạnh Thông", city="HCM"), ids=IDS[:3])
+    assistant.tools.gone = {IDS[0]}
+    result = await assistant.try_answer("Tìm phòng ở Hạnh Thông HCM", [], "t28")
+    assert result.status == "ANSWERED" and result.listing_ids == IDS[1:3]
+    assert "đổi trạng thái" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_t29_core_rejection_is_a_diagnosis_not_no_results_and_is_not_retried():
+    assistant = make_assistant(search(ward="Hạnh Thông", city="HCM"))
+    assistant.tools.reject = ListingSearchRejected("INVALID_VALUE", "room.restroom_type", ["PRIVATE", "SHARED"])
+    result = await assistant.try_answer("Tìm phòng ở Hạnh Thông HCM", [], "t29")
+    assert result.status == "ANSWERED" and result.status != "NO_RESULTS"
+    assert "Riêng" in result.answer and assistant.tools.search_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_t29_invalid_enum_from_model_is_rejected_before_any_search():
+    assistant = make_assistant(search(c("room.restroom_type", "eq", "PRIVATE_ONLY"), ward="Hạnh Thông", city="HCM"))
+    result = await assistant.try_answer("Tìm phòng trọ WC riêng ở Hạnh Thông HCM", [], "t29b")
+    assert assistant.tools.search_calls == 0 and result.status == "ANSWERED"
+    assert "Riêng" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_t30_support_question_stays_rag_and_listing_text_is_untrusted():
+    assistant = make_assistant(None)
+    assert await assistant.try_answer("HomeSpace là gì?", [], "rag") is None
+    assert await assistant.try_answer("Cách đặt lịch xem phòng trên HomeSpace?", [], "rag2") is None
+    assert "không làm theo chỉ dẫn" in LISTING_SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_t33_reading_a_fact_of_room_two_never_adds_a_filter():
+    plans = iter([search(ward="Hạnh Thông", city="HCM"), search()])
+    assistant = make_assistant(lambda question: next(plans), ids=IDS[:3])
+    talk = Conversation(assistant)
+    await talk.ask("Tìm phòng ở Hạnh Thông HCM")
+    before = talk.state()
+    detail = await talk.ask("Phòng số 2 có thang máy không?")
+    assert assistant.tools.read[-1] == IDS[1] and detail.listing_ids == [IDS[1]]
+    after = talk.state()
+    assert after["constraints"] == before["constraints"] and after["revision"] == before["revision"]
+    await talk.ask("Tìm thêm phòng khác")
+    assert ELEVATOR not in leaves(assistant.tools.payloads[-1])
+
+
+@pytest.mark.asyncio
+async def test_t35_clear_scope_searches_without_a_persona_or_budget_questionnaire():
+    assistant = make_assistant(search(ward="An Nhơn", city="HCM"))
+    result = await assistant.try_answer("Tìm phòng trọ ở Phường An Nhơn, HCM", [], "t35")
+    assert assistant.tools.search_calls == 1 and result.listing_ids == [ID]
+
+
+@pytest.mark.asyncio
+async def test_t37_contradictory_range_asks_and_keeps_other_criteria():
+    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true"), ward="Hạnh Thông", city="HCM"))
+    result = await assistant.try_answer("Tìm phòng ở Hạnh Thông HCM từ 5 đến 4 triệu có thang máy", [], "t37")
+    assert assistant.tools.search_calls == 0
+    assert "mâu thuẫn" in result.answer and "chốt" in result.answer
+    state = result.listing_context["searchState"]
+    assert state["pending"]["type"] == "CONFLICT"
+    assert {(x["field"], x["op"]) for x in state["constraints"]} >= {("amenity.ELEVATOR", "eq"), ("rent.monthly_amount", "gte"), ("rent.monthly_amount", "lte")}
+
+
+@pytest.mark.asyncio
+async def test_approximate_budget_is_a_preference_never_a_hidden_twenty_percent_range():
+    assistant = make_assistant(search(c("price_amount", "gte", "2400000"), c("price_amount", "lte", "3600000"),
+                                      ward="Hạnh Thông", city="HCM"))
+    result = await assistant.try_answer("Tìm phòng ở Hạnh Thông HCM tầm 3 triệu", [], "approx")
+    assert not any(item.get("field") in {"rent.monthly_amount", "price_amount"} for item in leaves(assistant.tools.payloads[0]))
+    kept = result.listing_context["searchState"]["constraints"]
+    assert [(x["field"], x["op"], x["strength"]) for x in kept] == [("rent.monthly_amount", "approx", "preference")]
+
+
+@pytest.mark.asyncio
+async def test_self_description_is_not_a_house_rule_filter():
+    assistant = make_assistant(search(c("policy.smokingPolicy.value", "eq", "NOT_ALLOWED"), ward="Hạnh Thông", city="HCM"))
+    await assistant.try_answer("Mình không hút thuốc, tìm phòng ở Hạnh Thông HCM", [], "self")
+    assert not any(str(item.get("field", "")).startswith("policy.") for item in leaves(assistant.tools.payloads[0]))
+
+
+@pytest.mark.asyncio
+async def test_category_change_asks_about_incompatible_room_fields_then_applies_confirmed_change():
+    plans = iter([search(c("room.balcony_type", "eq", "PRIVATE"), ward="Hạnh Thông", city="HCM"), search()])
+    assistant = make_assistant(lambda question: next(plans))
+    talk = Conversation(assistant)
+    await talk.ask("Tìm phòng trọ ban công riêng ở Hạnh Thông HCM")
+    asked = await talk.ask("Đổi sang căn hộ")
+    assert "không áp dụng" in asked.answer and assistant.tools.search_calls == 1
+    await talk.ask("Đồng ý")
+    where = leaves(assistant.tools.payloads[-1])
+    assert {"field": "category", "op": "eq", "value": "APARTMENT"} in where
+    assert not any(str(item.get("field", "")).startswith("room.") for item in where)
+    assert WARD in where
+
+
+@pytest.mark.asyncio
+async def test_hypothetical_extra_person_is_answered_but_not_persisted():
+    plans = iter([search(ward="Hạnh Thông", city="HCM"), search(withinDisplayed=True)])
+    assistant = make_assistant(lambda question: next(plans), ids=IDS[:3])
+    talk = Conversation(assistant)
+    await talk.ask("Tìm phòng cho 2 người ở Hạnh Thông HCM")
+    await talk.ask("Nếu thêm 1 người thành 3 người thì sao?")
+    assert assistant.tools.payloads[-1]["context"]["occupants"] == 3
+    assert talk.state()["context"]["occupants"] == 2
+
+
+@pytest.mark.asyncio
+async def test_nationwide_must_be_said_by_the_customer():
+    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true")))
+    result = await assistant.try_answer("Tìm phòng trọ có thang máy toàn quốc", [], "nationwide")
+    assert assistant.tools.search_calls == 1 and result.listing_ids == [ID]
+    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true"), nationwide=True))
+    await assistant.try_answer("Tìm phòng trọ có thang máy", [], "model-only")
+    assert assistant.tools.search_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_latest_listings_without_area_ask_first():
+    assistant = make_assistant(search(sort="newest", limit=10))
+    result = await assistant.try_answer("Tìm 10 tin đăng mới gần nhất", [], "newest")
+    assert assistant.tools.search_calls == 0 and "khu vực" in result.answer
+
+
+@pytest.mark.asyncio
+async def test_model_question_without_tool_call_is_kept_as_validated_clarification():
+    plan = ToolPlan("ask_clarification", {"question": "Bạn muốn ở gần cơ sở Nguyễn Văn Bảo hay Nguyễn Văn Nghi?",
+                                          "missing": ["TARGET"], "options": []})
+    assistant = make_assistant(plan)
+    result = await assistant.try_answer("Tìm phòng gần trường mình học", [], "clarify")
+    assert "Nguyễn Văn Bảo hay Nguyễn Văn Nghi" in result.answer and assistant.tools.search_calls == 0
+    assert result.listing_context["searchState"]["pending"]["type"] == "TARGET"
+
+
+@pytest.mark.asyncio
+async def test_listing_question_uses_core_data_and_parking_template():
+    assistant = make_assistant(ToolPlan("get_listing_detail", {"listingId": ID}))
+    history = [{"role": "assistant", "content": "Mình vừa tìm được một phòng.", "listingContext": {"version": 1, "listingIds": [ID]}}]
+    result = await assistant.try_answer("Phòng đó gửi xe có phí không?", history, "req-1")
+    assert result.status == "ANSWERED" and result.listing_ids == [ID]
+    assert "có thu phí" in result.answer and "80.000" in result.answer
     assert assistant.generative_client.kwargs is None
 
 
 @pytest.mark.asyncio
-async def test_non_parking_fields_use_grounded_core_evidence():
-    assistant = make_assistant(ToolPlan("get_listing_detail", {"listingId": "00000000-0000-0000-0000-000000000001"}))
-    result = await assistant.try_answer("Phòng này có những tiện ích gì?", [], "req-4")
-    assert result.status == "ANSWERED"
-    assert '"parkingPolicy": "PAID"' in assistant.generative_client.kwargs["context_chunks"][0]["content"]
-    assert assistant.generative_client.kwargs["mode"] == "listing"
-
-
-@pytest.mark.asyncio
-async def test_related_suggestion_is_explicitly_not_exact_match():
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": [
-        {"field": "category", "op": "eq", "value": "ROOM"},
-        {"field": "room.has_balcony", "op": "eq", "value": "true"},
-    ]}))
-    class SequenceTools(FakeTools):
-        def __init__(self):
-            super().__init__()
-            self.calls = 0
-        async def search(self, arguments):
-            self.calls += 1
-            return {"listingIds": [] if self.calls == 1 else self.ids,
-                    "total": 0 if self.calls == 1 else 1, "readAt": "now"}
-    assistant.tools = SequenceTools()
-    result = await assistant.try_answer("Tìm phòng có ban công", [], "req-5")
-    assert result.status == "ANSWERED"
-    assert "chưa thấy tin khớp đủ mọi tiêu chí" in result.answer
-    assert "nới điều kiện ban công" in result.answer
-
-
-@pytest.mark.asyncio
-async def test_browse_answer_only_returns_matching_category_ids_and_skips_card_facts():
-    room_id = "00000000-0000-0000-0000-000000000001"
-    house_id = "00000000-0000-0000-0000-000000000002"
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": [
-        {"field": "category", "op": "eq", "value": "ROOM"},
-        {"field": "ward", "op": "contains", "value": "Phú Lợi"},
-    ]}), ids=[room_id, house_id])
-    class MixedTools(FakeTools):
-        async def detail(self, listing_id):
-            return {"id": listing_id, "title": "Phòng Phú Lợi" if listing_id == room_id else "Nhà Phú Lợi",
-                    "category": "ROOM" if listing_id == room_id else "HOUSE", "areaM2": 23,
-                    "pricing": {"amount": 3360000, "unit": "ROOM_MONTH", "depositMonths": 3},
-                    "address": {"ward": "Phường Phú Lợi"},
-                    "roomDetail": {"balconyType": "PRIVATE"}}
-    assistant.tools = MixedTools([room_id, house_id])
-    result = await assistant.try_answer("Tìm phòng khu vực Phú Lợi", [], "req-browse")
-    assert result.status == "ANSWERED"
-    assert result.listing_ids == [room_id]
-    assert "/rent/" not in result.answer
-    assert "3.360.000" not in result.answer
-    assert "23 m²" not in result.answer
-    assert "đặt cọc" not in result.answer.lower()
-    assert "Tiện ích:" not in result.answer
+async def test_browse_answer_lists_criteria_and_only_matching_category_cards():
+    house = "00000000-0000-0000-0000-000000000002"
+    assistant = make_assistant(search(ward="Hạnh Thông", city="HCM"), ids=[ID, house])
+    assistant.tools.details = {house: room(house, category="HOUSE")}
+    result = await assistant.try_answer("Tìm phòng trọ ở Hạnh Thông HCM", [], "browse")
+    assert result.listing_ids == [ID]
+    assert "Tiêu chí đang áp dụng" in result.answer
+    assert result.answer.count("/rent/") == 1 and f"](/rent/{ID}" in result.answer, "Only the table header links; no image"
     assert assistant.generative_client.kwargs is None
 
 
 @pytest.mark.asyncio
-async def test_general_room_comparison_is_complete_compact_markdown_table():
-    ids = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 5)]
+async def test_general_room_comparison_is_compact_markdown_table():
+    ids = IDS[:4]
     assistant = make_assistant(ToolPlan("get_listing_details", {"listingIds": ids}), ids=ids)
-
-    class ComparisonTools(FakeTools):
-        async def detail(self, listing_id):
-            index = ids.index(listing_id)
-            return {"id": listing_id, "title": f"Phòng thử nghiệm {index + 1}",
-                    "category": "ROOM", "areaM2": 20 + index,
-                    "pricing": {"amount": 2000000 + index * 100000,
-                                "unit": "ROOM_MONTH"},
-                    "roomDetail": {"maxOccupants": index + 1, "restroomType": "PRIVATE",
-                                   "kitchenType": "SHARED", "hasWindow": True,
-                                   "balconyType": "NONE", "hasMezzanine": False,
-                                   "furnishingStatus": "BASIC", "maxVehicles": 1,
-                                   "parkingPolicy": "FREE" if index == 0 else "PAID"},
-                    "charges": [] if index == 0 else [{"chargeType": "MOTORBIKE_PARKING",
-                                                         "amount": 90000, "unit": "xe/tháng",
-                                                         "includedInRent": False}]}
-
-    assistant.tools = ComparisonTools(ids)
-    result = await assistant.try_answer("Tôi muốn so sánh 4 phòng trên", [], "req-compare")
-
-    assert result.status == "ANSWERED"
-    assert "| Tiêu chí |" in result.answer
-    assert "| Giá thuê |" in result.answer
-    assert "| Ban công |" in result.answer
-    assert "không thu phí riêng" in result.answer
-    assert "90.000 đ/xe/tháng" in result.answer
-    assert result.listing_ids == ids
-    assert "/rent/" not in result.answer
-    assert "ID:" not in result.answer
+    history = [{"role": "assistant", "content": "4 phòng", "listingContext": {"version": 1, "listingIds": ids}}]
+    result = await assistant.try_answer("Tôi muốn so sánh 4 phòng trên", history, "compare")
+    assert "| Tiêu chí |" in result.answer and result.listing_ids == ids
     assert assistant.generative_client.kwargs is None
 
 
 @pytest.mark.asyncio
-async def test_specific_room_comparison_still_uses_model_for_requested_field():
-    ids = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 3)]
-    assistant = make_assistant(ToolPlan("get_listing_details", {"listingIds": ids}), ids=ids)
-    result = await assistant.try_answer("So sánh phí điện của 2 phòng trên", [], "req-compare-fees")
-    assert result.status == "ANSWERED"
-    assert assistant.generative_client.kwargs is not None
-
-
-@pytest.mark.asyncio
-async def test_generation_failure_after_successful_tool_read_does_not_claim_tool_failed():
-    assistant = make_assistant(ToolPlan("get_listing_detail", {
-        "listingId": "00000000-0000-0000-0000-000000000001"}))
+async def test_generation_failure_after_tool_read_does_not_claim_tool_failed():
+    assistant = make_assistant(ToolPlan("get_listing_detail", {"listingId": ID}))
 
     class FailedGenerator:
         async def generate_listing_answer(self, **kwargs):
             raise GenerationUnavailableError("answer was cut off")
 
     assistant.generative_client = FailedGenerator()
-    result = await assistant.try_answer("Phòng này có tiện ích gì?", [], "req-truncated")
-    assert result.status == "GENERATION_UNAVAILABLE"
-    assert "đã kiểm tra tin đăng" in result.answer
-    assert "chưa kiểm tra được" not in result.answer
+    history = [{"role": "assistant", "content": "1 phòng", "listingContext": {"version": 1, "listingIds": [ID]}}]
+    result = await assistant.try_answer("Phòng này có tiện ích gì?", history, "truncated")
+    assert result.status == "GENERATION_UNAVAILABLE" and "đã kiểm tra tin đăng" in result.answer
 
 
 @pytest.mark.asyncio
-async def test_general_question_stays_in_rag():
-    assistant = make_assistant(None)
-    assert await assistant.try_answer("HomeSpace là gì?", [], "req-3") is None
-    assert await assistant.try_answer("Cách đặt lịch xem phòng trên HomeSpace?", [], "req-3b") is None
+async def test_evidence_contains_server_built_checks_and_requested_criteria():
+    assistant = make_assistant(search(c("amenity.ELEVATOR", "eq", "true"), ward="Hạnh Thông", city="HCM"))
+    assistant.tools.evidence = [{"listingId": ID, "targetDistanceMeters": None,
+                                 "checks": [{"fields": ["amenity.ELEVATOR"], "status": "MATCH", "actual": None}]}]
+    await assistant.try_answer("Có phòng nào ở Hạnh Thông HCM có thang máy, nên chọn phòng nào?", [], "evidence")
+    evidence = assistant.generative_client.evidence
+    assert any("Thang máy" in line for line in evidence["requestedCriteria"])
+    assert evidence["listings"][0]["criteriaChecks"][0]["status"] == "MATCH"
+    assert "relaxedFilters" not in json.dumps(evidence)
 
 
-@pytest.mark.asyncio
-async def test_no_room_on_street_offers_house_on_same_street_instead_of_dead_end():
-    plan = ToolPlan("search_listings", {"filters": [
-        {"field": "category", "op": "eq", "value": "ROOM"},
-        {"field": "street", "op": "contains", "value": "Đường Nguyễn Oanh"},
-    ]})
-    assistant = make_assistant(plan)
-
-    class CategoryTools(FakeTools):
-        async def search(self, arguments):
-            has_category = any(f["field"] == "category" for f in arguments["filters"])
-            ids = [] if has_category else self.ids
-            return {"listingIds": ids, "total": len(ids), "readAt": "now"}
-
-        async def detail(self, listing_id):
-            return {"id": listing_id, "title": "Nhà 2 PN", "category": "HOUSE"}
-
-    assistant.tools = CategoryTools()
-    result = await assistant.try_answer("tìm phòng trọ ở đường Nguyễn Oanh", [], "alt-1")
-    assert result.status == "ANSWERED" and result.listing_ids
-    assert "chưa có phòng trọ" in result.answer and "nhà nguyên căn" in result.answer
-
-
-@pytest.mark.asyncio
-async def test_over_budget_shows_cheapest_in_area_labelled_not_as_match():
-    plan = ToolPlan("search_listings", {"filters": [
-        {"field": "ward", "op": "contains", "value": "Phường An Nhơn"},
-        {"field": "price_amount", "op": "lte", "value": "1000000"},
-    ]})
-    assistant = make_assistant(plan)
-
-    class BudgetTools(FakeTools):
-        async def search(self, arguments):
-            has_price = any(f["field"] == "price_amount" for f in arguments["filters"])
-            ids = [] if has_price else self.ids
-            return {"listingIds": ids, "total": len(ids), "readAt": "now"}
-
-    assistant.tools = BudgetTools()
-    result = await assistant.try_answer("tìm phòng ở An Nhơn dưới 1 triệu", [], "alt-2")
-    assert result.status == "ANSWERED" and "chưa có" in result.answer and "mức giá" in result.answer
-
-
-def test_multiple_categories_are_not_forced_to_one():
-    from homespace_ai.clients.listing_tool_planner import ListingToolPlanner
-    fields = {"category": "TEXT", "ward": "TEXT"}
-    plan = ToolPlan("search_listings", {"filters": [{"field": "category", "op": "eq", "value": "APARTMENT"},
-                                                    {"field": "ward", "op": "contains", "value": "Phường An Nhơn"}]})
-    out = ListingToolPlanner._normalize_search("tìm phòng trọ hoặc căn hộ ở An Nhơn", plan, fields)
-    assert not any(item["field"] == "category" for item in out.arguments["filters"])
-    out = ListingToolPlanner._normalize_search("tìm phòng trọ ở An Nhơn", plan, fields)
-    assert {"field": "category", "op": "eq", "value": "ROOM"} in out.arguments["filters"]
-
-
-def test_street_equality_from_model_becomes_contains_without_road_prefix():
-    from homespace_ai.clients.listing_tool_planner import ListingToolPlanner
-    fields = {"category": "TEXT", "street": "TEXT", "room.max_occupants": "INTEGER"}
-    plan = ToolPlan("search_listings", {"filters": [
-        {"field": "street", "op": "eq", "value": "Đường Phan Văn Trị"},
-        {"field": "room.max_occupants", "op": "gte", "value": "2"}]})
-    out = ListingToolPlanner._normalize_search("Tìm phòng trọ cho 2 người ở đường Phan Văn Trị", plan, fields)
-    assert {"field": "street", "op": "contains", "value": "Phan Văn Trị"} in out.arguments["filters"]
+def test_fixture_is_the_core_v2_catalog():
+    assert CATALOG["version"] == 2 and CATALOG["catalogVersion"].startswith("fields-v2-")
+    codes = {f["code"] for f in CATALOG["fields"]}
+    for needed in ["amenity.ELEVATOR", "room.restroom_type", "room.access_hours_type", "room.balcony_type",
+                   "occupancy.max_occupants", "rent.monthly_amount", "cost.fixed_monthly_total",
+                   "policy.propertyInspectionNotice.value", "policy.noticeDaysBeforeTermination.value",
+                   "policy.depositRefundDays.value", "furnishing.RANGE_HOOD.total_quantity", "furnishing.MICROWAVE",
+                   "furnishing.SHOE_CABINET.handover_condition", "furnishing.WATER_TANK_PUMP.quantity"]:
+        assert needed in codes
+    pet = next(f for f in CATALOG["fields"] if f["code"] == "policy.petPolicy.value")
+    assert [v["code"] for v in pet["values"]] == ["ALLOWED", "NOT_ALLOWED", "APPROVAL_REQUIRED"]

@@ -1,4 +1,4 @@
-from httpx import ASGITransport, AsyncClient, Response
+﻿from httpx import ASGITransport, AsyncClient, Response
 import pytest
 
 from homespace_ai.api.v1 import agent_ask
@@ -11,6 +11,7 @@ from homespace_ai.application.listing_context import context_for
 from homespace_ai.clients.generative import ListingGeneratedAnswer
 from homespace_ai.clients.listing_tool_planner import ListingToolPlanner
 from homespace_ai.core.config import Settings
+from tests.unit.listing_fakes import CATALOG, c, search
 
 
 @pytest.mark.asyncio
@@ -18,7 +19,7 @@ async def test_agent_ask_routes_listing_to_tool_without_rag(monkeypatch):
     async def fake_db():
         yield None
 
-    async def fake_listing_answer(self, question, history, request_id):
+    async def fake_listing_answer(self, question, history, request_id, state=None):
         return AskResult(answer="Dữ liệu từ Core API", status="ANSWERED", citations=[], request_id=request_id)
 
     async def fail_rag(self, **kwargs):
@@ -65,14 +66,14 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
     class Gateway:
         async def request(self, method, path, **kwargs):
             calls.append((method, path, kwargs.get("json")))
-            if path.endswith("/fields"):
-                result = {"category": "TEXT", "ward": "TEXT", "ward_id": "TEXT", "city": "TEXT",
-                          "city_id": "TEXT", "price_amount": "NUMBER", "room.restroom_type": "TEXT"}
+            if path.endswith("/catalog"):
+                result = CATALOG
             elif path.endswith("/search"):
-                filters = kwargs["json"]["filters"]
-                # The optional larger-room query must not broaden the primary budget search.
-                over_budget = any(item["field"] == "price_amount" and item["op"] == "gt" for item in filters)
-                result = {"listingIds": [] if over_budget else ids, "total": 0 if over_budget else 1000}
+                body = kwargs["json"]
+                assert body["version"] == 2 and body["filters"] == []
+                result = {"version": 2, "listingIds": ids[:body["limit"]], "total": 1000, "unknownTotal": 0,
+                          "readAt": "2026-10-29T03:00:00Z", "catalogVersion": CATALOG["catalogVersion"],
+                          "contextMissing": [], "evidence": []}
             else:
                 listing_id = path.rsplit("/", 1)[-1]
                 assert listing_id in ids[:10], "Never read all 1,000 ward listings"
@@ -91,16 +92,12 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
     async def planner_transport(self, payload):
         plans.append(payload)
         assert {tool["name"] for tool in payload["tools"]} == {
-            "search_listings", "get_listing_detail", "get_listing_details"}
+            "search_listings", "ask_clarification", "get_listing_detail", "get_listing_details"}
         import json
+        plan = search(c("category", "eq", "ROOM"), c("price_amount", "lte", "4000000"), c("room.restroom_type", "eq", "PRIVATE"),
+                      ward="Phường Gò Vấp", city="Thành phố Hồ Chí Minh", sort="newest", limit=5)
         return {"status": "completed", "output": [{"type": "function_call", "name": "search_listings",
-            "arguments": json.dumps({"filters": [
-                {"field": "ward", "op": "eq", "value": "Phường Gò Vấp"},
-                {"field": "city", "op": "eq", "value": "Thành phố Hồ Chí Minh"},
-                {"field": "category", "op": "eq", "value": "ROOM"},
-                {"field": "price_amount", "op": "lte", "value": "4000000"},
-                {"field": "room.restroom_type", "op": "eq", "value": "PRIVATE"},
-            ], "sort": "newest", "limit": 5})}]}
+            "arguments": json.dumps(plan.arguments)}]}
 
     async def fake_db():
         yield None
@@ -134,11 +131,13 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
             for expected in [
                 {"field": "ward_id", "op": "eq", "value": "24588"},
                 {"field": "city_id", "op": "eq", "value": "12"},
-                {"field": "price_amount", "op": "lte", "value": "4000000"},
+                {"field": "category", "op": "eq", "value": "ROOM"},
+                {"field": "rent.monthly_amount", "op": "lte", "value": "4000000"},
                 {"field": "room.restroom_type", "op": "eq", "value": "PRIVATE"},
             ]:
-                assert expected in searches[0]["filters"]
-            reads = [path for method, path, body in calls if method == "GET" and not path.endswith("/fields")]
+                assert expected in searches[0]["where"]["all"]
+            assert repository.messages[-1]["listingContext"]["searchState"]["location"]["wardId"] == "24588"
+            reads = [path for method, path, body in calls if method == "GET" and not path.endswith("/catalog")]
             assert len(reads) == 10
 
             detailed = await ask("Phòng số 2 có WC riêng không?")
@@ -161,7 +160,8 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
             assert resumed["listingIds"] == ids[:10]
             assert len(plans) == 1  # Known references do not trigger a new search or paid planner call.
             assert len([path for method, path, body in calls if path.endswith("/search")]) == len(searches)
-            assert repository.messages[-1]["listingContext"] == context_for(ids[:10])
+            assert repository.messages[-1]["listingContext"]["listingIds"] == ids[:10]
+            assert repository.messages[-1]["listingContext"]["searchState"]["constraints"]
     finally:
         app.dependency_overrides.clear()
 
@@ -185,7 +185,7 @@ async def test_listing_followup_receives_previous_conversation_messages(monkeypa
 
     repository = Repository()
     observed = {}
-    async def fake_listing_answer(self, question, history, request_id):
+    async def fake_listing_answer(self, question, history, request_id, state=None):
         observed["history"] = history
         return AskResult(answer="Có thu phí gửi xe.", status="ANSWERED", citations=[], request_id=request_id,
                          listing_context=history[-1]["listingContext"],

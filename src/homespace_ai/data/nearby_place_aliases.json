@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "note": "Common abbreviations mapped to the searchable POI name text. Core still validates every candidate; an alias never selects a campus by itself.",
+  "aliases": {
+    "iuh": "Đại học Công nghiệp",
+    "dh cong nghiep": "Đại học Công nghiệp",
+    "dhcn": "Đại học Công nghiệp",
+    "dai hoc cong nghiep": "Đại học Công nghiệp",
+    "truong cong nghiep": "Đại học Công nghiệp",
+    "hcmut": "Đại học Bách khoa",
+    "bach khoa": "Đại học Bách khoa",
+    "dh bach khoa": "Đại học Bách khoa",
+    "hcmus": "Đại học Khoa học Tự nhiên",
+    "khtn": "Đại học Khoa học Tự nhiên",
+    "ussh": "Khoa học Xã hội và Nhân văn",
+    "ueh": "Đại học Kinh tế",
+    "uit": "Đại học Công nghệ Thông tin",
+    "hcmute": "Sư phạm Kỹ thuật",
+    "spkt": "Sư phạm Kỹ thuật",
+    "ftu": "Ngoại thương",
+    "hutech": "HUTECH",
+    "rmit": "RMIT",
+    "van lang": "Văn Lang",
+    "vlu": "Văn Lang",
+    "dh van lang": "Văn Lang"
+  }
+}

@@ -1,10 +1,12 @@
 """Conversation references, never a cache of listing prices or availability."""
 
 import re
+import unicodedata
 from typing import Any
 from uuid import UUID
 from homespace_ai.application.vietnamese_text import VietnamesePattern, fold_text
 from homespace_ai.application.listing_limits import ABSOLUTE_MAX_RESULTS
+from homespace_ai.application.listing_table import TABLE_REQUEST
 
 History = list[dict[str, Any]]
 LINK = re.compile(r"/rent/([0-9a-fA-F-]{36})")
@@ -14,6 +16,8 @@ FOLLOWUP = VietnamesePattern(
     r"rẻ nhất|rẻ hơn|tiết kiệm|phù hợp nhất|trong (?:những|các|số)|"
     r"(?:phòng|căn|nhà|tin) (?:này|đó|trên|vừa|thứ|số|\d+)",
 )
+# Folded, "quận/tỉnh/xã" collide with "trực quan", "tính", "xa"; keep their accents unless a number follows.
+AREA_WORD = re.compile(r"\b(?:quận|tỉnh|xã)\b|\b(?:quan|q\.?)\s*\d", re.IGNORECASE)
 RECOMMENDATION = VietnamesePattern(r"nên chọn|chọn .*phòng|chọn .*căn|đề xuất|rẻ nhất|rẻ hơn|tiết kiệm|phù hợp nhất")
 
 
@@ -65,19 +69,19 @@ def scoped_selection(question: str, history: History) -> list[str] | None:
     search_command = re.sub(
         r"\b(?:vua|da)(?:\s+moi)?\s+(?:tim(?:\s+kiem)?|kiem)(?:\s+(?:duoc|thay))?\b|\btiet\s+kiem\b",
         "", fold_text(question))
-    if not ids or NEW_SEARCH.search(search_command) or not FOLLOWUP.search(question):
+    if not ids or NEW_SEARCH.search(search_command) or not (FOLLOWUP.search(question) or TABLE_REQUEST.search(question)):
         return None
     # A prior listing selection must not turn general contract/payment/account help into
     # a recommendation about rooms. Explicit listing ordinals remain valid detail questions.
-    if VietnamesePattern(r"hợp đồng|thanh toán|hoá đơn|hóa đơn|tài khoản|chính sách|điều khoản").search(question) and not VietnamesePattern(
-            r"(?:phòng|căn|nhà|tin)\s*(?:thứ\s*|số\s*)?\d+\b").search(question):
-        return None
     explicit_group = VietnamesePattern(r"trong (?:những|các|số)|(?:phòng|căn|nhà|tin) (?:này|đó|trên|vừa)|vừa so sánh").search(question)
+    if VietnamesePattern(r"hợp đồng|thanh toán|hoá đơn|hóa đơn|tài khoản|chính sách|điều khoản").search(question) and not VietnamesePattern(
+            r"(?:phòng|căn|nhà|tin)\s*(?:thứ\s*|số\s*)?\d+\b").search(question) and not explicit_group:
+        return None
     possible_new_scope = VietnamesePattern(
-        r"phường|xã|đặc khu|quận|huyện|khu vực|thành phố|tỉnh|gần|thay vì|chuyển sang|"
+        r"\b(?:phường|đặc khu|huyện|khu vực|thành phố|gần)\b|thay vì|chuyển sang|"
         r"căn hộ|chung cư|nhà nguyên căn|"
         r"\bở\s+(?!(?:\d+|một|hai|ba|bốn|năm)\s+(?:người|mình)\b)[^\d\s]",
-    ).search(question)
+    ).search(question) or AREA_WORD.search(unicodedata.normalize("NFC", question))
     if possible_new_scope and not explicit_group:
         # Leave location/category changes to the semantic planner, not a greedy reference rule.
         return None

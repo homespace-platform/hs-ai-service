@@ -9,8 +9,9 @@ from homespace_ai.api.v1.agent_ask import stored_answer
 from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
 from homespace_ai.clients.generative import GenerationUnavailableError
 from homespace_ai.tools.listings import ListingTools, ListingToolError
-from tests.unit.test_listing_ask import make_assistant, FakeTools
-from tests.unit.test_listing_tool_planner import config, call
+from homespace_ai.application import renter_search_state as rs
+from tests.unit.listing_fakes import FakeTools, c, make_assistant, search
+from tests.unit.test_listing_tool_planner import CAT, TODAY, config, call
 
 IDS = [f"00000000-0000-0000-0000-{i:012d}" for i in range(1, 11)]
 HISTORY = [{"role": "assistant", "content": "Mình tìm được 10 phòng.", "listingContext": context_for(IDS)}]
@@ -18,12 +19,7 @@ HISTORY = [{"role": "assistant", "content": "Mình tìm được 10 phòng.", "l
 class NearbyTools(FakeTools):
     def __init__(self, complete=True, enabled=True):
         super().__init__(IDS)
-        self.read = []
         self.complete, self.enabled = complete, enabled
-        self.nearby_calls = []
-    async def detail(self, value):
-        self.read.append(value)
-        return await super().detail(value)
     async def nearby(self, ids, radius, groups, target=None):
         self.nearby_calls.append((ids, radius, groups, target))
         return {"summaries": [{
@@ -38,9 +34,31 @@ class NearbyTools(FakeTools):
 def assistant(complete=True, enabled=True, place_query=None):
     a = make_assistant(ToolPlan("get_listing_nearby_places", {"listingIds": IDS, "radiusMeters": 3000,
                                                           "groups": ["EDUCATION", "SHOPPING"], "placeQuery": place_query}))
-    a.settings = SimpleNamespace(nearby_query_enabled=True)
     a.tools = NearbyTools(complete, enabled)
     return a
+
+
+@pytest.mark.asyncio
+async def test_t15_hard_criteria_are_rechecked_in_scope_before_ranking_top_three():
+    a = assistant()
+    a.tools.ids = IDS[:5]  # Only the first five still satisfy the stored hard criteria in Core.
+    state = rs.merge(None, {"constraints": [{"field": "amenity.ELEVATOR", "op": "eq", "value": True, "strength": "hard"}]}, "")
+    result = await a.try_answer("Trong các phòng này, tiện ích xung quanh thì nên chọn phòng nào?", HISTORY, "t15", state=state)
+    check = a.tools.payloads[0]
+    assert check["scopeIds"] == IDS and {"field": "amenity.ELEVATOR", "op": "eq", "value": "true"} in check["where"]["all"]
+    assert result.listing_ids == [IDS[4], IDS[3], IDS[2]], "Better-ranked rooms that fail a hard criterion are excluded"
+    assert a.tools.read == result.listing_ids
+    assert a.generative_client.evidence["eligibleInScope"] == 5
+
+
+@pytest.mark.asyncio
+async def test_t15_no_eligible_room_in_scope_is_no_results_not_a_nearby_pick():
+    a = assistant()
+    a.tools.ids = []
+    state = rs.merge(None, {"constraints": [{"field": "amenity.ELEVATOR", "op": "eq", "value": True, "strength": "hard"}]}, "")
+    result = await a.try_answer("Trong các phòng này, tiện ích xung quanh thì nên chọn phòng nào?", HISTORY, "t15-empty", state=state)
+    assert result.status == "NO_RESULTS" and not result.listing_ids and not a.tools.read
+    assert a.generative_client.kwargs is None
 
 @pytest.mark.asyncio
 async def test_default_advice_uses_seven_collected_groups_and_still_selects_only_three():
@@ -171,26 +189,25 @@ async def test_native_nearby_registry_is_feature_gated_and_rejects_unknown_selec
     planner = ListingToolPlanner(settings)
     async def post(payload):
         names = {t["name"] for t in payload["tools"]}
-        assert "get_listing_nearby_places" in names and "find_listings_near_place" in names
+        assert "get_listing_nearby_places" in names and "find_listings_near_place" not in names  # place search is inside v2 search_listings
         return call("get_listing_nearby_places", {"listingIds": [IDS[0]], "radiusMeters": 5000, "groups": ["SHOPPING"], "placeQuery": None})
     monkeypatch.setattr(planner, "_post", post)
-    result = await planner.plan("Tiện ích xung quanh phòng đó", HISTORY, {"category": "TEXT"})
+    result = await planner.plan("Tiện ích xung quanh phòng đó", HISTORY, CAT, None, TODAY)
     assert result.name == "get_listing_nearby_places"
     with pytest.raises(GenerationUnavailableError):
-        await planner.plan("Tiện ích xung quanh", [], {"category": "TEXT"})
+        await planner.plan("Tiện ích xung quanh", [], CAT, None, TODAY)
 
 @pytest.mark.asyncio
-async def test_near_place_search_keeps_filters_and_requested_count_without_landmark_text(monkeypatch):
-    settings = config(); settings.nearby_query_enabled = True
-    planner = ListingToolPlanner(settings)
-    async def post(payload):
-        return call("find_listings_near_place", {"placeQuery": "Đại học Công nghiệp", "group": None, "radiusMeters": 3000,
-            "filters": [{"field": "price_amount", "op": "lte", "value": "4000000"}], "sort": "price_asc", "limit": 5})
-    monkeypatch.setattr(planner, "_post", post)
-    plan = await planner.plan("Tìm 10 phòng gần Đại học Công nghiệp, tối đa 4 triệu", [], {"price_amount": "NUMBER", "category": "TEXT"})
-    assert plan.arguments["limit"] == 10
-    assert "keyword" not in plan.arguments
-    assert {"field": "price_amount", "op": "lte", "value": "4000000"} in plan.arguments["filters"]
+async def test_near_place_search_keeps_filters_and_requested_count_without_landmark_text():
+    target = {"placeId": "11111111-1111-1111-1111-111111111111", "name": "Đại Học Công Nghiệp", "address": ""}
+    a = make_assistant(search(c("price_amount", "lte", "4000000"), place="Đại học Công nghiệp", radius=3000,
+                              keyword="Đại học Công nghiệp", sort="price_asc", limit=5), ids=IDS)
+    a.tools.places = {"Đại học Công nghiệp": [target]}
+    await a.try_answer("Tìm 10 phòng gần Đại học Công nghiệp, tối đa 4 triệu", [], "near")
+    payload = a.tools.payloads[0]
+    assert payload["limit"] == 10 and "keyword" not in payload
+    assert payload["nearbyAll"] == [{"placeId": target["placeId"], "radiusMeters": 3000}]
+    assert {"field": "rent.monthly_amount", "op": "lte", "value": "4000000"} in payload["where"]["all"]
 
 @pytest.mark.parametrize("text,expected", [("Trong bán kính 5 km", 5000), ("Phạm vi 500 m", 500), ("Phòng rộng 30m, gần siêu thị", 2000)])
 def test_radius_uses_meters_not_area(text, expected):

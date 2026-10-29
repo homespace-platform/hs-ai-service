@@ -1,0 +1,4665 @@
+{
+  "version" : 2,
+  "catalogVersion" : "fields-v2-310e9034177c",
+  "fields" : [ {
+    "code" : "id",
+    "label" : "Mã tin",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "title",
+    "label" : "Tiêu đề",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "description",
+    "label" : "Mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "category",
+    "label" : "Loại hình",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "APARTMENT",
+      "label" : "Căn hộ/chung cư"
+    }, {
+      "code" : "HOUSE",
+      "label" : "Nhà nguyên căn"
+    }, {
+      "code" : "ROOM",
+      "label" : "Phòng trọ"
+    } ],
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "price_unit",
+    "label" : "Đơn vị giá thuê",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "MONTH",
+      "label" : "Theo tháng (cả căn)"
+    }, {
+      "code" : "M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "ROOM_MONTH",
+      "label" : "Theo phòng/tháng"
+    }, {
+      "code" : "PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "SEAT_MONTH",
+      "label" : "Theo chỗ/tháng"
+    } ],
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "currency",
+    "label" : "Tiền tệ",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "deposit_type",
+    "label" : "Hình thức đặt cọc",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "NONE",
+      "label" : "Không cọc"
+    }, {
+      "code" : "FIXED_AMOUNT",
+      "label" : "Cọc số tiền cố định"
+    }, {
+      "code" : "MONTH_COUNT",
+      "label" : "Cọc theo số tháng thuê"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Cọc thỏa thuận"
+    } ],
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "payment_cycle",
+    "label" : "Chu kỳ thanh toán",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "MONTHLY",
+      "label" : "Trả hằng tháng"
+    }, {
+      "code" : "EVERY_2_MONTHS",
+      "label" : "2 tháng/lần"
+    }, {
+      "code" : "QUARTERLY",
+      "label" : "3 tháng/lần"
+    }, {
+      "code" : "EVERY_6_MONTHS",
+      "label" : "6 tháng/lần"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    } ],
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "price_amount",
+    "label" : "Giá niêm yết (theo đơn vị giá)",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "area_m2",
+    "label" : "Diện tích",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "m²",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "deposit_amount",
+    "label" : "Tiền cọc cố định",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "deposit_months",
+    "label" : "Số tháng cọc",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "tháng",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "minimum_lease_months",
+    "label" : "Thời hạn thuê tối thiểu",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "tháng",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "max_motorbike_count",
+    "label" : "Số xe máy tối đa",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "xe",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "max_car_count",
+    "label" : "Số ô tô tối đa",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "xe",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "negotiable",
+    "label" : "Giá có thương lượng",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "management_fee_included",
+    "label" : "Đã gồm phí quản lý",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "vat_included",
+    "label" : "Giá đã gồm VAT",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "available_from",
+    "label" : "Ngày có thể dọn vào",
+    "kind" : "DATE",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "published_at",
+    "label" : "Ngày đăng",
+    "kind" : "DATE",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "expires_at",
+    "label" : "Ngày hết hạn tin",
+    "kind" : "DATE",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "view_count",
+    "label" : "Lượt xem",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listings",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "city_id",
+    "label" : "Mã tỉnh/thành",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_addresses",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "city",
+    "label" : "Tỉnh/thành",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_addresses",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "ward_id",
+    "label" : "Mã phường/xã",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_addresses",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "ward",
+    "label" : "Phường/xã",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_addresses",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "street",
+    "label" : "Đường",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_addresses",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "display",
+    "label" : "Địa chỉ hiển thị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_addresses",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.land_area_m2",
+    "label" : "Diện tích đất (nhà nguyên căn)",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "m²",
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.frontage_width_m",
+    "label" : "Mặt tiền (nhà nguyên căn)",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "m",
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.length_m",
+    "label" : "Chiều dài (nhà nguyên căn)",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "m",
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.access_road_width_m",
+    "label" : "Độ rộng đường vào (nhà nguyên căn)",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "m",
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.frontage_count",
+    "label" : "Số mặt tiền (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.total_floors",
+    "label" : "Số tầng (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.bedroom_count",
+    "label" : "Số phòng ngủ (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.bathroom_count",
+    "label" : "Số phòng tắm/WC (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.living_room_count",
+    "label" : "Số phòng khách (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.kitchen_count",
+    "label" : "Số bếp (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.max_occupants",
+    "label" : "Số người ở tối đa (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.max_vehicles",
+    "label" : "Số xe tối đa (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.rented_floor_from",
+    "label" : "Tầng thuê từ (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.rented_floor_to",
+    "label" : "Tầng thuê đến (nhà nguyên căn)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.has_rooftop",
+    "label" : "Có sân thượng (nhà nguyên căn)",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.has_garage",
+    "label" : "Có gara (nhà nguyên căn)",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.access_type",
+    "label" : "Lối đi (nhà nguyên căn)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : [ {
+      "code" : "PRIVATE",
+      "label" : "Lối đi riêng"
+    }, {
+      "code" : "SHARED",
+      "label" : "Lối đi chung"
+    } ],
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.furnishing_status",
+    "label" : "Mức nội thất (nhà nguyên căn)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : [ {
+      "code" : "UNFURNISHED",
+      "label" : "Không nội thất"
+    }, {
+      "code" : "BASIC",
+      "label" : "Nội thất cơ bản"
+    }, {
+      "code" : "PARTIALLY_FURNISHED",
+      "label" : "Một phần nội thất"
+    }, {
+      "code" : "FULLY_FURNISHED",
+      "label" : "Đầy đủ nội thất"
+    }, {
+      "code" : "LUXURY",
+      "label" : "Nội thất cao cấp"
+    } ],
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.legal_status",
+    "label" : "Pháp lý (nhà nguyên căn)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "house.rental_scope_description",
+    "label" : "Phạm vi cho thuê (nhà nguyên căn)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_house_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.project_name",
+    "label" : "Tên dự án (căn hộ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.building_block",
+    "label" : "Tòa/block (căn hộ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.unit_code",
+    "label" : "Mã căn (căn hộ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.main_door_direction",
+    "label" : "Hướng cửa chính (căn hộ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.balcony_direction",
+    "label" : "Hướng ban công (căn hộ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.view_description",
+    "label" : "Mô tả tầm nhìn (căn hộ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.legal_status",
+    "label" : "Pháp lý (căn hộ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.furnishing_status",
+    "label" : "Mức nội thất (căn hộ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : [ {
+      "code" : "UNFURNISHED",
+      "label" : "Không nội thất"
+    }, {
+      "code" : "BASIC",
+      "label" : "Nội thất cơ bản"
+    }, {
+      "code" : "PARTIALLY_FURNISHED",
+      "label" : "Một phần nội thất"
+    }, {
+      "code" : "FULLY_FURNISHED",
+      "label" : "Đầy đủ nội thất"
+    }, {
+      "code" : "LUXURY",
+      "label" : "Nội thất cao cấp"
+    } ],
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.floor_number",
+    "label" : "Tầng (căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.building_total_floors",
+    "label" : "Tổng số tầng tòa nhà (căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.bedroom_count",
+    "label" : "Số phòng ngủ (căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.bathroom_count",
+    "label" : "Số phòng tắm/WC (căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.living_room_count",
+    "label" : "Số phòng khách (căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.kitchen_count",
+    "label" : "Số bếp (căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "apartment.max_occupants",
+    "label" : "Số người ở tối đa (căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_apartment_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.room_code",
+    "label" : "Mã phòng (phòng trọ)",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.restroom_type",
+    "label" : "Nhà vệ sinh (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "PRIVATE",
+      "label" : "Riêng"
+    }, {
+      "code" : "SHARED",
+      "label" : "Chung"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.kitchen_type",
+    "label" : "Bếp (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "PRIVATE",
+      "label" : "Riêng"
+    }, {
+      "code" : "SHARED",
+      "label" : "Chung"
+    }, {
+      "code" : "NONE",
+      "label" : "Không có"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.balcony_type",
+    "label" : "Loại ban công (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "PRIVATE",
+      "label" : "Riêng"
+    }, {
+      "code" : "SHARED",
+      "label" : "Chung"
+    }, {
+      "code" : "NONE",
+      "label" : "Không có"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.furnishing_status",
+    "label" : "Mức nội thất (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "UNFURNISHED",
+      "label" : "Không nội thất"
+    }, {
+      "code" : "BASIC",
+      "label" : "Nội thất cơ bản"
+    }, {
+      "code" : "PARTIALLY_FURNISHED",
+      "label" : "Một phần nội thất"
+    }, {
+      "code" : "FULLY_FURNISHED",
+      "label" : "Đầy đủ nội thất"
+    }, {
+      "code" : "LUXURY",
+      "label" : "Nội thất cao cấp"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.access_type",
+    "label" : "Lối đi (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "PRIVATE",
+      "label" : "Lối đi riêng"
+    }, {
+      "code" : "SHARED",
+      "label" : "Lối đi chung"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.access_hours_type",
+    "label" : "Giờ giấc ra vào (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "FLEXIBLE",
+      "label" : "Giờ giấc tự do"
+    }, {
+      "code" : "CURFEW",
+      "label" : "Có giờ đóng cửa"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.electric_meter_type",
+    "label" : "Đồng hồ điện (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "PRIVATE",
+      "label" : "Đồng hồ riêng"
+    }, {
+      "code" : "SHARED",
+      "label" : "Đồng hồ chung"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.water_meter_type",
+    "label" : "Đồng hồ nước (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "PRIVATE",
+      "label" : "Đồng hồ riêng"
+    }, {
+      "code" : "SHARED",
+      "label" : "Đồng hồ chung"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.parking_policy",
+    "label" : "Chính sách gửi xe (phòng trọ)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : [ {
+      "code" : "NONE",
+      "label" : "Không nhận gửi xe"
+    }, {
+      "code" : "FREE",
+      "label" : "Gửi xe không thu phí riêng"
+    }, {
+      "code" : "PAID",
+      "label" : "Gửi xe có phí"
+    } ],
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.floor_number",
+    "label" : "Tầng (phòng trọ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.max_occupants",
+    "label" : "Số người ở tối đa (phòng trọ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.max_vehicles",
+    "label" : "Số xe tối đa (phòng trọ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.has_window",
+    "label" : "Có cửa sổ (phòng trọ)",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.has_balcony",
+    "label" : "Có ban công (phòng trọ)",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "room.has_mezzanine",
+    "label" : "Có gác lửng (phòng trọ)",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_room_details",
+    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.CAR_PARKING.amount",
+    "label" : "Phí gửi ô tô - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.CAR_PARKING.included_in_rent",
+    "label" : "Phí gửi ô tô - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.CAR_PARKING.billing_method",
+    "label" : "Phí gửi ô tô - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.CAR_PARKING.unit",
+    "label" : "Phí gửi ô tô - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.CAR_PARKING.description",
+    "label" : "Phí gửi ô tô - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.CAR_PARKING.custom_name",
+    "label" : "Phí gửi ô tô - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.ELECTRICITY.amount",
+    "label" : "Tiền điện - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.ELECTRICITY.included_in_rent",
+    "label" : "Tiền điện - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.ELECTRICITY.billing_method",
+    "label" : "Tiền điện - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.ELECTRICITY.unit",
+    "label" : "Tiền điện - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.ELECTRICITY.description",
+    "label" : "Tiền điện - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.ELECTRICITY.custom_name",
+    "label" : "Tiền điện - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.INTERNET.amount",
+    "label" : "Internet - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.INTERNET.included_in_rent",
+    "label" : "Internet - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.INTERNET.billing_method",
+    "label" : "Internet - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.INTERNET.unit",
+    "label" : "Internet - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.INTERNET.description",
+    "label" : "Internet - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.INTERNET.custom_name",
+    "label" : "Internet - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MANAGEMENT.amount",
+    "label" : "Phí quản lý - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MANAGEMENT.included_in_rent",
+    "label" : "Phí quản lý - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MANAGEMENT.billing_method",
+    "label" : "Phí quản lý - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MANAGEMENT.unit",
+    "label" : "Phí quản lý - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MANAGEMENT.description",
+    "label" : "Phí quản lý - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MANAGEMENT.custom_name",
+    "label" : "Phí quản lý - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MOTORBIKE_PARKING.amount",
+    "label" : "Phí gửi xe máy - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MOTORBIKE_PARKING.included_in_rent",
+    "label" : "Phí gửi xe máy - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MOTORBIKE_PARKING.billing_method",
+    "label" : "Phí gửi xe máy - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MOTORBIKE_PARKING.unit",
+    "label" : "Phí gửi xe máy - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MOTORBIKE_PARKING.description",
+    "label" : "Phí gửi xe máy - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.MOTORBIKE_PARKING.custom_name",
+    "label" : "Phí gửi xe máy - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OTHER.amount",
+    "label" : "Phí khác - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OTHER.included_in_rent",
+    "label" : "Phí khác - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OTHER.billing_method",
+    "label" : "Phí khác - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OTHER.unit",
+    "label" : "Phí khác - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OTHER.description",
+    "label" : "Phí khác - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OTHER.custom_name",
+    "label" : "Phí khác - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OVERTIME_AIR_CONDITIONING.amount",
+    "label" : "Điều hòa ngoài giờ - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OVERTIME_AIR_CONDITIONING.included_in_rent",
+    "label" : "Điều hòa ngoài giờ - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OVERTIME_AIR_CONDITIONING.billing_method",
+    "label" : "Điều hòa ngoài giờ - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OVERTIME_AIR_CONDITIONING.unit",
+    "label" : "Điều hòa ngoài giờ - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OVERTIME_AIR_CONDITIONING.description",
+    "label" : "Điều hòa ngoài giờ - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.OVERTIME_AIR_CONDITIONING.custom_name",
+    "label" : "Điều hòa ngoài giờ - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.SERVICE_OR_GARBAGE.amount",
+    "label" : "Phí dịch vụ/rác - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.SERVICE_OR_GARBAGE.included_in_rent",
+    "label" : "Phí dịch vụ/rác - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.SERVICE_OR_GARBAGE.billing_method",
+    "label" : "Phí dịch vụ/rác - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.SERVICE_OR_GARBAGE.unit",
+    "label" : "Phí dịch vụ/rác - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.SERVICE_OR_GARBAGE.description",
+    "label" : "Phí dịch vụ/rác - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.SERVICE_OR_GARBAGE.custom_name",
+    "label" : "Phí dịch vụ/rác - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.WATER.amount",
+    "label" : "Tiền nước - đơn giá",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.WATER.included_in_rent",
+    "label" : "Tiền nước - đã gồm trong giá thuê",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.WATER.billing_method",
+    "label" : "Tiền nước - cách tính",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "PER_KWH",
+      "label" : "Theo kWh"
+    }, {
+      "code" : "STATE_WATER_RATE",
+      "label" : "Theo giá nước nhà nước"
+    }, {
+      "code" : "PER_M3",
+      "label" : "Theo m³"
+    }, {
+      "code" : "PER_PERSON_MONTH",
+      "label" : "Theo người/tháng"
+    }, {
+      "code" : "PER_MONTH",
+      "label" : "Cố định/tháng"
+    }, {
+      "code" : "PER_M2_MONTH",
+      "label" : "Theo m²/tháng"
+    }, {
+      "code" : "PER_VEHICLE_MONTH",
+      "label" : "Theo xe/tháng"
+    }, {
+      "code" : "PER_HOUR",
+      "label" : "Theo giờ"
+    }, {
+      "code" : "FREE",
+      "label" : "Miễn phí"
+    }, {
+      "code" : "INCLUDED",
+      "label" : "Đã gồm trong giá thuê"
+    }, {
+      "code" : "NOT_APPLICABLE",
+      "label" : "Không áp dụng"
+    }, {
+      "code" : "NEGOTIABLE",
+      "label" : "Thỏa thuận"
+    }, {
+      "code" : "CUSTOM",
+      "label" : "Tùy chỉnh"
+    } ],
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.WATER.unit",
+    "label" : "Tiền nước - đơn vị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.WATER.description",
+    "label" : "Tiền nước - mô tả",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "charge.WATER.custom_name",
+    "label" : "Tiền nước - tên phí",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_charges",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.code",
+    "label" : "Mã tiện ích",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "WIFI",
+      "label" : "WiFi"
+    }, {
+      "code" : "AIR_CONDITIONER",
+      "label" : "Máy lạnh"
+    }, {
+      "code" : "WATER_HEATER",
+      "label" : "Máy nước nóng"
+    }, {
+      "code" : "REFRIGERATOR",
+      "label" : "Tủ lạnh"
+    }, {
+      "code" : "WASHING_MACHINE",
+      "label" : "Máy giặt"
+    }, {
+      "code" : "ELEVATOR",
+      "label" : "Thang máy"
+    }, {
+      "code" : "PARKING",
+      "label" : "Chỗ để xe"
+    }, {
+      "code" : "SECURITY_24_7",
+      "label" : "Bảo vệ 24/7"
+    }, {
+      "code" : "CAMERA",
+      "label" : "Camera"
+    }, {
+      "code" : "SWIMMING_POOL",
+      "label" : "Hồ bơi"
+    }, {
+      "code" : "GYM",
+      "label" : "Phòng gym"
+    } ],
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.WIFI",
+    "label" : "Tiện ích: WiFi",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.AIR_CONDITIONER",
+    "label" : "Tiện ích: Máy lạnh",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.WATER_HEATER",
+    "label" : "Tiện ích: Máy nước nóng",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.REFRIGERATOR",
+    "label" : "Tiện ích: Tủ lạnh",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.WASHING_MACHINE",
+    "label" : "Tiện ích: Máy giặt",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.ELEVATOR",
+    "label" : "Tiện ích: Thang máy",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.PARKING",
+    "label" : "Tiện ích: Chỗ để xe",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.SECURITY_24_7",
+    "label" : "Tiện ích: Bảo vệ 24/7",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.CAMERA",
+    "label" : "Tiện ích: Camera",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.SWIMMING_POOL",
+    "label" : "Tiện ích: Hồ bơi",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "amenity.GYM",
+    "label" : "Tiện ích: Phòng gym",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.BED",
+    "label" : "Trang thiết bị: Giường",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.BED.quantity",
+    "label" : "Giường - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.BED.handover_condition",
+    "label" : "Giường - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.BED.asset_name",
+    "label" : "Giường - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.BED.condition_note",
+    "label" : "Giường - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.BED.total_quantity",
+    "label" : "Giường - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WARDROBE",
+    "label" : "Trang thiết bị: Tủ quần áo",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WARDROBE.quantity",
+    "label" : "Tủ quần áo - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WARDROBE.handover_condition",
+    "label" : "Tủ quần áo - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WARDROBE.asset_name",
+    "label" : "Tủ quần áo - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WARDROBE.condition_note",
+    "label" : "Tủ quần áo - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WARDROBE.total_quantity",
+    "label" : "Tủ quần áo - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WORK_DESK",
+    "label" : "Trang thiết bị: Bàn làm việc",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WORK_DESK.quantity",
+    "label" : "Bàn làm việc - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WORK_DESK.handover_condition",
+    "label" : "Bàn làm việc - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WORK_DESK.asset_name",
+    "label" : "Bàn làm việc - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WORK_DESK.condition_note",
+    "label" : "Bàn làm việc - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WORK_DESK.total_quantity",
+    "label" : "Bàn làm việc - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_SHELF",
+    "label" : "Trang thiết bị: Kệ bếp",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_SHELF.quantity",
+    "label" : "Kệ bếp - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_SHELF.handover_condition",
+    "label" : "Kệ bếp - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_SHELF.asset_name",
+    "label" : "Kệ bếp - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_SHELF.condition_note",
+    "label" : "Kệ bếp - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_SHELF.total_quantity",
+    "label" : "Kệ bếp - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.REFRIGERATOR",
+    "label" : "Trang thiết bị: Tủ lạnh",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.REFRIGERATOR.quantity",
+    "label" : "Tủ lạnh - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.REFRIGERATOR.handover_condition",
+    "label" : "Tủ lạnh - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.REFRIGERATOR.asset_name",
+    "label" : "Tủ lạnh - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.REFRIGERATOR.condition_note",
+    "label" : "Tủ lạnh - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.REFRIGERATOR.total_quantity",
+    "label" : "Tủ lạnh - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WASHING_MACHINE",
+    "label" : "Trang thiết bị: Máy giặt",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WASHING_MACHINE.quantity",
+    "label" : "Máy giặt - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WASHING_MACHINE.handover_condition",
+    "label" : "Máy giặt - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WASHING_MACHINE.asset_name",
+    "label" : "Máy giặt - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WASHING_MACHINE.condition_note",
+    "label" : "Máy giặt - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WASHING_MACHINE.total_quantity",
+    "label" : "Máy giặt - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_HEATER",
+    "label" : "Trang thiết bị: Máy nước nóng",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_HEATER.quantity",
+    "label" : "Máy nước nóng - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_HEATER.handover_condition",
+    "label" : "Máy nước nóng - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_HEATER.asset_name",
+    "label" : "Máy nước nóng - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_HEATER.condition_note",
+    "label" : "Máy nước nóng - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_HEATER.total_quantity",
+    "label" : "Máy nước nóng - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.CURTAIN",
+    "label" : "Trang thiết bị: Rèm cửa",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.CURTAIN.quantity",
+    "label" : "Rèm cửa - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.CURTAIN.handover_condition",
+    "label" : "Rèm cửa - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.CURTAIN.asset_name",
+    "label" : "Rèm cửa - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.CURTAIN.condition_note",
+    "label" : "Rèm cửa - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.CURTAIN.total_quantity",
+    "label" : "Rèm cửa - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.FAN",
+    "label" : "Trang thiết bị: Quạt",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.FAN.quantity",
+    "label" : "Quạt - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.FAN.handover_condition",
+    "label" : "Quạt - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.FAN.asset_name",
+    "label" : "Quạt - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.FAN.condition_note",
+    "label" : "Quạt - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.FAN.total_quantity",
+    "label" : "Quạt - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SOFA_SET",
+    "label" : "Trang thiết bị: Bộ sofa + bàn trà",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SOFA_SET.quantity",
+    "label" : "Bộ sofa + bàn trà - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SOFA_SET.handover_condition",
+    "label" : "Bộ sofa + bàn trà - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SOFA_SET.asset_name",
+    "label" : "Bộ sofa + bàn trà - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SOFA_SET.condition_note",
+    "label" : "Bộ sofa + bàn trà - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SOFA_SET.total_quantity",
+    "label" : "Bộ sofa + bàn trà - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.DINING_SET",
+    "label" : "Trang thiết bị: Bàn ăn + ghế",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.DINING_SET.quantity",
+    "label" : "Bàn ăn + ghế - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.DINING_SET.handover_condition",
+    "label" : "Bàn ăn + ghế - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.DINING_SET.asset_name",
+    "label" : "Bàn ăn + ghế - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.DINING_SET.condition_note",
+    "label" : "Bàn ăn + ghế - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.DINING_SET.total_quantity",
+    "label" : "Bàn ăn + ghế - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.TV",
+    "label" : "Trang thiết bị: Tivi",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.TV.quantity",
+    "label" : "Tivi - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.TV.handover_condition",
+    "label" : "Tivi - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.TV.asset_name",
+    "label" : "Tivi - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.TV.condition_note",
+    "label" : "Tivi - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.TV.total_quantity",
+    "label" : "Tivi - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_CABINET",
+    "label" : "Trang thiết bị: Tủ bếp",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_CABINET.quantity",
+    "label" : "Tủ bếp - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_CABINET.handover_condition",
+    "label" : "Tủ bếp - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_CABINET.asset_name",
+    "label" : "Tủ bếp - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_CABINET.condition_note",
+    "label" : "Tủ bếp - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.KITCHEN_CABINET.total_quantity",
+    "label" : "Tủ bếp - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.COOKTOP",
+    "label" : "Trang thiết bị: Bếp từ / bếp gas",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.COOKTOP.quantity",
+    "label" : "Bếp từ / bếp gas - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.COOKTOP.handover_condition",
+    "label" : "Bếp từ / bếp gas - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.COOKTOP.asset_name",
+    "label" : "Bếp từ / bếp gas - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.COOKTOP.condition_note",
+    "label" : "Bếp từ / bếp gas - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.COOKTOP.total_quantity",
+    "label" : "Bếp từ / bếp gas - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.RANGE_HOOD",
+    "label" : "Trang thiết bị: Máy hút mùi",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.RANGE_HOOD.quantity",
+    "label" : "Máy hút mùi - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.RANGE_HOOD.handover_condition",
+    "label" : "Máy hút mùi - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.RANGE_HOOD.asset_name",
+    "label" : "Máy hút mùi - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.RANGE_HOOD.condition_note",
+    "label" : "Máy hút mùi - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.RANGE_HOOD.total_quantity",
+    "label" : "Máy hút mùi - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.MICROWAVE",
+    "label" : "Trang thiết bị: Lò vi sóng",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.MICROWAVE.quantity",
+    "label" : "Lò vi sóng - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.MICROWAVE.handover_condition",
+    "label" : "Lò vi sóng - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.MICROWAVE.asset_name",
+    "label" : "Lò vi sóng - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.MICROWAVE.condition_note",
+    "label" : "Lò vi sóng - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.MICROWAVE.total_quantity",
+    "label" : "Lò vi sóng - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SHOE_CABINET",
+    "label" : "Trang thiết bị: Tủ giày",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SHOE_CABINET.quantity",
+    "label" : "Tủ giày - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SHOE_CABINET.handover_condition",
+    "label" : "Tủ giày - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SHOE_CABINET.asset_name",
+    "label" : "Tủ giày - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SHOE_CABINET.condition_note",
+    "label" : "Tủ giày - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.SHOE_CABINET.total_quantity",
+    "label" : "Tủ giày - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_TANK_PUMP",
+    "label" : "Trang thiết bị: Bồn nước / máy bơm",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_TANK_PUMP.quantity",
+    "label" : "Bồn nước / máy bơm - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_TANK_PUMP.handover_condition",
+    "label" : "Bồn nước / máy bơm - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_TANK_PUMP.asset_name",
+    "label" : "Bồn nước / máy bơm - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_TANK_PUMP.condition_note",
+    "label" : "Bồn nước / máy bơm - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.WATER_TANK_PUMP.total_quantity",
+    "label" : "Bồn nước / máy bơm - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "HOUSE" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.AIR_CONDITIONER",
+    "label" : "Trang thiết bị: Máy lạnh",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.AIR_CONDITIONER.quantity",
+    "label" : "Máy lạnh - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.AIR_CONDITIONER.handover_condition",
+    "label" : "Máy lạnh - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.AIR_CONDITIONER.asset_name",
+    "label" : "Máy lạnh - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.AIR_CONDITIONER.condition_note",
+    "label" : "Máy lạnh - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.AIR_CONDITIONER.total_quantity",
+    "label" : "Máy lạnh - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.LIGHTING",
+    "label" : "Trang thiết bị: Hệ thống đèn chiếu sáng",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.LIGHTING.quantity",
+    "label" : "Hệ thống đèn chiếu sáng - số lượng một dòng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.LIGHTING.handover_condition",
+    "label" : "Hệ thống đèn chiếu sáng - tình trạng bàn giao",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in", "gte", "gt", "lte", "lt" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "BRAND_NEW",
+      "label" : "Mới"
+    }, {
+      "code" : "GOOD",
+      "label" : "Còn tốt"
+    }, {
+      "code" : "NORMAL",
+      "label" : "Bình thường"
+    }, {
+      "code" : "USED_ACCEPTABLE",
+      "label" : "Đã qua sử dụng, dùng được"
+    }, {
+      "code" : "MINOR_DAMAGE",
+      "label" : "Hư hỏng nhẹ"
+    } ],
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "gte GOOD nghĩa là Mới hoặc Còn tốt. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.LIGHTING.asset_name",
+    "label" : "Hệ thống đèn chiếu sáng - tên thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.LIGHTING.condition_note",
+    "label" : "Hệ thống đèn chiếu sáng - ghi chú tình trạng",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.LIGHTING.total_quantity",
+    "label" : "Hệ thống đèn chiếu sáng - tổng số lượng",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "cái",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Cộng số lượng các dòng cùng thiết bị thỏa các điều kiện cùng nhóm (ví dụ tình trạng); không có dòng nào là 0.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.item_code",
+    "label" : "Mã trang thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "furnishing.asset_name",
+    "label" : "Tên trang thiết bị",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_furnishing_assets",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.petPolicy.value",
+    "label" : "Nuôi thú cưng",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "ALLOWED",
+      "label" : "Cho phép"
+    }, {
+      "code" : "NOT_ALLOWED",
+      "label" : "Không cho phép"
+    }, {
+      "code" : "APPROVAL_REQUIRED",
+      "label" : "Cần chủ nhà đồng ý"
+    } ],
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.petPolicy.note",
+    "label" : "Nuôi thú cưng - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.smokingPolicy.value",
+    "label" : "Hút thuốc",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "ALLOWED",
+      "label" : "Cho phép"
+    }, {
+      "code" : "NOT_ALLOWED",
+      "label" : "Không cho phép"
+    }, {
+      "code" : "APPROVAL_REQUIRED",
+      "label" : "Cần chủ nhà đồng ý"
+    } ],
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.smokingPolicy.note",
+    "label" : "Hút thuốc - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.subleasePolicy.value",
+    "label" : "Cho thuê lại",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "ALLOWED",
+      "label" : "Cho phép"
+    }, {
+      "code" : "NOT_ALLOWED",
+      "label" : "Không cho phép"
+    }, {
+      "code" : "APPROVAL_REQUIRED",
+      "label" : "Cần chủ nhà đồng ý"
+    } ],
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.subleasePolicy.note",
+    "label" : "Cho thuê lại - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.overnightGuestPolicy.value",
+    "label" : "Khách qua đêm",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "ALLOWED",
+      "label" : "Cho phép"
+    }, {
+      "code" : "NOT_ALLOWED",
+      "label" : "Không cho phép"
+    }, {
+      "code" : "APPROVAL_REQUIRED",
+      "label" : "Cần chủ nhà đồng ý"
+    } ],
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.overnightGuestPolicy.note",
+    "label" : "Khách qua đêm - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.propertyInspectionNotice.value",
+    "label" : "Thông báo trước khi kiểm tra tài sản",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "giờ",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Khoảng hợp lệ 0-168. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.propertyInspectionNotice.note",
+    "label" : "Thông báo trước khi kiểm tra tài sản - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.noticeDaysBeforeTermination.value",
+    "label" : "Báo trước khi kết thúc/chấm dứt thuê",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "ngày",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Khoảng hợp lệ 0-180. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.noticeDaysBeforeTermination.note",
+    "label" : "Báo trước khi kết thúc/chấm dứt thuê - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.depositRefundDays.value",
+    "label" : "Thời hạn hoàn cọc sau bàn giao và thanh toán đủ",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "ngày",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Khoảng hợp lệ 1-60. Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.depositRefundDays.note",
+    "label" : "Thời hạn hoàn cọc sau bàn giao và thanh toán đủ - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.alterationsPolicy.value",
+    "label" : "Sửa chữa, cải tạo và lắp đặt",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "HOUSE" ],
+    "values" : [ {
+      "code" : "ALLOWED",
+      "label" : "Cho phép"
+    }, {
+      "code" : "NOT_ALLOWED",
+      "label" : "Không cho phép"
+    }, {
+      "code" : "APPROVAL_REQUIRED",
+      "label" : "Cần chủ nhà đồng ý"
+    } ],
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.alterationsPolicy.note",
+    "label" : "Sửa chữa, cải tạo và lắp đặt - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.buildingRulesPolicy.value",
+    "label" : "Nội quy tòa nhà",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.buildingRulesPolicy.note",
+    "label" : "Nội quy tòa nhà - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.sharedAmenitiesPolicy.value",
+    "label" : "Sử dụng tiện ích và không gian chung",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.sharedAmenitiesPolicy.note",
+    "label" : "Sử dụng tiện ích và không gian chung - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.quietHoursPolicy.value",
+    "label" : "Giờ yên tĩnh và sinh hoạt",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "policy.quietHoursPolicy.note",
+    "label" : "Giờ yên tĩnh và sinh hoạt - ghi chú",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_policy_values",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "media.IMAGE",
+    "label" : "Có ảnh",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_media",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "media.VIDEO",
+    "label" : "Có video",
+    "kind" : "BOOLEAN",
+    "operators" : [ "eq", "ne" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_media",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "custom_amenity.name",
+    "label" : "Tiện ích tự khai báo",
+    "kind" : "TEXT",
+    "operators" : [ "eq", "ne", "contains" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "listing_custom_amenities",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "viewing.day_of_week",
+    "label" : "Ngày nhận xem phòng",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "MONDAY",
+      "label" : "Thứ Hai"
+    }, {
+      "code" : "TUESDAY",
+      "label" : "Thứ Ba"
+    }, {
+      "code" : "WEDNESDAY",
+      "label" : "Thứ Tư"
+    }, {
+      "code" : "THURSDAY",
+      "label" : "Thứ Năm"
+    }, {
+      "code" : "FRIDAY",
+      "label" : "Thứ Sáu"
+    }, {
+      "code" : "SATURDAY",
+      "label" : "Thứ Bảy"
+    }, {
+      "code" : "SUNDAY",
+      "label" : "Chủ nhật"
+    } ],
+    "source" : "listing_viewing_days",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "viewing.viewing_slot",
+    "label" : "Buổi nhận xem phòng",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "MORNING",
+      "label" : "Buổi sáng"
+    }, {
+      "code" : "AFTERNOON",
+      "label" : "Buổi chiều"
+    }, {
+      "code" : "EVENING",
+      "label" : "Buổi tối"
+    } ],
+    "source" : "listing_viewing_slots",
+    "nullMeaning" : "Tin không khai báo thì không khớp điều kiện bắt buộc, nhưng không được nói là không có.",
+    "role" : "FILTER",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "occupancy.max_occupants",
+    "label" : "Số người ở tối đa (mọi loại hình)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "người",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "detail.bedroom_count",
+    "label" : "Số phòng ngủ (nhà/căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "phòng",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "detail.bathroom_count",
+    "label" : "Số phòng tắm/WC (nhà/căn hộ)",
+    "kind" : "INTEGER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "phòng",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "detail.furnishing_status",
+    "label" : "Mức nội thất (mọi loại hình)",
+    "kind" : "ENUM",
+    "operators" : [ "eq", "ne", "in" ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : [ {
+      "code" : "UNFURNISHED",
+      "label" : "Không nội thất"
+    }, {
+      "code" : "BASIC",
+      "label" : "Nội thất cơ bản"
+    }, {
+      "code" : "PARTIALLY_FURNISHED",
+      "label" : "Một phần nội thất"
+    }, {
+      "code" : "FULLY_FURNISHED",
+      "label" : "Đầy đủ nội thất"
+    }, {
+      "code" : "LUXURY",
+      "label" : "Nội thất cao cấp"
+    } ],
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ ]
+  }, {
+    "code" : "rent.monthly_amount",
+    "label" : "Tiền thuê mỗi tháng theo số người ở",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND/tháng",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ "occupants" ]
+  }, {
+    "code" : "cost.fixed_monthly_total",
+    "label" : "Tổng chi phí cố định mỗi tháng",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND/tháng",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ "occupants", "motorbikes", "cars" ]
+  }, {
+    "code" : "cost.estimated_monthly_total",
+    "label" : "Tổng chi phí ước tính mỗi tháng (gồm điện nước theo mức dùng)",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND/tháng",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ "occupants", "motorbikes", "cars", "electricityKwh", "waterM3" ]
+  }, {
+    "code" : "deposit.amount_estimate",
+    "label" : "Tiền cọc ước tính",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ "occupants" ]
+  }, {
+    "code" : "initial.payment_estimate",
+    "label" : "Khoản trả ban đầu (tháng đầu + cọc)",
+    "kind" : "NUMBER",
+    "operators" : [ "eq", "ne", "gt", "gte", "lt", "lte" ],
+    "unit" : "VND",
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "computed",
+    "nullMeaning" : "Không tính được (thiếu dữ liệu tin hoặc thông tin của bạn) là chưa rõ: không khớp, không loại như sai.",
+    "role" : "COMPUTED",
+    "requiresContext" : [ "occupants" ]
+  }, {
+    "code" : "display.highlights",
+    "label" : "Điểm nổi bật",
+    "kind" : "TEXT",
+    "operators" : [ ],
+    "unit" : null,
+    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
+    "values" : null,
+    "source" : "application",
+    "nullMeaning" : "Chỉ để hiển thị.",
+    "role" : "DISPLAY_ONLY",
+    "requiresContext" : [ ]
+  } ],
+  "unsupported" : [ {
+    "code" : "QUIETNESS",
+    "label" : "Yên tĩnh/ồn ào",
+    "reason" : "Không có dữ liệu đo độ ồn; số địa điểm xung quanh không chứng minh yên tĩnh."
+  }, {
+    "code" : "SECURITY_QUALITY",
+    "label" : "An ninh tốt/xấu",
+    "reason" : "Chỉ có tiện ích khai báo như bảo vệ 24/7 hoặc camera, không có đánh giá an ninh."
+  }, {
+    "code" : "TRAVEL_TIME",
+    "label" : "Thời gian đi lại/đường đi",
+    "reason" : "Chỉ có khoảng cách đường chim bay, không có tuyến đường hay số phút."
+  }, {
+    "code" : "FLOODING",
+    "label" : "Ngập nước",
+    "reason" : "Không có dữ liệu ngập."
+  }, {
+    "code" : "LANDLORD_COHABITATION",
+    "label" : "Ở chung/không chung chủ",
+    "reason" : "Không có trường chủ nhà ở cùng; chỉ có lối đi riêng/chung và giờ giấc."
+  }, {
+    "code" : "VIEWING_SLOT_AVAILABILITY",
+    "label" : "Lịch xem còn trống thực tế",
+    "reason" : "Chỉ có ngày/buổi xem chủ nhà khai báo, không phải lịch trống."
+  }, {
+    "code" : "HIGHLIGHTS",
+    "label" : "Điểm nổi bật",
+    "reason" : "Do ứng dụng tổng hợp để hiển thị, không phải điều kiện lọc."
+  }, {
+    "code" : "NEARBY_SPORTS",
+    "label" : "Phòng gym/thể thao gần nhà",
+    "reason" : "Nhóm thể thao chưa được thu thập quanh tin; amenity.GYM chỉ là gym trong tòa nhà, không chứng minh gần gym."
+  } ],
+  "sorts" : [ "newest", "price_asc", "price_desc", "area_asc", "area_desc", "rent_asc", "fixed_cost_asc", "estimated_cost_asc", "target_distance" ],
+  "contextFields" : [ "occupants", "motorbikes", "cars", "electricityKwh", "waterM3" ],
+  "nearbyKinds" : [ {
+    "code" : "SCHOOL",
+    "group" : "EDUCATION",
+    "label" : "Trường học/cơ sở giáo dục",
+    "note" : "Nguồn gộp mầm non, phổ thông, trung tâm ngoại ngữ; chưa tách riêng cấp học."
+  }, {
+    "code" : "COLLEGE_UNIVERSITY",
+    "group" : "EDUCATION",
+    "label" : "Cao đẳng/đại học"
+  }, {
+    "code" : "HOSPITAL_POLYCLINIC",
+    "group" : "HEALTHCARE",
+    "label" : "Bệnh viện/phòng khám đa khoa",
+    "note" : "Nguồn xếp chung bệnh viện và phòng khám; không thay bằng nhà thuốc."
+  }, {
+    "code" : "PHARMACY",
+    "group" : "HEALTHCARE",
+    "label" : "Nhà thuốc"
+  }, {
+    "code" : "SUPERMARKET",
+    "group" : "SHOPPING",
+    "label" : "Siêu thị",
+    "note" : "Không gồm cửa hàng tiện lợi."
+  }, {
+    "code" : "CONVENIENCE_STORE",
+    "group" : "SHOPPING",
+    "label" : "Cửa hàng tiện lợi"
+  }, {
+    "code" : "RESTAURANT",
+    "group" : "FOOD_DRINK",
+    "label" : "Quán ăn/nhà hàng"
+  }, {
+    "code" : "BANK",
+    "group" : "FINANCE",
+    "label" : "Ngân hàng"
+  }, {
+    "code" : "BUS_STOP",
+    "group" : "TRANSPORT",
+    "label" : "Trạm xe buýt"
+  }, {
+    "code" : "PARK_RECREATION",
+    "group" : "RECREATION",
+    "label" : "Công viên/khu vui chơi"
+  } ]
+}

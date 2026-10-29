@@ -3,7 +3,7 @@ import re
 
 from homespace_ai.application.vietnamese_text import fold_text
 
-DEFAULT_RESULTS = 5
+DEFAULT_RESULTS = 4
 DEFAULT_MAX_RESULTS = 20
 ABSOLUTE_MAX_RESULTS = 50
 

@@ -1,15 +1,15 @@
-import pytest
+﻿import pytest
 from homespace_ai.core import business_properties
 from homespace_ai.core.config import Settings
 
 
 def test_business_flag_comes_from_properties_and_ignores_old_env_name(tmp_path, monkeypatch):
     path = tmp_path / "application.properties"
-    path.write_text("nearby.query-enabled=false\nnearby.default-radius-m=2000\n", encoding="utf-8")
+    path.write_text("nearby.query-enabled=false\nnearby.default-radius-m=2000\nlisting.search-utc-offset=+07:00\n", encoding="utf-8")
     monkeypatch.setattr(business_properties, "PROPERTIES_FILE", path)
     monkeypatch.setenv("NEARBY_QUERY_ENABLED", "true")
     assert Settings(_env_file=None).nearby_query_enabled is False
-    path.write_text("nearby.query-enabled=true\nnearby.default-radius-m=2500\n", encoding="utf-8")
+    path.write_text("nearby.query-enabled=true\nnearby.default-radius-m=2500\nlisting.search-utc-offset=+07:00\n", encoding="utf-8")
     assert Settings(_env_file=None).nearby_query_enabled is True
     assert Settings(_env_file=None).nearby_default_radius_m == 2500
 

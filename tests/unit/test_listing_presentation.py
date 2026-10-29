@@ -5,7 +5,7 @@ import pytest
 from homespace_ai.application.listing_presentation import customer_listing_text, relaxed_labels
 from homespace_ai.clients.generative import LISTING_SYSTEM_PROMPT, ListingGeneratedAnswer
 from homespace_ai.clients.listing_tool_planner import ToolPlan
-from tests.unit.test_listing_ask import make_assistant, FakeTools
+from tests.unit.listing_fakes import CATALOG, c, make_assistant, search
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -68,21 +68,14 @@ async def test_generated_recommendation_is_cleaned_without_extra_calls_or_fact_c
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("question", ["Tìm phòng có chỗ gửi xe", "Phòng này gửi xe có phí không?", "Phòng có tiện ích gì?"])
-async def test_all_relaxed_response_branches_use_same_customer_labels(question):
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": [
-        {"field": "category", "op": "eq", "value": "ROOM"},
-        {"field": "amenity.PARKING", "op": "eq", "value": True},
-    ]}))
-    class SequenceTools(FakeTools):
-        async def search(self, arguments):
-            return {"listingIds": self.ids if len(arguments["filters"]) == 1 else [], "total": 1}
-    assistant.tools = SequenceTools()
-    result = await assistant.try_answer(question, [], "relaxed")
-    assert result.status == "ANSWERED"
-    assert "chỗ gửi xe" in result.answer
-    assert "amenity." not in result.answer
-    assert "khớp" in result.answer
+@pytest.mark.parametrize("question", ["Tìm phòng trọ có chỗ gửi xe ở Hạnh Thông HCM", "Phòng trọ có tiện ích gì ở Hạnh Thông HCM?"])
+async def test_empty_result_lists_criteria_in_customer_labels_without_relaxing(question):
+    assistant = make_assistant(search(c("amenity.PARKING", "eq", "true"), ward="Hạnh Thông", city="HCM"), ids=[])
+    result = await assistant.try_answer(question, [], "no-relax-labels")
+    label = next(f["label"] for f in CATALOG["fields"] if f["code"] == "amenity.PARKING")
+    assert result.status == "NO_RESULTS" and assistant.tools.search_calls == 1
+    assert label in result.answer and "Phòng trọ" in result.answer and "Hạnh Thông" in result.answer
+    assert "amenity." not in result.answer and "ward_id" not in result.answer
 
 
 def test_listing_prompt_requires_natural_language_without_losing_structured_ids():

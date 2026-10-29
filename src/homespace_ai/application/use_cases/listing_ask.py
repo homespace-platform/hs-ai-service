@@ -1,55 +1,162 @@
-"""Select RAG or realtime listing tools and ground listing answers in Core API data."""
+"""Select RAG or realtime listing tools and ground listing answers in Core API data.
 
+Renter criteria persist in a versioned state (see renter_search_state). Every hard criterion is
+compiled by Core before LIMIT; an empty result is reported and asked about, never relaxed.
+"""
+
+import json
 import re
+import time
+from copy import deepcopy
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import HTTPException, Request
 import structlog
 
-from homespace_ai.application.listing_context import context_for, current_scope, RECOMMENDATION, scoped_selection
-from homespace_ai.application.listing_presentation import customer_listing_text, relaxed_labels
+from homespace_ai.application.listing_catalog import CatalogError, SearchCatalog
+from homespace_ai.application.listing_context import current_scope, RECOMMENDATION, scoped_selection
+from homespace_ai.application.listing_presentation import customer_listing_text
 from homespace_ai.application.use_cases.ask_use_cases import AskResult
 from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnavailableError
 from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
 from homespace_ai.core.config import Settings
-from homespace_ai.tools.listings import ListingToolError, ListingTools
-from homespace_ai.application.vietnamese_text import VietnamesePattern
-from homespace_ai.application.listing_location import LocationClarification
+from homespace_ai.tools.listings import ListingSearchRejected, ListingToolError, ListingTools
+from homespace_ai.application.vietnamese_text import VietnamesePattern, fold_text
+from homespace_ai.application.listing_location import LocationClarification, catalog as admin_catalog, resolve_location_filters
 from homespace_ai.application.listing_evidence import compact_search_listing
-from homespace_ai.application.listing_limits import max_results, requested_count, search_limit, ABSOLUTE_MAX_RESULTS
-from homespace_ai.application import budget_stretch as stretch
+from homespace_ai.application.listing_limits import max_results, requested_count, search_limit
+from homespace_ai.application.listing_table import (SHOW_REQUEST, TABLE_REQUEST, listing_table, requested_sections,
+                                                    section_labels, strip_images, strip_tables)
 from homespace_ai.application.nearby_listing_advice import NEARBY_INTENT, answer_nearby
+from homespace_ai.application import renter_search_state as rs
+from homespace_ai.application.renter_criteria import normalize
+from homespace_ai.application.renter_dates import request_today
 
 
 LISTING_SIGNAL = VietnamesePattern(
     r"\b(tìm|kiếm|còn|so sánh|phòng|căn hộ|chung cư|studio|nhà|trọ|chỗ ở|nơi ở|chỗ thuê|thuê|tin đăng|bài đăng|"
-    r"gửi xe|nội thất|tiện ích|ngân sách|triệu|tr/tháng|giá rẻ|rẻ nhất|ở ghép|ở một mình)\b")
+    r"gửi xe|nội thất|tiện ích|ngân sách|triệu|tr/tháng|giá rẻ|rẻ nhất|ở ghép|ở một mình|thang máy|ban công|"
+    r"toàn quốc|cả nước|xem thêm|tin khác)\b")
 SEARCH_INTENT = VietnamesePattern(
     r"\b(tìm|kiếm|còn phòng|phòng nào|căn nào|nhà nào|so sánh|cần thuê|muốn thuê|cần tìm|muốn tìm|"
-    r"chỗ ở|nơi ở|chỗ thuê|cần chỗ|kiếm chỗ)\b")
+    r"chỗ ở|nơi ở|chỗ thuê|cần chỗ|kiếm chỗ|xem thêm|tin khác)\b")
+MORE_PAGE = VietnamesePattern(r"xem thêm|tin khác|trang (?:sau|tiếp)|tiếp theo|thêm (?:tin|phòng|căn|nhà)\b")
 SUPPORT_INTENT = VietnamesePattern(r"(homespace là|cách đăng tin|hướng dẫn đăng tin|cách đặt lịch|cách thanh toán|điều khoản sử dụng|chính sách homespace|hợp đồng điện tử)")
-# Exact distances and nearby-place ranking require a map capability which is not available.
-# Landmark text searches and "tin mới đăng gần nhất" still use the listing search.
 MAP_EVIDENCE_REQUEST = VietnamesePattern(
     r"quét.{0,40}(?:xung quanh|tiện ích)|bán kính|khoảng cách (?:đến|tới)|"
     r"tiện ích (?:xung quanh|lân cận)|"
     r"gần (?:nhất|hơn).{0,40}(?:trường|đại học|siêu thị|bệnh viện|công viên|chợ|gym)|"
     r"(?:phòng|căn|nhà|tin) nào.{0,60}gần.{0,40}(?:trường|đại học|siêu thị|bệnh viện|công viên|chợ|gym)"
     r".{0,40}(?:hơn|nhất)\b")
+CONFIRM = VietnamesePattern(r"^\s*(?:ok|oke|ừ|ừm|uh|đồng ý|được|được rồi|bỏ đi|bỏ|có|vâng|dạ|chấp nhận|đúng rồi)\b")
+OP_TEXT = {"eq": "", "ne": "khác", "gt": "trên", "gte": "từ", "lt": "dưới", "lte": "tối đa", "contains": "có chứa",
+           "in": "thuộc", "approx": "khoảng"}
+ADVICE_REQUEST = VietnamesePattern(
+    r"tư vấn|gợi ý|nên (?:chọn|thuê|lấy)|phù hợp nhất|tốt nhất|phân tích|đánh giá|nhận xét|"
+    r"bao nhiêu|tính (?:thế nào|giúp|tổng)|tổng chi phí|cho (?:tôi|mình|em) biết|giải thích|tại sao|vì sao|"
+    r"so với|khác (?:gì|nhau)|ưu (?:điểm|nhược)")
+TABLE_HINT = ("Bấm tên hoặc ảnh để mở tin ở tab mới. Muốn so sánh thêm tiện ích, nội thất, chi phí, điều kiện thuê, "
+              "nội quy hay lịch xem, bạn cứ nói, mình thêm vào bảng.")
 logger = structlog.get_logger(__name__)
+
+
+def vnd(value: Any) -> str:
+    try:
+        return f"{int(Decimal(str(value))):,}".replace(",", ".") + " đ"
+    except (InvalidOperation, TypeError, ValueError):
+        return str(value)
+
+
+def describe(constraint: dict[str, Any], catalog: SearchCatalog | None) -> str:
+    field, op, value = constraint["field"], constraint["op"], constraint["value"]
+    label = catalog.label(field) if catalog else field
+    if isinstance(value, bool) or str(value).lower() in {"true", "false"}:
+        yes = (value is True or str(value).lower() == "true") == (op == "eq")
+        text = f"{label}: {'có' if yes else 'không'}"
+    else:
+        if isinstance(value, list):
+            shown = ", ".join(catalog.value_label(field, v) if catalog else str(v) for v in value)
+        elif catalog and catalog.is_money(field):
+            shown = vnd(value)
+        else:
+            shown = catalog.value_label(field, value) if catalog else str(value)
+        text = f"{label} {OP_TEXT.get(op, op)} {shown}".replace("  ", " ")
+    return text + (" (ưu tiên, không bắt buộc)" if constraint.get("strength") == "preference" else "")
+
+
+def criteria_lines(state: dict[str, Any] | None, catalog: SearchCatalog | None) -> list[str]:
+    if not state:
+        return []
+    lines = []
+    location = state.get("location") or {}
+    if location.get("ward") or location.get("city"):
+        lines.append("Khu vực: " + ", ".join(v for v in (location.get("ward"), location.get("city")) if v))
+    elif state.get("nationwide"):
+        lines.append("Khu vực: toàn quốc")
+    if state.get("target"):
+        lines.append(f"Trong {state['target']['radiusMeters']} m (đường chim bay) quanh {state['target']['name']}")
+    for item in state.get("nearby") or []:
+        name = next((k.get("label") for k in (catalog.kinds if catalog else []) if k["code"] == item.get("kind")), None)
+        lines.append(f"Có {name or item.get('kind') or item.get('group')} trong {item['radiusMeters']} m")
+    lines.extend(describe(c, catalog) for c in state["constraints"])
+    for index, group in enumerate(state.get("alternatives") or [], 1):
+        lines.append(f"Lựa chọn {index}: " + "; ".join(describe(c, catalog) for c in group))
+    labels = {"occupants": "người ở", "motorbikes": "xe máy", "cars": "ô tô", "electricityKwh": "kWh điện/tháng", "waterM3": "m³ nước/tháng"}
+    context = {k: v for k, v in (state.get("context") or {}).items() if k in labels and v}
+    if context:
+        lines.append("Thông tin của bạn: " + ", ".join(f"{v} {labels[k]}" for k, v in context.items()))
+    return lines
+
+
+def pick_candidate(question: str, candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """A short reply chooses one of the candidates Core returned; never a new guess."""
+    if not candidates:
+        return None
+    text = fold_text(question)
+    ordinal = re.search(r"\b(?:co so|so|thu|lua chon|cai|dia diem)?\s*(\d)\b", text)
+    words = {"thu nhat": 1, "dau tien": 1, "thu hai": 2, "thu ba": 3, "thu tu": 4}
+    index = next((n for w, n in words.items() if w in text), None) or (int(ordinal[1]) if ordinal and len(text) <= 40 else None)
+    if index is not None and 1 <= index <= len(candidates):
+        return candidates[index - 1]
+    matches = [c for c in candidates if any(len(token) >= 4 and token in text for token in
+               re.findall(r"[a-z0-9]+(?: [a-z0-9]+){1,2}", fold_text(c.get("address") or "")))]
+    return matches[0] if len(matches) == 1 else None
 
 
 class ListingAsk:
     def __init__(self, settings: Settings, generative_client: BaseGenerativeClient,
-                 gateway: GatewayApiClient, request: Request) -> None:
+                 gateway: GatewayApiClient, request: Request, clock: Callable[[], datetime] | None = None) -> None:
         self.settings = settings
         self.generative_client = generative_client
         self.tools = ListingTools(gateway, request, max_results(settings))
         self.planner = ListingToolPlanner(settings)
+        self.clock = clock
+        self.catalog: SearchCatalog | None = None
+        self._base: dict[str, Any] | None = None
 
-    async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
+    def today(self):
+        return request_today(self.clock, getattr(self.settings, "listing_search_utc_offset", None))
+
+    def context(self, ids: list[str], state: dict[str, Any] | None) -> dict[str, Any]:
+        """listingContext v2 with the criteria state; the revision moves only when the state changed."""
+        if state is None:
+            return rs.listing_context(ids, None)
+        state = deepcopy(state)
+        base = self._base or rs.empty_state()
+        comparable = {k: v for k, v in state.items() if k != "revision"}
+        if comparable != {k: v for k, v in base.items() if k != "revision"} or self._base is None:
+            state["revision"] = base["revision"] + 1
+        else:
+            state["revision"] = base["revision"]
+        return rs.listing_context(ids, state)
+
+    async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str,
+                         state: dict[str, Any] | None = None) -> AskResult | None:
+        state = rs.sanitize(state) if state is not None else rs.latest_state(history)
+        self._base = deepcopy(state)
         if SUPPORT_INTENT.search(question) and not SEARCH_INTENT.search(question):
             return None
         if MAP_EVIDENCE_REQUEST.search(question) and not getattr(self.settings, "nearby_query_enabled", False):
@@ -57,415 +164,438 @@ class ListingAsk:
                 answer="Hiện mình chưa có dữ liệu quét tiện ích xung quanh hoặc đo khoảng cách để xếp hạng phòng theo vị trí. "
                        "Mình vẫn có thể giúp tìm và so sánh phòng theo khu vực, giá thuê, diện tích và tiện nghi có trong tin đăng.",
                 status="ANSWERED", citations=[], request_id=request_id,
-                listing_context=context_for(current_scope(history)))
-        extras: dict[str, Any] = {}
-        result = await self._listing_flow(question, history, request_id, extras)
-        return self._with_stretch(result, extras.get("stretch"))
+                listing_context=self.context(current_scope(history), state))
+        return await self._listing_flow(question, history, request_id, state)
 
     async def _listing_flow(self, question: str, history: list[dict[str, Any]], request_id: str,
-                            extras: dict[str, Any] | None = None) -> AskResult | None:
+                            state: dict[str, Any] | None) -> AskResult | None:
         scope = current_scope(history)
         selection = scoped_selection(question, history)
+        pending = (state or {}).get("pending")
         if selection == []:
-            return self._clarify(request_id, scope)
-        if selection is None and requested_count(question) is None and not LISTING_SIGNAL.search(question) and not any(
+            return self._clarify(request_id, scope, state)
+        if selection is None and requested_count(question) is None and not LISTING_SIGNAL.search(question) and not pending and not any(
                 LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
             return None
+        if pending and pending["type"] == "TARGET" and pending["candidates"]:
+            choice = pick_candidate(question, pending["candidates"])
+            if choice is not None:
+                chosen = deepcopy(state)
+                chosen["target"] = {**choice, "radiusMeters": pending.get("radiusMeters") or self.settings.nearby_default_radius_m}
+                chosen["pending"] = None
+                return await self._search(question, history, request_id, chosen, chosen, scope, {})
+        if pending and pending["type"] == "CATEGORY_CHANGE" and pending.get("proposed") and CONFIRM.search(question):
+            proposed = deepcopy(pending["proposed"])
+            proposed["pending"] = None
+            return await self._search(question, history, request_id, proposed, proposed, scope, {})
         stage = "field_catalog"
         try:
             nearby_memory = next((item.get("listingContext", {}).get("nearby") for item in reversed(history)
                                   if item.get("role") == "assistant" and isinstance(item.get("listingContext"), dict)), None)
             if selection and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
                 plan = ToolPlan("get_listing_nearby_places", {**nearby_memory, "listingIds": selection})
-            elif selection and not (getattr(self.settings, "nearby_query_enabled", False) and NEARBY_INTENT.search(question)):
-                # References already known by the application need neither a field catalog nor a
-                # paid planner call. Still read every selected listing from Core, never old facts.
+            elif selection and not (getattr(self.settings, "nearby_query_enabled", False) and NEARBY_INTENT.search(question)) and not rs.RESET.search(question):
+                # Reading known references needs neither the catalog nor a paid planner call, and never edits criteria.
                 plan = ToolPlan("get_listing_detail", {"listingId": selection[0]}) if len(selection) == 1 else (
                     ToolPlan("get_listing_details", {"listingIds": selection}))
             else:
-                fields = await self.tools.fields()
+                self.catalog = SearchCatalog(await self.tools.catalog())
                 stage = "tool_planning"
-                plan = await self.planner.plan(question, history, fields)
-        except LocationClarification as error:
-            return AskResult(answer=str(error), status='ANSWERED', citations=[], request_id=request_id,
-                             listing_context=context_for(scope))
+                plan = await self.planner.plan(question, history, self.catalog, state, self.today())
+        except CatalogError as error:
+            self._log_failure(request_id, stage, error, reason=error.reason)
+            return self._unavailable(request_id, scope, state)
         except (ListingToolError, GenerationUnavailableError, HTTPException) as error:
             self._log_failure(request_id, stage, error)
-            if LISTING_SIGNAL.search(question) or any(LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
-                return self._unavailable(request_id, scope)
+            if LISTING_SIGNAL.search(question) or pending or any(LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
+                return self._unavailable(request_id, scope, state)
             return None
         if plan is None:
-            logger.warning("listing_plan_missing", request_id=request_id, scope_count=len(scope))
-            if SEARCH_INTENT.search(question) or (scope and LISTING_SIGNAL.search(question)):
-                # No function call is not evidence of a Core outage.
-                return self._clarify(request_id, scope)
+            logger.info("listing_plan_outcome", request_id=request_id, outcome="NO_TOOL", scope_count=len(scope))
+            if SEARCH_INTENT.search(question) or pending or (scope and LISTING_SIGNAL.search(question)):
+                return self._clarify(request_id, scope, state)
             return None  # Knowledge question: preserve the existing RAG behavior.
 
         logger.info("listing_tool_selected", request_id=request_id, tool=plan.name,
                     scope_count=len(scope), scoped_followup=bool(selection))
+        if plan.name == "ask_clarification":
+            return self._model_clarification(request_id, scope, state, plan.arguments)
+        if plan.name == "get_listing_nearby_places":
+            return await answer_nearby(self, question, history, request_id, plan.arguments, state=state)
+        if plan.name == "search_listings":
+            try:
+                update = normalize(question, plan.arguments, self.catalog, state, self.today())
+            except CatalogError as error:
+                self._log_failure(request_id, "plan_validation", error, plan.name, reason=error.reason)
+                return self._plan_rejected(request_id, scope, state, error.reason, error.field, error.allowed)
+            return await self._apply(question, history, request_id, state, update, scope)
         stage = "tool_execution"
         try:
-            if plan.name == "get_listing_nearby_places":
-                return await answer_nearby(self, question, history, request_id, plan.arguments)
-            if plan.name == "find_listings_near_place":
-                resolved = await self.tools.resolve_nearby_search(plan.arguments)
-                if resolved.get("needsClarification"):
-                    names = "; ".join(str(item.get("name", "")) for item in resolved.get("candidates", [])[:5])
-                    return AskResult(answer=("Bạn muốn tìm quanh trường/cơ sở nào? " + names) if names else "Mình chưa tìm thấy địa điểm đó trong kho tiện ích hiện tại. Bạn cho mình tên đầy đủ và cơ sở nhé.",
-                                     status="ANSWERED", citations=[], request_id=request_id, listing_context=context_for(scope), data_sources=["CORE_NEARBY"])
-                plan = ToolPlan("search_listings", resolved["arguments"])
-            if plan.name == "search_listings":
-                limit = search_limit(question, self.settings)
-                plan = ToolPlan(plan.name, {**plan.arguments, 'limit': limit})
-                search = await self.tools.search(plan.arguments)
-                ids = search.get("listingIds") or []
-                relaxed: list[str] = []
-                if not ids:
-                    original_filters = plan.arguments.get("filters") or []
-                    retries = 0
-                    for index in range(len(original_filters) - 1, -1, -1):
-                        field = original_filters[index].get("field", "") if isinstance(original_filters[index], dict) else ""
-                        if field in {"category", "city_id", "city", "ward_id", "ward", "street", "display", "price_amount", "area_m2"} or plan.arguments.get("nearby"):
-                            continue
-                        remaining = original_filters[:index] + original_filters[index + 1:]
-                        if not remaining:
-                            continue
-                        if retries >= 2:
-                            break
-                        retries += 1
-                        candidate = await self.tools.search({**plan.arguments,
-                            "filters": remaining})
-                        if candidate.get("listingIds"):
-                            search = candidate
-                            ids = search["listingIds"]
-                            relaxed = [field]
-                            break
-                if not ids:
-                    alternative = await self._nearby_alternative(plan.arguments)
-                    if alternative is not None:
-                        alt_ids, alt_total, kind, wanted, place = alternative
-                        alt_listings = [compact_search_listing(await self.tools.detail(value))
-                                        for value in list(dict.fromkeys(alt_ids))[:limit]]
-                        if alt_listings:
-                            return AskResult(
-                                answer=self._alternative_answer(kind, wanted, place, alt_total, alt_listings),
-                                status="ANSWERED", citations=[], request_id=request_id,
-                                listing_context=context_for([item["id"] for item in alt_listings]),
-                                listing_ids=[item["id"] for item in alt_listings])
-                if not ids:
-                    return AskResult(answer="Mình chưa thấy tin đang hiển thị nào khớp đủ các điều kiện bạn vừa nêu. Bạn muốn nới tiêu chí nào (giá, khu vực hay tiện ích) để mình tìm tiếp?",
-                                     status="NO_RESULTS", citations=[], request_id=request_id,
-                                     listing_context=context_for([]))
-                listings = [compact_search_listing(await self.tools.detail(listing_id)) for listing_id in list(dict.fromkeys(ids))[:limit]]
-                requested_category = next((item.get("value") for item in plan.arguments.get("filters", [])
-                                           if isinstance(item, dict) and item.get("field") == "category"
-                                           and item.get("op") == "eq"), None)
-                if requested_category:
-                    listings = [item for item in listings if item.get("category") == requested_category]
-                if not listings:
-                    raise ListingToolError("Core search and detail disagree on listing category")
-                if extras is not None and not selection:
-                    extras["stretch"] = await self._stretch(plan.arguments, listings, requested_category)
-                evidence: dict[str, Any] = {"total": search.get("total"), "readAt": search.get("readAt"),
-                                             "filters": plan.arguments.get("filters"),
-                                             "keyword": plan.arguments.get("keyword"),
-                                             "relaxedFilters": relaxed, "listings": listings,
-                                             "requestedCount": requested_count(question), "resultLimit": limit}
-            elif plan.name == "get_listing_detail":
-                listing = await self.tools.detail(plan.arguments["listingId"])
-                evidence = {"readAt": "now", "listings": [listing]}
+            if plan.name == "get_listing_detail":
+                evidence = {"readAt": "now", "listings": [await self.tools.detail(plan.arguments["listingId"])]}
             else:
                 ids = plan.arguments["listingIds"]
                 if not 2 <= len(ids) <= max_results(self.settings):
                     return AskResult(answer=f'Mỗi lượt mình có thể so sánh tối đa {max_results(self.settings)} tin. Bạn chọn một nhóm nhỏ hơn nhé.',
-                                     status='ANSWERED', citations=[], request_id=request_id, listing_context=context_for(scope))
-                evidence = {"readAt": "now", "listings": [await self.tools.detail(item) for item in ids]}
+                                     status='ANSWERED', citations=[], request_id=request_id, listing_context=self.context(scope, state))
+                listings, gone = await self._details(ids, request_id)
+                if not listings:
+                    return AskResult(answer="Các tin bạn chọn hiện không còn hiển thị công khai, nên mình không dùng dữ liệu cũ để trả lời. Bạn muốn tìm lại theo tiêu chí đã lưu không?",
+                                     status="NO_RESULTS", citations=[], request_id=request_id, listing_context=self.context([], state))
+                evidence = {"readAt": "now", "listings": listings, "unavailableListings": len(gone)}
         except (ListingToolError, HTTPException, ValueError, TypeError, KeyError) as error:
             self._log_failure(request_id, stage, error, plan.name)
-            return self._unavailable(request_id, scope)
+            if isinstance(error, ListingToolError) and error.status_code == 404 or str(error) == "Listing is no longer public":
+                return AskResult(answer="Tin này hiện không còn hiển thị công khai, nên mình không dùng thông tin cũ để trả lời.",
+                                 status="NO_RESULTS", citations=[], request_id=request_id, listing_context=self.context(scope, state))
+            return self._unavailable(request_id, scope, state)
+        return await self._present(question, history, request_id, plan.name, evidence, scope, state, ids=None)
 
-        ids = [item["id"] for item in evidence["listings"]]
-        is_known_selection = bool(scope) and plan.name != "search_listings" and all(value in scope for value in ids)
+    async def _apply(self, question: str, history: list[dict[str, Any]], request_id: str, state: dict[str, Any] | None,
+                     update: dict[str, Any], scope: list[str]) -> AskResult:
+        """Merge the update, resolve location/target and gate the search; nothing is searched on a guess."""
+        catalog = self.catalog
+        radius_default = self.settings.nearby_default_radius_m
+        merged = rs.merge(state, {
+            "constraints": update["constraints"], "alternatives": update["alternatives"],
+            "removeFields": update["removeFields"], "nationwide": update["nationwide"],
+            "nearby": [{**n, "radiusMeters": n["radiusMeters"] or radius_default} for n in update["nearby"]],
+            "context": update["context"], "sort": update["sort"], "keyword": update["keyword"],
+            "unsupported": update["unsupported"], "targetRadiusMeters": update["placeRadiusMeters"],
+        }, question)
+        if update.get("location"):
+            try:
+                merged["location"] = self._resolve_location(update["location"], question, history)
+                merged["nationwide"] = False
+            except LocationClarification as error:
+                pending = {**merged, "pending": self._pending("LOCATION", str(error))}
+                return self._ask(request_id, scope, pending, str(error))
+        if update.get("placeQuery"):
+            if not getattr(self.settings, "nearby_query_enabled", False):
+                return self._ask(request_id, scope, merged, "Hiện mình chưa có dữ liệu vị trí để lọc theo khoảng cách tới địa điểm. Bạn cho mình phường/xã và tỉnh/thành muốn tìm nhé.")
+            radius = update["placeRadiusMeters"] or (merged["target"] or {}).get("radiusMeters") or radius_default
+            try:
+                candidates = await self.tools.resolve_place(update["placeQuery"])
+            except (ListingToolError, HTTPException) as error:
+                self._log_failure(request_id, "place_resolution", error)
+                return self._unavailable(request_id, scope, state)
+            if len(candidates) != 1:
+                merged["target"] = None
+                question_text = (f"Mình thấy {len(candidates)} địa điểm khớp “{update['placeQuery']}”. Bạn muốn tìm quanh cơ sở nào?\n"
+                                 + "\n".join(f"{i}. {c['name']}" + (f" — {c['address']}" if c.get("address") else "")
+                                             for i, c in enumerate(candidates, 1))) if candidates else (
+                    f"Mình chưa tìm thấy “{update['placeQuery']}” trong kho địa điểm hiện có, nên chưa lọc theo khoảng cách được. "
+                    "Bạn cho mình tên đầy đủ hoặc cơ sở cụ thể, hoặc phường/xã muốn tìm nhé.")
+                merged["pending"] = {**self._pending("TARGET", question_text), "candidates": candidates, "radiusMeters": radius}
+                return self._ask(request_id, scope, merged, question_text, data_sources=["CORE_NEARBY"])
+            merged["target"] = {**candidates[0], "radiusMeters": radius}
+        found = rs.conflicts(merged)
+        if found:
+            item = found[0]
+            label = catalog.label(item["field"]) if catalog else item["field"]
+            text = (f"Mình thấy hai điều kiện về {label.lower()} mâu thuẫn: {describe(item['lower'], catalog)} và {describe(item['upper'], catalog)}. "
+                    "Bạn muốn chốt mức nào? Các tiêu chí khác mình vẫn giữ nguyên.")
+            merged["pending"] = {**self._pending("CONFLICT", text), "fields": [item["field"]]}
+            return self._ask(request_id, scope, merged, text)
+        stale = rs.incompatible(merged)
+        if stale:
+            names = "; ".join(describe(c, catalog) for c in stale)
+            text = (f"Loại hình bạn vừa chọn không áp dụng được các điều kiện: {names}. "
+                    "Bạn đồng ý bỏ các điều kiện này để tìm tiếp, hay muốn giữ loại hình cũ?")
+            merged["pending"] = {**self._pending("CATEGORY_CHANGE", text), "fields": [c["field"] for c in stale],
+                                 "proposed": rs.without(merged, stale)}
+            return self._ask(request_id, scope, merged, text)
+        if update.get("dateAmbiguous") and not any(c["field"] == "available_from" for c in merged["constraints"]):
+            text = "Bạn dự định dọn vào khoảng ngày nào (ví dụ đầu tháng sau hay một ngày cụ thể)? Mình lọc theo ngày có thể nhận phòng."
+            merged["pending"] = self._pending("DATE", text)
+            return self._ask(request_id, scope, merged, text)
+        within = bool(update.get("withinDisplayed") and scope)
+        if not within and not rs.has_scope(merged):
+            text = ("Bạn muốn tìm ở khu vực nào? Bạn cho mình phường/xã và tỉnh/thành phố (ví dụ: Phường Hạnh Thông, TP. Hồ Chí Minh), "
+                    "hoặc tên trường/nơi làm việc cụ thể; nếu không giới hạn khu vực, bạn nói “tìm toàn quốc” nhé.")
+            merged["pending"] = self._pending("LOCATION", text)
+            return self._ask(request_id, scope, merged, text)
+        persist = deepcopy(state) if update.get("hypothetical") and state else merged
+        return await self._search(question, history, request_id, merged, persist, scope, update)
+
+    def _resolve_location(self, location: dict[str, Any], question: str, history: list[dict[str, Any]]) -> dict[str, str]:
+        filters = [{"field": "ward", "op": "eq", "value": location["ward"]}] if location.get("ward") else []
+        if location.get("city"):
+            filters.append({"field": "city", "op": "eq", "value": location["city"]})
+        resolved = resolve_location_filters(filters, question, history, {"ward_id": "TEXT", "city_id": "TEXT"})
+        cities, wards, _ = admin_catalog()
+        result: dict[str, str] = {}
+        for item in resolved:
+            if item["field"] == "ward_id":
+                result["wardId"], result["ward"] = item["value"], wards[item["value"]][1]
+            elif item["field"] == "city_id":
+                result["cityId"], result["city"] = item["value"], cities[item["value"]]
+        if not result:
+            raise LocationClarification("Mình chưa xác định được khu vực bạn nói. Bạn cho mình phường/xã và tỉnh/thành phố nhé.")
+        return result
+
+    async def _search(self, question: str, history: list[dict[str, Any]], request_id: str, criteria: dict[str, Any],
+                      persist: dict[str, Any], scope: list[str], update: dict[str, Any]) -> AskResult:
+        # The page size is the customer's stated count (or the default); a model limit may only shrink it.
+        limit = search_limit(question, self.settings)
+        if not requested_count(question) and update.get("limit"):
+            limit = min(limit, update["limit"])
+        within = bool(update.get("withinDisplayed") and scope)
+        more = bool(update.get("moreResults") or MORE_PAGE.search(question))
+        current = rs.fingerprint(criteria)
+        exclude = criteria["shown"]["ids"] if more and criteria["shown"]["fingerprint"] == current else []
+        payload = rs.core_request(criteria, limit=limit, scope_ids=scope if within else None, exclude_ids=exclude)
+        started = time.perf_counter()
+        try:
+            result = await self.tools.search_v2(payload)
+        except ListingSearchRejected as error:
+            self._log_failure(request_id, "core_search", error, "search_listings", reason=error.reason)
+            if error.reason == "TARGET_UNAVAILABLE":
+                retry = deepcopy(persist)
+                retry["target"] = None
+                text = "Địa điểm đã chọn hiện không còn hợp lệ trong kho dữ liệu, nên mình chưa lọc theo khoảng cách được. Bạn chọn lại trường/cơ sở nhé."
+                retry["pending"] = self._pending("TARGET", text)
+                return self._ask(request_id, scope, retry, text, data_sources=["CORE_NEARBY"])
+            return self._plan_rejected(request_id, scope, self._base, error.reason, error.field, error.allowed)
+        except (ListingToolError, HTTPException, ValueError, TypeError, KeyError) as error:
+            self._log_failure(request_id, "core_search", error, "search_listings")
+            return self._unavailable(request_id, scope, self._base)
+        logger.info("listing_search_result", request_id=request_id, outcome="RESULTS" if result["listingIds"] else "NO_RESULTS",
+                    filters=len(payload["where"]["all"]), nearby=len(payload.get("nearbyAll") or []), total=result["total"],
+                    unknown=result["unknownTotal"], returned=len(result["listingIds"]), within_scope=within, more=more,
+                    payload_bytes=len(json.dumps(payload, ensure_ascii=False).encode()), latency_ms=round((time.perf_counter() - started) * 1000))
+        ids = result["listingIds"]
+        if not ids:
+            return self._no_results(request_id, persist, criteria, result, more=bool(exclude))
+        full, gone = await self._details(ids, request_id)
+        allowed = rs.categories(criteria)
+        if allowed:
+            full = [item for item in full if item.get("category") in allowed]
+        listings = [compact_search_listing(item) for item in full]
+        if not listings:
+            return self._no_results(request_id, persist, criteria, {**result, "total": 0}, changed=len(gone))
+        shown_ids = [item["id"] for item in listings]
+        persist = rs.record_shown(persist, shown_ids, more=more)
+        checks = {item["listingId"]: item for item in result["evidence"]}
+        for item in listings:
+            proof = checks.get(item["id"])
+            if proof:
+                item["criteriaChecks"] = [{"criterion": self._check_label(c["fields"]), "status": c["status"], "actual": c["actual"]}
+                                          for c in proof["checks"]]
+                if proof.get("targetDistanceMeters") is not None:
+                    item["targetDistanceMeters"] = proof["targetDistanceMeters"]
+        evidence: dict[str, Any] = {
+            "total": result["total"], "unknownTotal": result["unknownTotal"], "readAt": result.get("readAt"),
+            "requestedCriteria": criteria_lines(criteria, self.catalog),
+            "preferences": [describe(c, self.catalog) for c in criteria["constraints"] if c["strength"] == "preference"],
+            "unsupportedNeeds": [next((u.get("reason") for u in (self.catalog.unsupported if self.catalog else []) if u["code"] == x["code"]), x["code"])
+                                 for x in criteria.get("unsupported") or []],
+            "contextMissing": result["contextMissing"], "listings": listings,
+            "target": {"name": criteria["target"]["name"], "distanceType": "STRAIGHT_LINE"} if criteria.get("target") else None,
+            "requestedCount": requested_count(question), "resultLimit": limit, "unavailableListings": len(gone),
+            "withinDisplayed": within, "moreResults": more, "keyword": criteria.get("keyword"),
+            "shownSoFar": len(persist["shown"]["ids"]) if more else len(listings),
+        }
+        distances = {item["id"]: item["targetDistanceMeters"] for item in listings if item.get("targetDistanceMeters") is not None}
+        return await self._present(question, history, request_id, "search_listings", evidence, scope, persist, ids=shown_ids,
+                                   table_source=full, distances=distances)
+
+    def _check_label(self, fields: list[str]) -> str:
+        if not fields:
+            return "điều kiện"
+        first = fields[0]
+        if first.startswith("nearby.target:"):
+            return "khoảng cách tới địa điểm đã chọn"
+        if first.startswith("nearby."):
+            code = first.partition(".")[2]
+            return next((k.get("label") for k in (self.catalog.kinds if self.catalog else []) if k["code"] == code), "tiện ích xung quanh")
+        return "; ".join(self.catalog.label(f) if self.catalog else f for f in fields)
+
+    async def _details(self, ids: list[str], request_id: str) -> tuple[list[dict[str, Any]], list[str]]:
+        """Fresh public facts. A listing hidden/expired since the search is skipped, not fatal."""
+        listings, gone = [], []
+        for value in list(dict.fromkeys(ids)):
+            try:
+                listings.append(await self.tools.detail(value))
+            except ListingToolError as error:
+                if error.status_code in {404, 410} or str(error) == "Listing is no longer public":
+                    gone.append(value)
+                    continue
+                raise
+        if gone:
+            logger.info("listing_detail_skipped", request_id=request_id, skipped=len(gone))
+        return listings, gone
+
+    async def _present(self, question: str, history: list[dict[str, Any]], request_id: str, tool: str,
+                       evidence: dict[str, Any], scope: list[str], state: dict[str, Any] | None,
+                       ids: list[str] | None, table_source: list[dict[str, Any]] | None = None,
+                       distances: dict[str, int] | None = None) -> AskResult:
+        ids = ids or [item["id"] for item in evidence["listings"]]
+        is_known_selection = bool(scope) and tool != "search_listings" and all(value in scope for value in ids)
         references = scope if is_known_selection else ids
-        # Current API facts and stable display positions are separate from past user preferences.
-        evidence["selectionScope"] = [{"listingId": value, "position": index}
-                                      for index, value in enumerate(references, 1)]
-        evidence["recentUserRequests"] = [item["content"][:1200] for item in history[-8:]
-                                         if item.get("role") == "user"]
+        evidence["selectionScope"] = [{"listingId": value, "position": index} for index, value in enumerate(references, 1)]
+        evidence["recentUserRequests"] = [item["content"][:1200] for item in history[-8:] if item.get("role") == "user"]
         evidence["scopeOnly"] = is_known_selection
-        result_context = context_for(references)
-        count_notice = self._count_notice(evidence) if plan.name == 'search_listings' else ''
+        result_context = self.context(references, state)
+        count_notice = self._count_notice(evidence) if tool == 'search_listings' else ''
 
-        if plan.name == "search_listings" and (self._is_browse_query(question) or
-                requested_count(question) is not None and not VietnamesePattern(
-                    r'so sánh|phân tích|đánh giá|nên chọn|bao nhiêu|cho .*biết|chi tiết|tính thế nào').search(question)):
-            return AskResult(answer=self._browse_answer(question, evidence), status="ANSWERED",
-                             citations=[], request_id=request_id, listing_context=context_for(ids),
-                             listing_ids=ids)
+        # Tables use full public details: search previews omit rows and must not render as "không có".
+        full = {item["id"]: item for item in (table_source if table_source is not None else evidence["listings"])}
+        recommend = bool(RECOMMENDATION.search(question))
+        wants_table = bool(TABLE_REQUEST.search(question))
+        sections = requested_sections(question)
+        if tool == "search_listings" and not SHOW_REQUEST.search(question):
+            sections = []  # "tìm phòng có máy lạnh" is a filter, not a request to list every furnishing row.
+        show_table = tool == "search_listings" or len(full) >= 1 and (wants_table or len(full) >= 2 and bool(sections or recommend))
 
-        if self._is_room_comparison(question, evidence["listings"]):
-            return AskResult(answer=(count_notice + '\n' if count_notice else '') + self._room_comparison_answer(evidence["listings"], references),
-                             status="ANSWERED", citations=[], request_id=request_id,
-                             listing_context=result_context, listing_ids=ids)
+        def table_for(selected: list[str]) -> str:
+            rows = [full[value] for value in selected if value in full] or [full[value] for value in ids if value in full]
+            return listing_table(rows, references, sections, distances) if show_table else ""
 
-        # A recommendation mentioning parking must not be reduced to a parking-only template.
-        parking_answer = None if RECOMMENDATION.search(question) else self._parking_answer(question, evidence["listings"], references)
+        # Every search page (first hit, "xem thêm", refinements) uses the same table. Advice is the only prose path.
+        if tool == "search_listings" and not recommend and (
+                evidence.get("moreResults") or MORE_PAGE.search(question) or not ADVICE_REQUEST.search(question)):
+            return AskResult(answer=self._browse_answer(question, evidence, table_for(ids)), status="ANSWERED",
+                             citations=[], request_id=request_id, listing_context=result_context, listing_ids=ids)
+        if tool != "search_listings" and wants_table and not recommend:
+            return AskResult(answer=self._table_answer(sections, len(full), table_for(ids)), status="ANSWERED",
+                             citations=[], request_id=request_id, listing_context=result_context, listing_ids=ids)
+        parking_answer = None if recommend else self._parking_answer(question, evidence["listings"], references)
         if parking_answer is not None:
             if count_notice:
                 parking_answer = count_notice + '\n' + parking_answer
-            if evidence.get("relaxedFilters"):
-                parking_answer = ("Chưa có tin khớp toàn bộ điều kiện. Những tin dưới đây chỉ là gợi ý sau khi bỏ tiêu chí "
-                                  + relaxed_labels(evidence["relaxedFilters"]) + ".\n" + parking_answer)
+            if show_table:
+                parking_answer += "\n\n" + table_for(ids)
             return AskResult(answer=parking_answer, status="ANSWERED", citations=[], request_id=request_id,
                              listing_context=result_context, listing_ids=ids)
-
+        if show_table:
+            evidence["tableRendered"] = section_labels(sections) or ["Thông tin chính"]
         try:
             generated = await self.generative_client.generate_listing_answer(question=question, evidence=evidence)
-            # Defense in depth: never expose a generated reference outside fresh public tool evidence.
             if any(value not in ids for value in generated.listing_ids):
                 raise GenerationUnavailableError("Unknown listing reference.", retryable=False)
             raw = customer_listing_text(generated.answer)
             selected_ids = list(dict.fromkeys(generated.listing_ids))
-            if plan.name == 'search_listings' and requested_count(question) is not None:
+            if tool == 'search_listings' and requested_count(question) is not None:
                 selected_ids = ids  # Explicit page size applies to cards too, not just model prose references.
-            # Enforce the no-link contract even if prose ignores the presentation instruction.
             raw = re.sub(r"\[([^\]]+)\]\(/rent/[0-9a-fA-F-]{36}\)", r"\1", raw)
-            raw = re.sub(r"(?:https?://[^\s/]+)?/rent/[0-9a-fA-F-]{36}", "", raw)
+            raw = re.sub(r"(?:https?://[^\s/]+)?/rent/[0-9a-fA-F-]{36}", "", strip_images(raw))
         except GenerationUnavailableError as error:
-            self._log_failure(request_id, "answer_generation", error, plan.name)
-            return AskResult(
-                answer="Mình đã kiểm tra tin đăng, nhưng chưa thể tạo câu trả lời trọn vẹn lúc này. "
-                       "Bạn thử lại hoặc hỏi ít tiêu chí hơn nhé.",
-                status="GENERATION_UNAVAILABLE", citations=[], request_id=request_id,
-                listing_context=result_context,
-            )
-
+            self._log_failure(request_id, "answer_generation", error, tool)
+            return AskResult(answer="Mình đã kiểm tra tin đăng, nhưng chưa thể tạo câu trả lời trọn vẹn lúc này. "
+                                    "Bạn thử lại hoặc hỏi ít tiêu chí hơn nhé.",
+                             status="GENERATION_UNAVAILABLE", citations=[], request_id=request_id, listing_context=result_context)
+        if show_table:
+            raw = strip_tables(raw) + "\n\n" + table_for(selected_ids)
         if count_notice:
             raw = count_notice + '\n' + raw
-        if evidence.get("relaxedFilters"):
-            raw = ("Chưa có tin khớp toàn bộ điều kiện. Mình đã nới tiêu chí "
-                   + relaxed_labels(evidence["relaxedFilters"]) + " để gợi ý các tin liên quan:\n" + raw)
-        return AskResult(answer=raw.strip(),
-                         status="ANSWERED", citations=[], request_id=request_id,
+        return AskResult(answer=raw.strip(), status="ANSWERED", citations=[], request_id=request_id,
                          listing_context=result_context, listing_ids=selected_ids)
 
-    _CATEGORY_NAMES = {"ROOM": "phòng trọ", "HOUSE": "nhà nguyên căn", "APARTMENT": "căn hộ"}
-
-    async def _stretch(self, arguments: dict[str, Any], listings: list[dict[str, Any]],
-                       category: str | None) -> dict[str, Any] | None:
-        """One room just above budget (at most +500k) that is clearly larger than the in-budget rooms."""
-        filters = [item for item in arguments.get("filters") or [] if isinstance(item, dict)]
-        budget = stretch.budget_of(filters)
-        if budget is None:
-            return None
-        try:
-            found = await self.tools.search({**arguments, "filters": stretch.stretch_filters(filters, budget),
-                                             "sort": "area_desc", "limit": 5})
-            candidates = [compact_search_listing(await self.tools.detail(value))
-                          for value in list(dict.fromkeys(found.get("listingIds") or []))[:5]]
-        except (ListingToolError, HTTPException, ValueError, TypeError, KeyError) as error:
-            logger.warning("listing_stretch_failed", error=type(error).__name__)
-            return None  # Optional extra: never fail the main answer because of it.
-        if category:
-            candidates = [item for item in candidates if item.get("category") == category]
-        pick = stretch.pick_standout(candidates, listings, budget)
-        return {"listing": pick, "budget": budget, "inBudget": listings}
+    # ------------------------------------------------------------------ outcomes
 
     @staticmethod
-    def _with_stretch(result: AskResult | None, found: dict[str, Any] | None) -> AskResult | None:
-        if result is None or not found or result.status != "ANSWERED" or not result.listing_ids:
-            return result
-        item = found["listing"]
-        if item is None:
-            result.answer = (result.answer.rstrip() + "\n\n" + stretch.no_standout_note(found["budget"]))
-            return result
-        if item["id"] in result.listing_ids:
-            return result
-        shown = list(result.listing_ids)
-        result.answer = (result.answer.rstrip() + "\n\n"
-                         + stretch.stretch_note(item, found["inBudget"], found["budget"], len(shown) + 1))
-        result.listing_ids = shown + [item["id"]]
-        context_ids = list((result.listing_context or {}).get("listingIds") or shown)
-        result.listing_context = context_for(context_ids + [item["id"]])
-        return result
+    def _pending(kind: str, question: str) -> dict[str, Any]:
+        return {"type": kind, "question": question[:600], "fields": [], "candidates": [], "radiusMeters": None, "proposed": None}
 
-    async def _nearby_alternative(self, arguments: dict[str, Any]):
-        """Never dead-end: keep the user's location/budget and relax only category, then street.
+    def _ask(self, request_id: str, scope: list[str], state: dict[str, Any], text: str,
+             data_sources: list[str] | None = None) -> AskResult:
+        noted = criteria_lines(state, self.catalog)
+        if noted and state.get("pending", {}) and state["pending"]["type"] in {"LOCATION", "TARGET", "DATE"}:
+            text += "\nMình đã ghi nhận: " + "; ".join(noted) + "."
+        logger.info("listing_plan_outcome", request_id=request_id, outcome="CLARIFY", pending=(state.get("pending") or {}).get("type"))
+        return AskResult(answer=text, status="ANSWERED", citations=[], request_id=request_id,
+                         listing_context=self.context(scope, state), data_sources=data_sources or [])
 
-        Returns (ids, total, kind, requested_category, place) or None. Results are clearly
-        labelled as alternatives and are never presented as exact matches.
-        """
-        filters = [item for item in arguments.get("filters") or [] if isinstance(item, dict)]
-        category = next((item.get("value") for item in filters
-                         if item.get("field") == "category" and item.get("op") == "eq"), None)
-        street = next((item.get("value") for item in filters if item.get("field") in {"street", "display"}), None)
-        ward = next((item.get("value") for item in filters if item.get("field") == "ward"), None)
-        place = street or ward or "khu vực bạn chọn"
-        has_location = any(item.get("field") in {"street", "display", "ward", "ward_id"} for item in filters)
-        if not has_location:
-            return None
-        if category:
-            rest = [item for item in filters if item.get("field") != "category"]
-            found = await self.tools.search({**arguments, "filters": rest})
-            if found.get("listingIds"):
-                return found["listingIds"], found.get("total"), "category", category, place
-        if street:
-            rest = [item for item in filters if item.get("field") not in {"street", "display"}]
-            if any(item.get("field") in {"ward", "ward_id"} for item in rest):
-                found = await self.tools.search({**arguments, "filters": rest})
-                if found.get("listingIds"):
-                    return found["listingIds"], found.get("total"), "street", category, ward or place
-        if any(item.get("field") == "price_amount" for item in filters):
-            # Keep location and type; show the cheapest real options so the customer can decide on budget.
-            rest = [item for item in filters if item.get("field") != "price_amount"]
-            found = await self.tools.search({**arguments, "filters": rest, "sort": "price_asc"})
-            if found.get("listingIds"):
-                return found["listingIds"], found.get("total"), "budget", category, place
-        return None
+    def _model_clarification(self, request_id: str, scope: list[str], state: dict[str, Any] | None,
+                             arguments: dict[str, Any]) -> AskResult:
+        kept = deepcopy(state) if state else rs.empty_state()
+        missing = arguments.get("missing") or ["OTHER"]
+        kind = "LOCATION" if "LOCATION" in missing else "TARGET" if "TARGET" in missing else "DATE" if "DATE" in missing else "MODEL"
+        text = arguments["question"]
+        if arguments.get("options"):
+            text += "\n" + "\n".join(f"- {option}" for option in arguments["options"])
+        kept["pending"] = self._pending(kind, text)
+        return self._ask(request_id, scope, kept, text)
 
-    @classmethod
-    def _alternative_answer(cls, kind: str, wanted: str | None, place: str, total: Any,
-                            listings: list[dict[str, Any]]) -> str:
-        names = {cls._CATEGORY_NAMES.get(item.get("category"), "tin đăng") for item in listings}
-        actual = " / ".join(sorted(names))
-        wanted_name = cls._CATEGORY_NAMES.get(wanted, "tin đăng")
-        count = len(listings)
-        if kind == "category":
-            intro = (f"Hiện chưa có {wanted_name} nào đang hiển thị tại {place}. "
-                     f"Tuy nhiên cùng khu vực này có {total or count} {actual} bạn có thể tham khảo:")
-        elif kind == "budget":
-            intro = (f"Hiện chưa có {wanted_name} nào trong mức giá bạn đặt tại {place}. "
-                     f"Mình xếp {count} tin giá thấp nhất cùng khu vực để bạn cân nhắc:")
+    def _plan_rejected(self, request_id: str, scope: list[str], state: dict[str, Any] | None, reason: str,
+                       field: str | None, allowed: list[str]) -> AskResult:
+        label = self.catalog.label(field) if self.catalog and field else "một điều kiện"
+        if reason in {"NEARBY_UNAVAILABLE"}:
+            text = "Dữ liệu tiện ích xung quanh hiện chưa sẵn sàng cho điều kiện này, nên mình không lọc thay bằng tiêu chí khác. Bạn muốn tìm theo khu vực và các điều kiện còn lại không?"
+        elif reason in {"TOO_COMPLEX"}:
+            text = "Yêu cầu có quá nhiều điều kiện cùng lúc để lọc chính xác. Bạn ưu tiên giữ những điều kiện nào trước?"
+        elif reason == "INVALID_VALUE" and allowed and self.catalog and field:
+            options = ", ".join(self.catalog.value_label(field, value) for value in allowed[:8])
+            text = f"Mình chưa hiểu đúng giá trị cho “{label}”. Các lựa chọn hợp lệ: {options}. Bạn chọn giúp mình nhé?"
         else:
-            intro = (f"Hiện chưa có {wanted_name} nào đúng tại {place}. "
-                     f"Mình gợi ý {count} {wanted_name} ở khu vực lân cận trong cùng phường:")
-        return (f"{intro}\nBạn xem {count} lựa chọn bên dưới nhé; đây là gợi ý thay thế, chưa khớp đủ yêu cầu ban đầu. "
-                "Bạn muốn mình lọc tiếp theo ngân sách hay tiện ích nào, hoặc giữ đúng loại hình ban đầu và mở rộng khu vực?")
+            text = f"Mình chưa chuyển được điều kiện “{label}” thành bộ lọc chính xác, nên chưa tìm để tránh trả kết quả sai. Bạn diễn đạt lại điều kiện này giúp mình nhé?"
+        logger.info("listing_plan_outcome", request_id=request_id, outcome="PLAN_REJECTED", reason=reason, field=field)
+        return AskResult(answer=text, status="ANSWERED", citations=[], request_id=request_id,
+                         listing_context=self.context(scope, state))
 
-    @staticmethod
-    def _clarify(request_id: str, scope: list[str]) -> AskResult:
+    def _no_results(self, request_id: str, persist: dict[str, Any], criteria: dict[str, Any], result: dict[str, Any],
+                    *, more: bool = False, changed: int = 0) -> AskResult:
+        lines = criteria_lines(criteria, self.catalog)
+        if more:
+            text = "Mình đã hiển thị hết các tin khớp đủ tiêu chí hiện tại; không còn tin khác để xem thêm."
+        else:
+            text = "Mình chưa thấy tin đang hiển thị nào khớp đủ các điều kiện bạn đặt"
+            text += (":\n" + "\n".join("- " + line for line in lines)) if lines else "."
+        if changed:
+            text += f"\n{changed} tin vừa tìm thấy đã đổi trạng thái hoặc không còn công khai, nên mình không đưa ra."
+        if result.get("unknownTotal"):
+            text += (f"\nCó {result['unknownTotal']} tin chưa đủ dữ liệu để xác nhận một số điều kiện (ví dụ chưa khai báo hoặc chưa có dữ liệu xung quanh), "
+                     "nên mình không xếp chúng là phù hợp.")
+        missing = {"occupants": "số người ở", "motorbikes": "số xe máy", "cars": "số ô tô", "electricityKwh": "lượng điện dùng mỗi tháng",
+                   "waterM3": "lượng nước dùng mỗi tháng"}
+        if result.get("contextMissing"):
+            text += "\nĐể tính đúng chi phí, bạn cho mình biết thêm " + ", ".join(missing.get(m, m) for m in result["contextMissing"]) + "."
+        if criteria.get("unsupported"):
+            text += "\nMột số mong muốn (như yên tĩnh, an ninh) chưa có dữ liệu để lọc, mình chỉ ghi nhận chứ không dùng để loại tin."
+        if not more:
+            text += "\nMình không tự nới điều kiện. Bạn muốn đổi điều kiện nào (ví dụ tăng ngân sách, bỏ một tiện ích hay mở rộng khu vực)? Các điều kiện còn lại mình giữ nguyên."
+        state = deepcopy(persist)
+        state["pending"] = self._pending("EMPTY_RESULT", "Bạn muốn đổi điều kiện nào?")
+        logger.info("listing_plan_outcome", request_id=request_id, outcome="NO_RESULTS", unknown=result.get("unknownTotal"))
+        return AskResult(answer=text, status="NO_RESULTS", citations=[], request_id=request_id,
+                         listing_context=self.context([], state))
+
+    def _clarify(self, request_id: str, scope: list[str], state: dict[str, Any] | None) -> AskResult:
         answer = (f"Bạn đang muốn chọn trong {len(scope)} tin vừa xem, hay tìm thêm tin mới? "
                   "Nếu hỏi một tin cụ thể, bạn cho mình số thứ tự trong danh sách nhé." if scope else
-                  "Bạn cho mình biết loại nhà/phòng và khu vực muốn tìm nhé, để mình kiểm tra đúng nhu cầu của bạn.")
+                  "Bạn cho mình biết khu vực muốn tìm (phường/xã, tỉnh/thành hoặc trường/nơi làm việc cụ thể) và nhu cầu chính nhé, để mình kiểm tra đúng tin đăng.")
         return AskResult(answer=answer, status="ANSWERED", citations=[], request_id=request_id,
-                         listing_context=context_for(scope))
+                         listing_context=self.context(scope, state))
 
     @staticmethod
-    def _log_failure(request_id: str, stage: str, error: Exception, tool: str | None = None) -> None:
+    def _log_failure(request_id: str, stage: str, error: Exception, tool: str | None = None, reason: str | None = None) -> None:
         # Do not log prompts, bearer tokens, provider bodies, user history or public listing data.
         logger.warning("listing_request_failed", request_id=request_id, stage=stage,
-                       error_type=type(error).__name__, tool=tool,
+                       error_type=type(error).__name__, tool=tool, reason=reason,
                        http_status=getattr(error, "status_code", None))
+
+    def _unavailable(self, request_id: str, scope: list[str] | None = None, state: dict[str, Any] | None = None) -> AskResult:
+        return AskResult(answer="Mình chưa kiểm tra được tin đăng trực tiếp lúc này, nên không muốn đoán thông tin cho bạn. Bạn thử lại sau ít phút nhé.",
+                         status="TOOL_UNAVAILABLE", citations=[], request_id=request_id,
+                         listing_context=self.context(scope or [], state) if scope or state else None)
+
+    # ------------------------------------------------------------------ templates
 
     @staticmethod
     def _is_browse_query(question: str) -> bool:
         return bool(VietnamesePattern(r"\s*(?:tìm|kiếm|cho (?:tôi|mình) xem)\b").match(question)) and not bool(
             VietnamesePattern(r"so sánh|bao nhiêu|cho (?:tôi|mình) biết|chi tiết|đặt cọc|tiền cọc|\bphí\b|"
-                              r"nội thất|tiện ích|điều kiện thuê|lịch xem|tính thế nào").search(question))
+                              r"nội thất|tiện ích|điều kiện thuê|lịch xem|tính thế nào|nên chọn|tư vấn|gợi ý|phù hợp nhất").search(question))
 
     @staticmethod
-    def _is_room_comparison(question: str, listings: list[dict[str, Any]]) -> bool:
-        # A general follow-up comparison has a predictable compact answer. Questions about a
-        # particular field still go to the grounded generator so every listing field remains askable.
-        return (2 <= len(listings) <= ABSOLUTE_MAX_RESULTS
-                and all(item.get("category") == "ROOM" for item in listings)
-                and not RECOMMENDATION.search(question)
-                and bool(re.search(r"so sánh", question, re.IGNORECASE))
-                and not bool(re.search(
-                    r"giá|phí|điện|nước|cọc|diện tích|nội thất|tiện ích|ban công|gác|"
-                    r"bếp|wc|vệ sinh|cửa sổ|gửi xe|để xe|người ở|ngày vào|thời hạn",
-                    question, re.IGNORECASE)))
-
-    @staticmethod
-    def _room_comparison_answer(listings: list[dict[str, Any]], references: list[str] | None = None) -> str:
-        def amount(value: Any) -> str:
-            try:
-                return f"{int(Decimal(str(value))):,}".replace(",", ".")
-            except (InvalidOperation, TypeError, ValueError):
-                return "Chưa rõ"
-
-        def area(value: Any) -> str:
-            try:
-                return f"{Decimal(str(value)).normalize():f} m²"
-            except (InvalidOperation, TypeError, ValueError):
-                return "Chưa rõ"
-
-        def boolean(value: Any) -> str:
-            return "Có" if value is True else "Không" if value is False else "Chưa rõ"
-
-        def enum(value: Any, labels: dict[str, str]) -> str:
-            return labels.get(value, "Chưa rõ")
-
-        def occupants(item: dict[str, Any]) -> str:
-            value = (item.get("roomDetail") or {}).get("maxOccupants")
-            return f"{value} người" if isinstance(value, int) and not isinstance(value, bool) and value > 0 else "Chưa rõ"
-
-        def available_from(item: dict[str, Any]) -> str:
-            value = item.get("availableFrom")
-            if isinstance(value, str) and re.match(r"^\d{4}-\d{2}-\d{2}", value):
-                return f"{value[8:10]}/{value[5:7]}/{value[:4]}"
-            return "Chưa rõ"
-
-        def parking(item: dict[str, Any]) -> str:
-            room = item.get("roomDetail") or {}
-            policy = room.get("parkingPolicy")
-            if policy == "NONE":
-                return "Không hỗ trợ"
-            if policy not in {"FREE", "PAID"}:
-                return "Chưa rõ"
-            count = room.get("maxVehicles")
-            prefix = f"Tối đa {count} xe; " if isinstance(count, int) and count > 0 else ""
-            if policy == "FREE":
-                return prefix + "không thu phí riêng"
-            charge = next((entry for entry in item.get("charges") or []
-                           if entry.get("chargeType") == "MOTORBIKE_PARKING"), None)
-            if charge and charge.get("includedInRent") is True:
-                return prefix + "phí đã gồm trong giá"
-            if charge and charge.get("amount") is not None:
-                unit = charge.get("unit")
-                fee = amount(charge["amount"])
-                return prefix + (f"{fee} đ/{unit}" if fee != "Chưa rõ" and unit
-                                 else "có phí, chưa rõ mức hoặc kỳ tính")
-            return prefix + "có phí, chưa rõ mức"
-
-        references = references or [item["id"] for item in listings]
-        columns = [f"Phòng {references.index(item['id']) + 1}" for item in listings]
-        rows: list[tuple[str, list[str]]] = []
-        unit_labels = {"ROOM_MONTH": "phòng/tháng", "PERSON_MONTH": "người/tháng", "MONTH": "tháng"}
-        prices = []
-        for item in listings:
-            pricing = item.get("pricing") or {}
-            price = amount(pricing.get("amount"))
-            unit = unit_labels.get(pricing.get("unit"), "")
-            prices.append(f"{price} đ/{unit}" if price != "Chưa rõ" and unit else "Chưa rõ")
-        rows.append(("Giá thuê", prices))
-        rows.append(("Diện tích", [area(item.get("areaM2")) for item in listings]))
-        rows.append(("Có thể nhận", [available_from(item) for item in listings]))
-        rows.append(("Tối đa", [occupants(item) for item in listings]))
-        rows.append(("WC", [enum((item.get("roomDetail") or {}).get("restroomType"),
-                                  {"PRIVATE": "Riêng", "SHARED": "Chung"}) for item in listings]))
-        rows.append(("Bếp", [enum((item.get("roomDetail") or {}).get("kitchenType"),
-                                    {"PRIVATE": "Riêng", "SHARED": "Chung", "NONE": "Không có"})
-                              for item in listings]))
-        rows.append(("Cửa sổ", [boolean((item.get("roomDetail") or {}).get("hasWindow"))
-                                 for item in listings]))
-        rows.append(("Ban công", [enum((item.get("roomDetail") or {}).get("balconyType"),
-                                        {"PRIVATE": "Riêng", "SHARED": "Chung", "NONE": "Không có"})
-                                   for item in listings]))
-        rows.append(("Gác lửng", [boolean((item.get("roomDetail") or {}).get("hasMezzanine"))
-                                   for item in listings]))
-        rows.append(("Nội thất", [enum((item.get("roomDetail") or {}).get("furnishingStatus"),
-                                        {"UNFURNISHED": "Chưa có", "BASIC": "Cơ bản",
-                                         "PARTIALLY_FURNISHED": "Một phần", "FULLY_FURNISHED": "Đầy đủ",
-                                         "LUXURY": "Cao cấp"}) for item in listings]))
-        rows.append(("Gửi xe máy", [parking(item) for item in listings]))
-
-        lines = [f"Mình đặt {len(listings)} phòng cạnh nhau để bạn dễ xem điểm khác biệt. "
-                 "Ô ‘Chưa rõ’ là thông tin tin đăng chưa cung cấp.", "",
-                 "| Tiêu chí | " + " | ".join(columns) + " |",
-                 "| --- | " + " | ".join("---" for _ in listings) + " |"]
-        lines.extend("| " + label + " | " + " | ".join(values) + " |" for label, values in rows)
-        return "\n".join(lines)
+    def _table_answer(sections: list[str], count: int, table: str) -> str:
+        if sections:
+            intro = "Mình đã đọc đầy đủ " + ", ".join(label.lower() for label in section_labels(sections)) + \
+                    (" của các tin đang xét:" if count > 1 else " của tin này:")
+        else:
+            intro = f"Mình đặt {count} tin cạnh nhau để bạn dễ xem điểm khác biệt:" if count > 1 else "Thông tin chính của tin này:"
+        return intro + "\n\n" + table + "\n\n" + TABLE_HINT
 
     @staticmethod
     def _count_notice(evidence: dict[str, Any]) -> str:
@@ -482,41 +612,43 @@ class ListingAsk:
         return ''
 
     @staticmethod
-    def _browse_answer(question: str, evidence: dict[str, Any]) -> str:
+    def _browse_answer(question: str, evidence: dict[str, Any], table: str = "") -> str:
         listings = evidence["listings"]
         first = listings[0]
+        categories = {item.get("category") for item in listings}
         category_name = {"ROOM": "phòng trọ", "HOUSE": "nhà nguyên căn", "APARTMENT": "căn hộ"}.get(
-            first.get("category"), "tin đăng")
+            first.get("category"), "tin đăng") if len(categories) == 1 else "tin đăng"
         wards = {item.get("address", {}).get("ward") for item in listings}
         ward = next(iter(wards)) if len(wards) == 1 else None
         total = evidence.get("total") or len(listings)
-        if evidence.get("relaxedFilters"):
-            relaxed = relaxed_labels(evidence["relaxedFilters"])
-            intro = f"Mình chưa thấy tin khớp đủ mọi tiêu chí. Sau khi nới điều kiện {relaxed}, có lựa chọn gần với yêu cầu của bạn:"
+        keyword = evidence.get("keyword")
+        target = (evidence.get("target") or {}).get("name")
+        where = (f" trong bán kính đã chọn quanh {target}" if target else f" có nhắc đến “{keyword}”" if keyword
+                 else f" tại {ward}" if ward else "")
+        more = bool(evidence.get("moreResults"))
+        if more:
+            lines = [f"**{len(listings)} {category_name}** tiếp theo:"]
         else:
-            keyword = evidence.get("keyword")
-            where = f" có nhắc đến “{keyword}”" if keyword else (f" tại {ward}" if ward else "")
-            intro = f"Mình tìm thấy {total} {category_name} đang hiển thị{where}:"
-        lines = [intro]
-        shown = listings
+            shown = f", dưới đây là {len(listings)} tin" if total > len(listings) else ""
+            lines = [f"Mình tìm thấy **{total} {category_name}** khớp đủ tiêu chí{where}{shown}."]
+            criteria = evidence.get("requestedCriteria") or []
+            if criteria:
+                lines.append("**Tiêu chí đang áp dụng:** " + " · ".join(criteria))
         notice = ListingAsk._count_notice(evidence)
-        if notice:
+        if notice and not more:
             lines.append(notice)
-        lines.append(f"Bạn xem {len(shown)} lựa chọn bên dưới nhé; bấm vào thẻ sẽ mở chi tiết ở tab mới.")
-        lines.append("")
-        if total > len(shown):
-            lines.append(f"Còn {total - len(shown)} tin khác; mình có thể lọc tiếp nếu bạn cho biết ngân sách hoặc tiện ích ưu tiên.")
-        elif len(listings) == 1:
-            lines.append("Bạn muốn mình xem kỹ thêm phí, nội thất hay lịch xem của tin này không?")
-        else:
-            lines.append("Bạn muốn mình lọc tiếp theo ngân sách hoặc tiện ích nào?")
-        return "\n".join(lines)
-
-    @staticmethod
-    def _unavailable(request_id: str, scope: list[str] | None = None) -> AskResult:
-        return AskResult(answer="Mình chưa kiểm tra được tin đăng trực tiếp lúc này, nên không muốn đoán thông tin cho bạn. Bạn thử lại sau ít phút nhé.",
-                         status="TOOL_UNAVAILABLE", citations=[], request_id=request_id,
-                         listing_context=context_for(scope) if scope else None)
+        if evidence.get("unknownTotal") and not more:
+            lines.append(f"Ngoài ra có {evidence['unknownTotal']} tin chưa đủ dữ liệu để xác nhận một số tiêu chí nên chưa được liệt kê.")
+        if evidence.get("unavailableListings"):
+            lines.append(f"{evidence['unavailableListings']} tin vừa đổi trạng thái nên không hiển thị.")
+        if table:
+            lines.append(table)
+        remaining = total - (evidence.get("shownSoFar") or len(listings))
+        if remaining > 0:
+            lines.append(f"Còn **{remaining} tin**. Nói “xem thêm” để xem tiếp.")
+        if not more:
+            lines.append(TABLE_HINT)
+        return "\n\n".join(lines)
 
     @staticmethod
     def _parking_answer(question: str, listings: list[dict[str, Any]], references: list[str] | None = None) -> str | None:

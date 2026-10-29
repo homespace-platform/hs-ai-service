@@ -1,11 +1,16 @@
 """Read-only listing tools. The AI service never connects to the Core database."""
 
+import json
+import re
+from functools import lru_cache
+from importlib.resources import files
 from typing import Any
 from math import isfinite
 from uuid import UUID
 
 from fastapi import Request
 
+from homespace_ai.application.vietnamese_text import fold_text
 from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.core.business_properties import nearby_default_radius_m
 from homespace_ai.application.listing_limits import DEFAULT_RESULTS, DEFAULT_MAX_RESULTS, ABSOLUTE_MAX_RESULTS
@@ -15,6 +20,38 @@ class ListingToolError(Exception):
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
+
+
+class ListingSearchRejected(ListingToolError):
+    """Core refused a criterion (field/enum/operator/target). A diagnosis, not an outage or zero results."""
+
+    def __init__(self, reason: str, field: str | None, allowed: list[str]) -> None:
+        super().__init__(f"Core rejected the search: {reason}", status_code=400)
+        self.reason = reason
+        self.field = field
+        self.allowed = allowed
+
+
+V2_RESPONSE_CHECKS = {"MATCH", "NOT_MATCH", "UNKNOWN"}
+SAFE_COVER = re.compile(r"^https://[^\s<>()|\\\"']+$")
+
+
+@lru_cache(maxsize=1)
+def place_aliases() -> dict[str, str]:
+    data = json.loads(files("homespace_ai").joinpath("data/nearby_place_aliases.json").read_text(encoding="utf-8"))
+    if data.get("version") != 1 or not isinstance(data.get("aliases"), dict):
+        raise ValueError("Invalid nearby place alias data")
+    return {fold_text(key): str(value) for key, value in data["aliases"].items()}
+
+
+def place_query(text: str) -> str:
+    """Managed abbreviations ("IUH") become searchable names; Core matches accents-insensitively."""
+    folded = re.sub(r"\s+", " ", fold_text(text)).strip()
+    folded = re.sub(r"^(?:truong|co so)\s+(?=dh\b|dai hoc\b)", "", folded)
+    for alias, name in sorted(place_aliases().items(), key=lambda item: -len(item[0])):
+        if re.search(r"\b" + re.escape(alias) + r"\b", folded):
+            return name
+    return re.sub(r"^(?:trường|cơ sở)\s+(?=đh\b|đại học\b)", "", text.strip(), flags=re.IGNORECASE)[:160]
 
 
 class ListingTools:
@@ -49,6 +86,70 @@ class ListingTools:
         return {name: result[name] for name in ('total', 'readAt') if name in result} | {
             'listingIds': list(dict.fromkeys(ids))[:payload['limit']]}
 
+    async def catalog(self) -> dict[str, Any]:
+        response = await self.gateway.request("GET", f"{self.base_path}/catalog", request=self.request)
+        return self._result(response)
+
+    async def search_v2(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Typed v2 search: every argument the planner produced reaches Core, or the call fails loudly."""
+        allowed = {"version", "filters", "where", "sort", "limit", "keyword", "nearbyAll", "context",
+                   "scopeIds", "excludeIds", "evidence"}
+        if payload.get("version") != 2 or set(payload) - allowed:
+            raise ListingToolError("Unsupported listing search contract")
+        limit = payload.get("limit")
+        if type(limit) is not int or not 1 <= limit <= self.max_results:
+            raise ListingToolError("Invalid listing search limit")
+        for name in ("scopeIds", "excludeIds"):
+            if name in payload:
+                payload[name] = [str(UUID(str(value))) for value in payload[name]][:ABSOLUTE_MAX_RESULTS]
+        response = await self.gateway.request("POST", f"{self.base_path}/search", request=self.request, json=payload)
+        if response.status_code == 400:
+            body = self._json(response)
+            detail = body.get("result") if isinstance(body.get("result"), dict) else {}
+            reason = detail.get("reason") if isinstance(detail.get("reason"), str) else "INVALID_REQUEST"
+            raise ListingSearchRejected(reason, detail.get("field") if isinstance(detail.get("field"), str) else None,
+                                        [str(v) for v in detail.get("allowed") or []][:40])
+        result = self._result(response)
+        ids = result.get("listingIds")
+        if not isinstance(ids, list) or not all(isinstance(value, str) for value in ids) or result.get("version") != 2:
+            raise ListingToolError("Invalid Core v2 search result")
+        ids = list(dict.fromkeys(ids))[:limit]
+        if "scopeIds" in payload and any(value not in payload["scopeIds"] for value in ids):
+            raise ListingToolError("Core returned a listing outside the requested scope")
+        evidence = []
+        for item in result.get("evidence") or []:
+            if not isinstance(item, dict) or item.get("listingId") not in ids:
+                continue
+            checks = [{"fields": [str(f) for f in (c.get("fields") or [])][:6], "status": c.get("status"),
+                       "actual": c.get("actual") if isinstance(c.get("actual"), (str, int, float, bool)) or c.get("actual") is None else str(c.get("actual"))[:120]}
+                      for c in (item.get("checks") or [])[:40] if isinstance(c, dict) and c.get("status") in V2_RESPONSE_CHECKS]
+            distance = item.get("targetDistanceMeters")
+            evidence.append({"listingId": item["listingId"], "checks": checks,
+                             "targetDistanceMeters": distance if isinstance(distance, (int, float)) and not isinstance(distance, bool) and isfinite(distance) and distance >= 0 else None})
+        total = result.get("total")
+        unknown = result.get("unknownTotal")
+        return {"listingIds": ids, "total": total if isinstance(total, int) else len(ids),
+                "unknownTotal": unknown if isinstance(unknown, int) else 0, "readAt": result.get("readAt"),
+                "catalogVersion": result.get("catalogVersion"),
+                "contextMissing": [str(v) for v in result.get("contextMissing") or []][:10], "evidence": evidence}
+
+    async def resolve_place(self, query: str) -> list[dict[str, Any]]:
+        """Candidates from the stored POI catalog only. Never a provider call, never a guessed ID."""
+        text = place_query(query)
+        if not 2 <= len(text.strip()) <= 160:
+            raise ListingToolError("A specific place name is required")
+        response = await self.gateway.request("GET", f"{self.base_path}/nearby-places/search", request=self.request,
+                                              params={"keyword": text.strip()})
+        places = self._result(response).get("places", [])
+        result = []
+        for place in places[:10] if isinstance(places, list) else []:
+            try:
+                result.append({"placeId": str(UUID(str(place["id"]))), "name": str(place.get("name") or "")[:200],
+                               "address": str(place.get("address") or "")[:300]})
+            except (KeyError, TypeError, ValueError):
+                continue
+        return result
+
     async def detail(self, listing_id: str) -> dict[str, Any]:
         try:
             safe_id = str(UUID(listing_id))
@@ -65,7 +166,15 @@ class ListingTools:
                    "furnishings", "charges", "address", "viewingDays", "viewingSlots",
                    "publishedAt", "expiresAt", "viewCount", "policies")
         safe = {key: result.get(key) for key in allowed if key in result}
-        media = result.get("media") or []
+        media = [item for item in (result.get("media") or []) if isinstance(item, dict)]
+        images = [item for item in media if item.get("mediaType") == "IMAGE"]
+        images.sort(key=lambda item: (not item.get("cover"),
+                                      item.get("sortOrder") if isinstance(item.get("sortOrder"), int) else 1 << 30))
+        # One https cover for the comparison-table thumbnail; never storage IDs or non-https URLs.
+        cover = next((item for item in images if isinstance(item.get("url"), str) and SAFE_COVER.match(item["url"])), None)
+        if cover:
+            safe["media"] = [{"mediaType": "IMAGE", "url": cover["url"], "cover": True,
+                              "sortOrder": cover.get("sortOrder") if isinstance(cover.get("sortOrder"), int) else 0}]
         safe["mediaCounts"] = {
             "images": sum(1 for item in media if item.get("mediaType") == "IMAGE"),
             "videos": sum(1 for item in media if item.get("mediaType") == "VIDEO"),
@@ -135,6 +244,14 @@ class ListingTools:
             nearby["placeId"] = str(UUID(candidates[0]["id"]))
         return {"arguments": {"filters": arguments.get("filters", []), "sort": arguments.get("sort", "newest"),
                               "limit": arguments.get("limit", 5), "nearby": nearby}}
+
+    @staticmethod
+    def _json(response: Any) -> dict[str, Any]:
+        try:
+            data = response.json()
+        except ValueError:
+            return {}
+        return data if isinstance(data, dict) else {}
 
     @staticmethod
     def _result(response: Any) -> Any:

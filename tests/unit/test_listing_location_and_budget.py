@@ -9,9 +9,8 @@ from fastapi import Request
 from homespace_ai.application.listing_evidence import compact_search_listing, MAX_SEARCH_LISTING_BYTES
 from homespace_ai.application.listing_location import catalog, resolve_location_filters, LocationClarification
 from homespace_ai.application.use_cases.listing_ask import LISTING_SIGNAL, ListingAsk
-from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
 from homespace_ai.tools.listings import ListingTools
-from tests.unit.test_listing_ask import make_assistant, FakeTools
+from tests.unit.listing_fakes import c, make_assistant, search
 
 FIELDS = {name: 'TEXT' for name in ('category', 'city', 'city_id', 'ward', 'ward_id', 'street', 'price_amount', 'area_m2')}
 FIELDS.update(price_amount='NUMBER', area_m2='NUMBER')
@@ -32,12 +31,7 @@ def test_normalizes_accentless_ward_scoped_to_a_city_without_guessing_codes():
 
 def test_explicit_numeric_ward_survives_a_landmark_but_an_unmentioned_guess_does_not():
     filters = [{'field':'ward_id','op':'eq','value':'24588'}]
-    plan = ToolPlan('search_listings', {'filters':filters, 'keyword':'IUH'})
-    question = 'Tim phong o phuong Go Vap gan IUH'
-    normalized = ListingToolPlanner._normalize_search(question, plan, FIELDS)
-    assert filters[0] in normalized.arguments['filters']
-    result = resolve_location_filters(normalized.arguments['filters'], question, [], FIELDS)
-    assert filters[0] in result
+    assert filters[0] in resolve_location_filters(filters, 'Tim phong o phuong Go Vap gan IUH', [], FIELDS)
     assert not resolve_location_filters(filters, 'tim phong gan IUH', [], FIELDS)
     for question in ['Tim phong gan IUH, o phuong Go Vap HCM', 'Tim phong gan IUH o Phuong Go Vap']:
         assert filters[0] in resolve_location_filters(filters, question, [], FIELDS)
@@ -67,19 +61,19 @@ def test_city_guess_inside_landmark_and_management_fee_are_not_location_requests
 
 
 @pytest.mark.asyncio
-async def test_native_planner_pushes_all_user_predicates_into_backend_query(monkeypatch):
-    from tests.unit.test_listing_tool_planner import config, call
-    planner = ListingToolPlanner(config())
-    filters = [{'field':'ward_id','op':'eq','value':'24588'}, {'field':'city','op':'eq','value':'HCM'},
-               {'field':'price_amount','op':'lte','value':'5000000'}, {'field':'area_m2','op':'gte','value':'20'}]
-    async def provider(payload):
-        assert 'database filters BEFORE LIMIT' in payload['instructions']
-        return call('search_listings', {'filters':filters,'keyword':'IUH','limit':5,'sort':'price_asc'})
-    monkeypatch.setattr(planner, '_post', provider)
-    plan = await planner.plan('tim phong phuong go vap HCM gan IUH, duoi 5 trieu, tu 20 m2', [], FIELDS)
-    assert all(criterion in plan.arguments['filters'] for criterion in [filters[0],filters[2],filters[3]])
-    assert {'field':'city_id','op':'eq','value':'12'} in plan.arguments['filters']
-    assert plan.arguments['keyword'] == 'IUH' and plan.arguments['limit'] == 5
+async def test_every_user_predicate_reaches_the_core_query_before_limit():
+    target = {'placeId': '11111111-1111-1111-1111-111111111111', 'name': 'Đại Học Công Nghiệp', 'address': ''}
+    assistant = make_assistant(search(c('price_amount', 'lte', '5000000'), c('area_m2', 'gte', '20'),
+                                      ward='Gò Vấp', city='HCM', place='IUH', keyword='IUH', limit=5, sort='price_asc'))
+    assistant.tools.places = {'IUH': [target]}
+    await assistant.try_answer('tim phong phuong go vap HCM gan IUH, duoi 5 trieu, tu 20 m2', [], 'all')
+    payload = assistant.tools.payloads[0]
+    for expected in [{'field': 'ward_id', 'op': 'eq', 'value': '24588'}, {'field': 'city_id', 'op': 'eq', 'value': '12'},
+                     {'field': 'rent.monthly_amount', 'op': 'lt', 'value': '5000000'},
+                     {'field': 'area_m2', 'op': 'gte', 'value': '20'}]:
+        assert expected in payload['where']['all']
+    assert payload['nearbyAll'][0]['placeId'] == target['placeId'] and 'keyword' not in payload
+    assert payload['limit'] == 4 and payload['sort'] == 'rent_asc'
 
 
 def test_packaged_snapshot_is_the_same_pair_as_frontend_and_contains_no_listings():
@@ -93,21 +87,21 @@ def test_packaged_snapshot_is_the_same_pair_as_frontend_and_contains_no_listings
 @pytest.mark.asyncio
 async def test_accentless_fresh_message_reaches_listing_tools_and_skips_generation_for_browse():
     assert LISTING_SIGNAL.search('tim phong tro go vap duoi 5 trieu')
-    assistant = make_assistant(ToolPlan('search_listings', {'filters':[]}))
-    result = await assistant.try_answer('tim phong tro go vap duoi 5 trieu', [], 'ascii')
-    assert result.status == 'ANSWERED'
+    assistant = make_assistant(search(ward='go vap', city='hcm'))
+    result = await assistant.try_answer('tim phong tro phuong go vap hcm duoi 5 trieu', [], 'ascii')
+    assert result.status == 'ANSWERED' and result.listing_ids
     assert assistant.planner.history == []
+    assert {'field': 'rent.monthly_amount', 'op': 'lt', 'value': '5000000'} in assistant.tools.payloads[0]['where']['all']
     assert assistant.generative_client.kwargs is None
 
 
 @pytest.mark.asyncio
 async def test_ambiguous_location_is_a_question_without_search_or_rag():
-    assistant = make_assistant(None)
-    assistant.planner.plan = AsyncMock(side_effect=LocationClarification('Bạn chọn phường/xã hiện tại nhé.'))
-    assistant.tools.search = AsyncMock()
+    assistant = make_assistant(search(ward='Gò Vấp'))
     result = await assistant.try_answer('tim phong quan Go Vap', [], 'clarification')
-    assert 'phường/xã' in result.answer and result.status == 'ANSWERED'
-    assistant.tools.search.assert_not_called()
+    assert 'quận/huyện cũ' in result.answer and result.status == 'ANSWERED'
+    assert assistant.tools.search_calls == 0
+    assert result.listing_context['searchState']['pending']['type'] == 'LOCATION'
 
 
 def test_search_evidence_is_bounded_even_with_huge_text_and_arrays_but_keeps_known_pricing():
@@ -128,20 +122,12 @@ def test_search_evidence_is_bounded_even_with_huge_text_and_arrays_but_keeps_kno
 
 
 @pytest.mark.asyncio
-async def test_thousand_matches_never_cause_more_than_five_detail_reads():
+async def test_thousand_matches_never_cause_more_than_four_detail_reads():
     ids = [f'00000000-0000-0000-0000-{number:012d}' for number in range(1, 1001)]
-    assistant = make_assistant(ToolPlan('search_listings', {'filters':[{'field':'ward_id','op':'eq','value':'24588'},
-        {'field':'price_amount','op':'lte','value':'5000000'}], 'limit':1000}))
-    class ThousandTools(FakeTools):
-        def __init__(self):
-            super().__init__(ids)
-            self.read = []
-        async def detail(self, value):
-            self.read.append(value)
-            return await super().detail(value)
-    assistant.tools = ThousandTools()
-    result = await assistant.try_answer('tim phong go vap duoi 5 trieu', [], '1000')
-    assert len(assistant.tools.read) <= 10 and len(result.listing_ids) <= 6
+    assistant = make_assistant(search(c('price_amount', 'lte', '5000000'), ward='Gò Vấp', city='HCM', limit=1000), ids=ids)
+    result = await assistant.try_answer('tim phong phuong go vap hcm duoi 5 trieu', [], '1000')
+    assert assistant.tools.payloads[0]['limit'] == 4
+    assert len(assistant.tools.read) == len(result.listing_ids) == 4
 
 
 @pytest.mark.asyncio
@@ -158,15 +144,13 @@ async def test_tool_clamps_outgoing_limit_and_incoming_ids_and_drops_upstream_ex
 
 
 @pytest.mark.asyncio
-async def test_empty_search_has_at_most_two_relaxation_attempts_and_never_drops_budget_or_location():
-    filters = [{'field':'city_id','op':'eq','value':'12'}, {'field':'ward_id','op':'eq','value':'24588'},
-               {'field':'price_amount','op':'lte','value':'5000000'}] + [
-               {'field':f'amenity.{n}','op':'eq','value':'true'} for n in range(20)]
-    assistant = make_assistant(ToolPlan('search_listings', {'filters':filters}), ids=[])
-    assistant.tools.search = AsyncMock(return_value={'listingIds':[],'total':0})
-    result = await assistant.try_answer('tim phong duoi 5 trieu', [], 'retry-budget')
-    assert result.status == 'NO_RESULTS'
-    # 1 original + 2 silent relaxations + 1 explicit, clearly-labelled budget alternative (empty here).
-    assert assistant.tools.search.call_count == 4
-    for call in assistant.tools.search.call_args_list[:3]:
-        assert all(criterion in call.args[0]['filters'] for criterion in filters[:3])
+async def test_empty_search_is_one_query_with_every_hard_filter_and_no_hidden_alternative():
+    amenities = ['ELEVATOR', 'WASHING_MACHINE', 'AIR_CONDITIONER']
+    assistant = make_assistant(search(c('price_amount', 'lte', '5000000'), *[c(f'amenity.{n}', 'eq', 'true') for n in amenities],
+                                      ward='Gò Vấp', city='HCM'), ids=[])
+    result = await assistant.try_answer('tim phong phuong go vap hcm toi da 5 trieu', [], 'no-relax')
+    assert result.status == 'NO_RESULTS' and assistant.tools.search_calls == 1
+    where = assistant.tools.payloads[0]['where']['all']
+    assert {'field': 'rent.monthly_amount', 'op': 'lte', 'value': '5000000'} in where
+    assert all({'field': f'amenity.{n}', 'op': 'eq', 'value': 'true'} in where for n in amenities)
+    assert 'không tự nới' in result.answer and '/rent/' not in result.answer

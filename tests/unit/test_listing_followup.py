@@ -6,7 +6,7 @@ from homespace_ai.application.listing_context import context_for
 from homespace_ai.clients.listing_tool_planner import ToolPlan
 from homespace_ai.clients.generative import GenerationUnavailableError, LISTING_SYSTEM_PROMPT
 from homespace_ai.tools.listings import ListingToolError
-from tests.unit.test_listing_ask import make_assistant, FakeTools
+from tests.unit.listing_fakes import make_assistant, FakeTools, search
 
 IDS = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 6)]
 
@@ -14,18 +14,7 @@ IDS = [f"00000000-0000-0000-0000-{index:012d}" for index in range(1, 6)]
 class CurrentTools(FakeTools):
     def __init__(self):
         super().__init__(IDS)
-        self.read = []
-        self.catalog_calls = 0
-        self.search_calls = 0
         self.prices = [3640000, 2520000, 1880000, 2000000, 1500000]
-
-    async def fields(self):
-        self.catalog_calls += 1
-        return await super().fields()
-
-    async def search(self, arguments):
-        self.search_calls += 1
-        return await super().search(arguments)
 
     async def detail(self, listing_id):
         self.read.append(listing_id)
@@ -59,12 +48,12 @@ async def test_reported_followup_reads_exactly_four_rooms_and_reaches_grounded_g
     assert evidence["scopeOnly"] is True
     assert evidence["selectionScope"][2] == {"position": 3, "listingId": IDS[2]}
     assert evidence["listings"][2]["pricing"]["amount"] == 1880000
-    assert result.listing_context == context_for(IDS[:4])
+    assert result.listing_context["listingIds"] == IDS[:4]
 
 
 @pytest.mark.asyncio
 async def test_search_compare_recommend_changed_preference_and_new_search_flow():
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": []}))
+    assistant = make_assistant(search(ward="Hạnh Thông", city="HCM"))
     assistant.tools = CurrentTools()
     messages = []
 
@@ -75,11 +64,11 @@ async def test_search_compare_recommend_changed_preference_and_new_search_flow()
                           "listingContext": result.listing_context}])
         return result
 
-    found = await ask("Tìm phòng tại Phường Phú Lợi")
-    assert found.listing_context == context_for(IDS)  # Show and retain the full requested/default page.
-    compared = await ask("So sánh 5 phòng này")
-    assert all(f"Phòng {i}" in compared.answer for i in range(1, 6))
-    assert compared.listing_ids == IDS
+    found = await ask("Tìm phòng tại Phường Hạnh Thông HCM")
+    assert found.listing_context["listingIds"] == IDS[:4]  # Show and retain the full requested/default page.
+    compared = await ask("So sánh 4 phòng này")
+    assert all(f"Phòng {i}" in compared.answer for i in range(1, 5))
+    assert compared.listing_ids == IDS[:4]
     assistant.tools.prices[2] = 4000000  # Database update; old comparison is NOT evidence.
     recommended = await ask("Ở 1 mình, phòng nào rẻ nhất?")
     assert recommended.status == "ANSWERED"
@@ -89,7 +78,7 @@ async def test_search_compare_recommend_changed_preference_and_new_search_flow()
     evidence = json.loads(assistant.generative_client.kwargs["context_chunks"][0]["content"])
     assert "Ở 1 mình, phòng nào rẻ nhất?" in evidence["recentUserRequests"]
     assert "2 người" in assistant.generative_client.kwargs["question"]
-    assert all(value in IDS for value in assistant.tools.read[5:])
+    assert all(value in IDS for value in assistant.tools.read[4:])
     calls_before = assistant.tools.search_calls
     await ask("Tìm phòng khác ở Phường An Nhơn")
     assert assistant.tools.search_calls == calls_before + 1
@@ -113,10 +102,9 @@ async def test_rag_policy_after_comparison_is_not_forced_into_old_selection():
 
 @pytest.mark.asyncio
 async def test_bare_location_change_uses_new_search_instead_of_old_scope():
-    assistant = make_assistant(ToolPlan("search_listings", {"filters": [
-        {"field": "ward", "op": "eq", "value": "Phường An Nhơn"}]}))
+    assistant = make_assistant(search(ward="An Nhơn", city="HCM"))
     assistant.tools = CurrentTools()
-    result = await assistant.try_answer("Tôi muốn ở An Nhơn, nên chọn phòng nào rẻ nhất?", previous(), "new-area")
+    result = await assistant.try_answer("Tôi muốn ở An Nhơn HCM, nên chọn phòng nào rẻ nhất?", previous(), "new-area")
     assert result.status == "ANSWERED"
     assert assistant.tools.search_calls == 1
     assert assistant.planner.history is not None
@@ -134,7 +122,7 @@ async def test_catalog_and_planner_failures_have_distinct_safe_log_stages(monkey
         raise GenerationUnavailableError("secret provider body", status_code=429)
 
     if stage == "field_catalog":
-        assistant.tools.fields = failure
+        assistant.tools.catalog = failure
     else:
         assistant.planner.plan = failure
     result = await assistant.try_answer("Tìm phòng trọ", [], "log-test")
@@ -153,7 +141,7 @@ async def test_ordinal_keeps_original_positions_and_not_whole_set_read():
     assert "Phòng 2" in result.answer and "Phòng 4" in result.answer
     assert "Phòng 1" not in result.answer
     assert result.listing_positions == {IDS[1]: 2, IDS[3]: 4}
-    assert result.listing_context == context_for(IDS[:4])
+    assert result.listing_context["listingIds"] == IDS[:4]
 
 
 @pytest.mark.asyncio
@@ -182,7 +170,7 @@ async def test_core_failure_is_closed_and_logged_without_private_data(monkeypatc
     assistant.tools.detail = failure
     result = await assistant.try_answer("Phòng nào rẻ nhất?", previous(), "core-failure")
     assert result.status == "TOOL_UNAVAILABLE"
-    assert result.listing_context == context_for(IDS[:4])
+    assert result.listing_context["listingIds"] == IDS[:4]
     assert assistant.generative_client.kwargs is None
     assert events[0][1]["stage"] == "tool_execution"
     assert events[0][1]["http_status"] == 503
@@ -200,7 +188,7 @@ async def test_generation_failure_keeps_scope_but_does_not_claim_core_failed():
     assistant.generative_client.generate_answer = failure
     result = await assistant.try_answer("Phòng nào rẻ nhất?", previous(), "generation-failure")
     assert result.status == "GENERATION_UNAVAILABLE"
-    assert result.listing_context == context_for(IDS[:4])
+    assert result.listing_context["listingIds"] == IDS[:4]
     assert "đã kiểm tra tin đăng" in result.answer
 
 

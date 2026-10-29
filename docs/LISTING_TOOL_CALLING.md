@@ -6,18 +6,30 @@ The AI service never reads `homespace_core` directly and never generates SQL.
 
 Flow:
 
-1. Load up to eight prior messages from the caller-owned `conversationId` (when supplied).
-2. The primary model uses native tool calling to choose a listing action or leaves the
-   question with the existing RAG path. The configured fallback model is tried on a
-   retryable primary-provider error.
-3. Read Core's allowed field catalog from `GET /api/v1/public/listings/ai/fields`.
-   Application code resolves city/ward names, Vietnamese without accents and city aliases
-   such as HCM/TP.HCM/Sài Gòn against the packaged Vietmap **admin_new** snapshot.
-   This is the same JSON pair used by Next.js; its 3,321 wards are never sent to the model.
-   Ambiguous names/legacy districts require clarification, not an invented ward code.
-4. `search_listings` calls `POST /api/v1/public/listings/ai/search`, or a known-listing
-   action reads `GET /api/v1/public/listings/ai/{listingId}`. Search returns IDs only;
-   each result is re-read through the public-detail endpoint before answering.
+1. Load up to eight prior messages from the caller-owned `conversationId` (when supplied) for
+   the model, and the latest `RenterSearchState` from the whole conversation (see
+   [renter-search/README.md](renter-search/README.md)). The state, not the eight-message
+   window, carries the customer's criteria.
+2. Reading a known reference ("phòng 2 có thang máy không?") skips the planner and never
+   changes the criteria. Otherwise the model uses native strict tool calling
+   (`search_listings`, `ask_clarification`, `get_listing_detail(s)`,
+   `get_listing_nearby_places`) or leaves the question with the existing RAG path.
+3. Read Core's versioned catalog from `GET /api/v1/public/listings/ai/catalog`
+   (fields with kind/operators/unit/categories/enum labels/source/null meaning, context
+   fields, sorts, nearby kinds, unsupported needs). Planner arguments are validated against
+   it; an unknown field/operator/enum is rejected, never dropped. Deterministic text guards
+   then fix budget words ("dưới/tối đa/ít nhất", "4tr5", "rưỡi", per person), head count,
+   category words, dates and preferences. Application code resolves city/ward names,
+   Vietnamese without accents and city aliases such as HCM/TP.HCM/Sài Gòn against the packaged
+   Vietmap **admin_new** snapshot; ambiguous names/legacy districts require clarification.
+   A named landmark is resolved through `GET /public/listings/ai/nearby-places/search`;
+   several campuses are offered as choices, never guessed.
+4. The merged state is compiled to `POST /api/v1/public/listings/ai/search` with
+   `version: 2` (typed AND/OR tree, context, named-target and POI-kind predicates,
+   `scopeIds`/`excludeIds`, evidence). Search returns IDs, totals, `unknownTotal`,
+   `contextMissing` and per-condition evidence; each result is re-read through
+   `GET /api/v1/public/listings/ai/{listingId}` before answering. The legacy
+   `GET /ai/fields` and v1 search body stay available for older callers.
 5. Only published, active, unexpired listings can be returned. A failed tool request
    never falls back to RAG as a source of current listing facts.
 6. The response is grounded in the current Core data. Parking answers are rendered
@@ -27,13 +39,22 @@ Search body example:
 
 ```json
 {
-  "filters": [
-    {"field": "category", "op": "eq", "value": "ROOM"},
-    {"field": "room.max_occupants", "op": "gte", "value": "3"},
-    {"field": "charge.MOTORBIKE_PARKING.included_in_rent", "op": "eq", "value": "true"}
-  ],
-  "sort": "price_asc",
-  "limit": 5
+  "version": 2,
+  "filters": [],
+  "where": {"all": [
+    {"field": "rent.monthly_amount", "op": "lte", "value": "4000000"},
+    {"field": "occupancy.max_occupants", "op": "gte", "value": 3},
+    {"field": "ward_id", "op": "eq", "value": "24588"},
+    {"any": [{"all": [{"field": "category", "op": "eq", "value": "ROOM"}]},
+             {"all": [{"field": "category", "op": "eq", "value": "APARTMENT"}]}]}
+  ]},
+  "nearbyAll": [{"placeId": "<resolved IUH place id>", "radiusMeters": 2000},
+                {"kind": "SUPERMARKET", "radiusMeters": 500}],
+  "context": {"occupants": 3},
+  "sort": "target_distance",
+  "limit": 5,
+  "excludeIds": [],
+  "evidence": true
 }
 ```
 
@@ -58,17 +79,23 @@ Cards and stored references preserve the entire returned page, including "phòng
 there is no hidden four/five-card truncation. Requests above the cap and shortages
 of matching listings are explicitly disclosed in the answer.
 Browse queries can use the deterministic answer and skip answer generation entirely.
-No-results relaxation is capped at 2 additional SQL calls and never drops location,
-budget, area or category. Any softened preference remains disclosed in the answer.
+An empty result is never relaxed: there is exactly one search per turn, and the answer
+lists the criteria kept, the listings whose data is unknown (`unknownTotal`), missing
+cost context, and asks which criterion to change. Only a criterion the customer removes
+is dropped. Preferences ("ưu tiên", "tầm/khoảng") are recorded but never filter. Scoped
+advice ("trong các phòng trên…") re-checks every hard criterion in Core with `scopeIds`
+before ranking at most three.
 
 All field names are provided by Core's catalog. The allowed operators are `eq`,
-`ne`, `gt`, `gte`, `lt`, `lte`, and `contains`; Core rejects unknown fields and
-invalid field/operator pairs instead of silently ignoring them. Multiple filters
-are combined with AND. Detail includes common pricing/address data, the relevant
-HOUSE/APARTMENT/ROOM object, charges, amenities, furnishings and viewing options.
+`ne`, `gt`, `gte`, `lt`, `lte`, and `contains`, restricted per field; Core rejects unknown
+fields, invalid field/operator pairs and invalid values with a structured 400
+`{reason, field, allowed}` instead of an empty result. Detail includes common
+pricing/address data, the relevant HOUSE/APARTMENT/ROOM object, charges, amenities,
+furnishings and viewing options.
 
-The seed's street lines are examples rather than verified coordinates. Neither
-the API nor the AI should claim a measured distance from a landmark. For a
+Distances are straight-line from stored listing and POI coordinates (never travel time).
+The seed's addresses are demo data, so its distances prove the logic, not real-world
+geography. Chat never calls TomTom; Nearby data comes only from the stored scans. For a
 live end-to-end test, restart Core API and AI service after deploying these
 changes, then use an authenticated tenant session through Gateway.
 

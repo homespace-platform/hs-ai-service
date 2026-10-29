@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from homespace_ai.api.v1.admin_knowledge import get_embedder
 from homespace_ai.api.v1.agent_ask import generate_answer, public_answer, stored_answer
 from homespace_ai.api.v1.schemas import GuestAskRequest, GuestAskResponse, GuestConversationDetail, ConversationSummary
+from homespace_ai.application.renter_search_state import latest_state
 from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.config import Settings, get_settings
 from homespace_ai.core.database import get_db
@@ -83,7 +84,8 @@ async def ask(body: GuestAskRequest, request: Request, user=Depends(get_guest_us
         raise HTTPException(409, detail={"code": "GUEST_CONTEXT_STALE", "message": "Phiên khách đã thay đổi. Vui lòng đăng nhập để tiếp tục."})
     old_count = state["count"]
     try:
-        result = await generate_answer(question, state["messages"][-8:], request, user, session, settings, embedder, state["id"])
+        result = await generate_answer(question, state["messages"][-8:], request, user, session, settings, embedder, state["id"],
+                                       search_state=latest_state(state["messages"]))
         now = datetime.now(timezone.utc).isoformat()
         state["messages"].extend([
             {"id": str(uuid4()), "role": "user", "content": question, "createdAt": now},

@@ -1,4 +1,6 @@
 """Required non-secret settings, independent of the process working directory."""
+import re
+from datetime import timedelta
 from pathlib import Path
 
 PROPERTIES_FILE = Path(__file__).resolve().parents[1] / "application.properties"
@@ -22,6 +24,15 @@ def nearby_query_enabled() -> bool:
     if value not in {"true", "false"}:
         raise ValueError("AI application.properties must explicitly set nearby.query-enabled=true or false")
     return value == "true"
+
+
+def listing_search_utc_offset() -> timedelta:
+    value = _properties().get("listing.search-utc-offset", "")
+    match = re.fullmatch(r"([+-])(\d{2}):(\d{2})", value)
+    if not match or int(match[2]) > 14 or int(match[3]) >= 60:
+        raise ValueError("AI application.properties must explicitly set listing.search-utc-offset as +HH:MM")
+    offset = timedelta(hours=int(match[2]), minutes=int(match[3]))
+    return offset if match[1] == "+" else -offset
 
 
 def nearby_default_radius_m() -> int:

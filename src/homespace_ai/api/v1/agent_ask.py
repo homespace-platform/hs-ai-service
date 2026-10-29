@@ -18,7 +18,7 @@ from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.config import Settings, get_settings
 from homespace_ai.core.database import get_db
 from homespace_ai.core.security import UserContext, get_current_user
-from homespace_ai.repositories.conversation_repo import get_conversation_repository
+from homespace_ai.repositories.conversation_repo import conversation_search_state, get_conversation_repository
 
 router = APIRouter(prefix="/agent", tags=["Agent Ask"])
 GREETING_TEXTS = {"chào", "chào bạn", "xin chào", "hi", "hello", "hey", "chào ai", "chào homespace"}
@@ -48,11 +48,14 @@ async def ask_agent(
     conversation_id = body.effective_conversation_id
     conversation_repository = None
     history: list[dict[str, Any]] = []
+    search_state = None
     if conversation_id:
         conversation_repository = get_conversation_repository()
         conversation = await conversation_repository.get(user.user_id, conversation_id)
         if conversation is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+        # Criteria survive beyond the eight-message prompt window; they belong to this owner's conversation only.
+        search_state = conversation_search_state(conversation)
         history = [{"role": message.get("role", "user"), "content": message.get("content", ""),
                     "status": message.get("status"), "listingContext": message.get("listingContext"),
                     "contractContext": message.get("contractContext"),
@@ -67,7 +70,8 @@ async def ask_agent(
                 detail="Conversation not found.",
             )
 
-    result = await generate_answer(question, history, request, user, session, settings, embedder, conversation_id)
+    result = await generate_answer(question, history, request, user, session, settings, embedder, conversation_id,
+                                   search_state=search_state)
 
     if conversation_repository is not None:
         await conversation_repository.append_message(
@@ -93,6 +97,7 @@ def stored_answer(result: AskResult) -> str:
 async def generate_answer(
     question: str, history: list[dict[str, Any]], request: Request, user: UserContext,
     session: AsyncSession, settings: Settings, embedder, conversation_id: str | None = None,
+    search_state: dict[str, Any] | None = None,
 ) -> AskResult:
     """Shared pipeline; persistence is explicitly handled by each caller."""
     generative_client = get_generative_client(settings)
@@ -150,7 +155,7 @@ async def generate_answer(
             gateway = GatewayApiClient(str(settings.gateway_base_url), settings.gateway_request_timeout_seconds)
         try:
             result = await ListingAsk(settings, generative_client, gateway, request).try_answer(
-                question, history, request_id)
+                question, history, request_id, state=search_state)
         finally:
             if temporary_gateway:
                 await gateway.aclose()
