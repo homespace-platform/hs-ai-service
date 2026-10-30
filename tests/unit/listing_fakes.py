@@ -165,6 +165,8 @@ def make_assistant(plan, ids=None, **setting_overrides):
     assistant.clock = lambda: FIXED_NOW
     assistant.catalog = None
     assistant._base = None
+    # These focused tool/presentation fixtures predate intake. Dedicated guidance tests enable it.
+    assistant._require_search_basics = False
     return assistant
 
 

@@ -22,7 +22,7 @@ MAX_SHOWN = 200
 STRENGTHS = {"hard", "preference"}
 OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "contains", "in", "approx"}
 CONTEXT_KEYS = ("occupants", "motorbikes", "cars", "electricityKwh", "waterM3")
-PENDING_TYPES = {"LOCATION", "TARGET", "CONFLICT", "CATEGORY_CHANGE", "MODEL", "EMPTY_RESULT", "CONTEXT", "DATE"}
+PENDING_TYPES = {"LOCATION", "TARGET", "CONFLICT", "CATEGORY_CHANGE", "MODEL", "EMPTY_RESULT", "CONTEXT", "DATE", "INTAKE"}
 SCOPED_PREFIXES = {"room.": "ROOM", "house.": "HOUSE", "apartment.": "APARTMENT"}
 
 RESET = VietnamesePattern(
@@ -35,6 +35,7 @@ def empty_state() -> dict[str, Any]:
     return {"version": STATE_VERSION, "revision": 0, "turn": 0, "constraints": [], "alternatives": [],
             "location": None, "nationwide": False, "target": None, "nearby": [], "context": {},
             "sort": None, "keyword": None, "unsupported": [], "pending": None, "needs": [], "valuePriorities": [],
+            "renterProfile": {}, "intakeOpen": [], "guidanceAsked": [],
             "boundaryAdvice": "AUTO", "boundarySeen": {"fingerprint": None, "ids": []},
             "shown": {"fingerprint": None, "ids": []}}
 
@@ -111,6 +112,12 @@ def sanitize(raw: Any) -> dict[str, Any] | None:
                             for u in (raw.get("unsupported") or [])[:10] if isinstance(u, dict) and u.get("code")]
     notes = raw.get("needs") if isinstance(raw.get("needs"), list) else []
     state["needs"] = list(dict.fromkeys(note.strip()[:220] for note in notes if isinstance(note, str) and note.strip()))[-6:]
+    profile = raw.get("renterProfile") if isinstance(raw.get("renterProfile"), dict) else {}
+    from homespace_ai.application.renter_guidance import PERSONAS
+    state["renterProfile"] = {k: v for k, v in profile.items() if (k == "persona" and isinstance(v, str) and v in PERSONAS)
+                              or (k in {"studyPlace", "workPlace"} and isinstance(v, str) and 0 < len(v) <= 160)}
+    state["intakeOpen"] = [slot for slot in (raw.get("intakeOpen") or []) if isinstance(slot, str) and slot in {"CATEGORY", "BUDGET", "OCCUPANTS"}][:3]
+    state["guidanceAsked"] = [text[:250] for text in raw.get("guidanceAsked") or [] if isinstance(text, str)][-6:]
     priorities = raw.get("valuePriorities") if isinstance(raw.get("valuePriorities"), list) else []
     state["valuePriorities"] = [{"field": item["field"], "direction": item["direction"], "quote": item["quote"][:220]}
                                 for item in priorities if isinstance(item, dict) and isinstance(item.get("field"), str)
@@ -195,6 +202,8 @@ def merge(previous: dict[str, Any] | None, update: dict[str, Any], question: str
             base["valuePriorities"] = []
         elif code == "valuePriorities":
             base["valuePriorities"] = []
+        elif code == "renterProfile":
+            base["renterProfile"] = {}
         elif code == "target":
             base["target"] = None
             if base["sort"] == "target_distance":
@@ -272,6 +281,8 @@ def merge(previous: dict[str, Any] | None, update: dict[str, Any], question: str
         if isinstance(item, dict) and isinstance(item.get("field"), str):
             priorities[item["field"]] = item
     base["valuePriorities"] = list(priorities.values())[-6:]
+    base.setdefault("renterProfile", {}).update(update.get("renterProfile") or {})
+    base["intakeOpen"] = list(dict.fromkeys(base.get("intakeOpen", []) + (update.get("intakeOpen") or [])))
     return base
 
 
@@ -357,7 +368,7 @@ def fingerprint(state: dict[str, Any]) -> str:
 def boundary_fingerprint(state: dict[str, Any]) -> str:
     """Advice is also scoped to preferences; its history never resets the main pagination."""
     preferences = sorted((c["field"], c["op"], str(c["value"])) for c in state["constraints"] if c["strength"] == "preference")
-    return hashlib.sha256(json.dumps([fingerprint(state), preferences, state.get("needs") or [], state.get("valuePriorities") or []], ensure_ascii=False).encode()).hexdigest()[:24]
+    return hashlib.sha256(json.dumps([fingerprint(state), preferences, state.get("needs") or [], state.get("valuePriorities") or [], state.get("renterProfile") or {}], ensure_ascii=False).encode()).hexdigest()[:24]
 
 
 def boundary_exclusions(state: dict[str, Any]) -> list[str]:

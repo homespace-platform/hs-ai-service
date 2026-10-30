@@ -15,6 +15,7 @@ from homespace_ai.application.listing_location import catalog as admin_catalog, 
 from homespace_ai.application.renter_dates import resolve as resolve_dates
 from homespace_ai.application.renter_search_state import CONTEXT_KEYS, categories as state_categories
 from homespace_ai.application.vietnamese_text import fold_text
+from homespace_ai.application.renter_guidance import profile_update, explicit_open_slots
 
 # Nationwide browse was removed from web/Core; chat search always needs a place.
 HYPOTHETICAL = re.compile(r"\b(?:neu|gia su|gia nhu)\b.{0,40}\b(?:thi sao|thi the nao|thi co|the nao)\b")
@@ -424,6 +425,8 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         "unsupported": unsupported, "moreResults": args.get("moreResults") is True,
         "boundaryAdvice": boundary_policy(question, args.get("boundaryAdvice")),
         "needs": grounded_needs(question, args.get("needs")),
+        "renterProfile": profile_update(question, args.get("renterProfile")),
+        "intakeOpen": explicit_open_slots(question),
         "valuePriorities": [item for item in (args.get("valuePriorities") or [])[:6] if isinstance(item, dict)
                             and item.get("field") in catalog.fields and item.get("direction") in {"HIGHER", "LOWER", "IGNORE"}
                             and isinstance(item.get("quote"), str) and item["quote"].strip()

@@ -68,8 +68,8 @@ async def test_budget_boundary_is_from_customer_ceiling_and_full_context_reaches
     assert evidence["today"].isoformat() == "2026-10-30"
     text = value.render(result, rooms(), boundary())
     assert "vượt ngân sách 400.000đ/tháng" in text and "4.500.000đ" in text and "4.900.000đ" in text
-    assert "vượt ngân sách 900.000" not in text and "tin 4: 35" in text and "Diện tích: 45" in text
-    assert text.count("/rent/") == 1 and "ngân sách và danh sách chính vẫn giữ nguyên" in text
+    assert "vượt ngân sách 900.000" not in text and "tin 4:" not in text and "Diện tích: 45" in text
+    assert text.count("/rent/") == 1 and "Điểm cần cân nhắc" not in text and len(text) < 450
 
 
 @pytest.mark.asyncio
@@ -192,12 +192,12 @@ async def test_missing_values_do_not_become_absence_or_zero():
 
 
 @pytest.mark.asyncio
-async def test_known_tradeoffs_are_rendered_even_if_model_omits_them():
+async def test_known_tradeoffs_remain_verified_internally_while_display_stays_short():
     proposed = candidate()
     proposed["roomDetail"]["maxOccupants"] = 2
     result, _ = await evaluate(proposed=[proposed])
     assert result["tradeoffs"][0]["field"] == "roomDetail.maxOccupants"
-    assert "Điểm cần cân nhắc" in value.render(result, rooms(), boundary())
+    assert "Điểm cần cân nhắc" not in value.render(result, rooms(), boundary())
 
 
 @pytest.mark.asyncio
@@ -218,14 +218,16 @@ async def test_more_than_three_tradeoffs_does_not_silently_veto_a_contextual_cho
     evidence = generator.generate_value_advice.await_args.kwargs["evidence"]
     assert evidence["confirmedCriteria"]["needs"] == needs
     text = value.render(result, mains, boundary())
+    labels = " ".join(proof["fact"]["label"] for proof in result["tradeoffs"]).lower()
     for label in ("bếp", "nội thất", "tiền nước", "internet", "phí dịch vụ/rác"):
-        assert label in text.lower(), "Known regressions must stay disclosed, never hidden to make an upsell"
+        assert label in labels, "All comparisons still take part in verification, even though the chat is concise"
+        assert label not in text.lower()
     generator.generate_value_advice.return_value = {"selectedId": None, "comparedListingIds": [], "advantages": [], "tradeoffs": []}
     assert await value.evaluate("Xem thêm", {"needs": needs}, mains, [proposed], boundary(), generator, CAT) is None
 
 
 @pytest.mark.asyncio
-async def test_much_higher_known_fees_are_visible_and_never_added_without_usage():
+async def test_much_higher_known_fees_are_retained_and_never_added_without_usage():
     mains, proposed = rooms(), candidate()
     for item in mains:
         item["charges"] = [{"chargeType": "ELECTRICITY", "amount": 3000, "unit": "kWh", "billingMethod": "PER_KWH", "includedInRent": False}]
@@ -233,7 +235,10 @@ async def test_much_higher_known_fees_are_visible_and_never_added_without_usage(
     result, generator = await evaluate(mains=mains, proposed=[proposed])
     assert result["tradeoffs"][0]["field"] == "charges.ELECTRICITY.amount"
     text = value.render(result, mains, boundary())
-    assert "6.000 đ/kWh" in text and "3.000 đ/kWh" in text
+    proof = result["tradeoffs"][0]
+    assert value._display(proof["fact"]) == "6.000 đ/kWh"
+    assert value._display(proof["comparisons"][0]["fact"]) == "3.000 đ/kWh"
+    assert "6.000 đ/kWh" not in text
     assert "tổng chi phí" not in text
     assert "charges.ELECTRICITY.amount" in generator.generate_value_advice.await_args.kwargs["evidence"]["factMatrix"]
 

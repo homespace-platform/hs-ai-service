@@ -138,6 +138,7 @@ NGUYÊN TẮC:
 
 
 VALUE_ADVICE_SYSTEM_PROMPT = """Bạn đánh giá một phương án thuê ngoài ngân sách cho HomeSpace; không có nghĩa vụ phải đề xuất.
+Khi recommendMain=true, đồng thời chọn MỘT mainRecommendation trong mainListings theo nhu cầu đã biết. listingId tuyệt đối không lấy từ candidates. Chọn 1–2 fields dữ kiện có ý nghĩa nhất để giải thích ngắn; pricing.amount là tiền thuê đã công bố. Không bịa ưu tiên từ nghề nghiệp; renterProfile chỉ giúp hiểu thông tin khách đã nói. Nếu chưa đủ bằng chứng chọn đáng tin, listingId=null,fields=[]. Đây là lựa chọn trong nhóm hiện tại, không khẳng định tốt nhất toàn thị trường. Việc không có candidates hay khách từ chối vượt ngân sách không ngăn chọn phòng chính.
 Đọc nhu cầu khách, confirmedCriteria (gồm ưu tiên và điều kiện), TOÀN BỘ mainListings đang hiển thị và nhóm candidates.
 Core chỉ nới tiền thuê tối đa maxExtraMonthly tính từ budgetCeiling; các điều kiện bắt buộc còn lại đã được Core lọc.
 ĐÂY LÀ BƯỚC TƯ VẤN NGOÀI NGÂN SÁCH, không phải tìm kiếm chính. mainBudgetConstraints/budgetCeiling chỉ ràng buộc bảng chính. Tất cả candidates đã nằm trong giới hạn được phép cân nhắc là candidateBudgetLimit=budgetCeiling+maxExtraMonthly. Không loại ứng viên chỉ vì tiền thuê lớn hơn budgetCeiling khi budgetOverrun vẫn <=maxExtraMonthly; phải đánh giá lợi ích có đáng phần thêm này hay không. Ví dụ ngân sách chính3,5 triệu, maxExtraMonthly500.000đ thì ứng viên3,8 triệu là hợp lệ để cân nhắc thêm300.000đ, không phải lỗi vượt giới hạn. Không tự coi giá đúng3,5 triệu tốt hơn mọi lựa chọn3,8 triệu; cũng không bắt buộc phải đề xuất.
@@ -149,7 +150,7 @@ Mỗi candidate có verifiedComparisons do backend tính sẵn: số 1,2,... tha
 Đọc hết các ứng viên trước khi chọn; không ưu tiên ứng viên đứng đầu hoặc gần mức ngân sách nhất. Nếu khách ưu tiên không gian và không coi trọng nội thất, so sánh diện tích thực với phòng rộng nhất trong CẢ nhóm, cân nhắc đồng thời tiền thêm và phí/đánh đổi. Nhỉnh hơn rất ít nhưng nhiều điểm kém hơn không phải đề xuất thuyết phục. Không bắt buộc chọn và không đặt ngưỡng diện tích cứng.
 So với CẢ nhóm, không chọn một phòng yếu để làm căn cứ upsell. Một tiện nghi đã có ở phòng rẻ hơn (ví dụ ban công riêng ở tin 2/3) không phải lý do đủ để đề xuất phòng đắt hơn. Có thể cân nhắc kết hợp nhiều lợi ích liên quan, nhưng phải kiểm tra xem phòng rẻ hơn đã cung cấp cùng tổ hợp đó chưa.
 Trước khi chọn, viết candidateAssessments cho TỪNG ứng viên: assessment ngắn nêu lợi ích liên quan đúng ưu tiên khách và đánh đổi, worthConsidering cho biết có đáng gợi ý hay không. Không lấy nội thất làm lý do khi khách nói nội thất không quan trọng. Sau khi xét đủ ứng viên mới chọn phương án thuyết phục nhất hoặc null. Đây là đánh giá nội bộ, không đưa phần nhận xét tự do ra giao diện.
-Đầu ra JSON chỉ chứa candidateAssessments,selectedId,comparedListingIds,advantages,tradeoffs. selectedId chỉ lấy trong candidates có worthConsidering=true hoặc null. comparedListingIds phải chứa đúng tất cả ID mainListings khi chọn.
+Đầu ra JSON chứa candidateAssessments,selectedId,comparedListingIds,advantages,tradeoffs và mainRecommendation nếu schema yêu cầu. selectedId chỉ lấy trong candidates có worthConsidering=true hoặc null. Không có candidates thì selectedId=null,advantages=[],tradeoffs=[]. comparedListingIds phải chứa đúng tất cả ID mainListings khi chọn. Trong advantages, đặt lợi ích liên quan nhất đến nhu cầu khách ở vị trí đầu; giao diện chỉ hiển thị lợi ích đó.
 Mỗi proof chỉ gồm field (đúng đường dẫn trong facts); backend tự ghép đúng các tin có chênh lệch đã xác minh trong verifiedComparisons, không yêu cầu bạn tính lại hay ghi againstIds. Các advantages cộng lại phải chứng minh được lợi ích đối với cả nhóm; không được gán cùng giá trị là cải thiện. Ví dụ cùng PRIVATE không khác PRIVATE. Chọn tối đa 3 lợi ích và 3 điểm đánh đổi quan trọng; dùng tradeoffs cho các điểm kém hơn hoặc không hợp nhu cầu. Không được lờ đi phòng rẻ hơn phù hợp hơn.
 facts.direction chỉ mô tả cách so sánh dữ kiện đơn giản, KHÔNG phải điểm chất lượng hay bằng chứng lợi ích đáng thêm tiền. Giá trị CONTEXT cần dựa nhu cầu khách: tầng cao/thấp không mặc nhiên tốt hơn; cho nuôi thú/hút thuốc chỉ liên quan khi khách yêu cầu.
 factMatrix là bảng dữ kiện chung: mỗi field có label,direction,values; lấy values[listing.factColumn] để đọc đúng giá trị của tin đó. factColumn bắt đầu từ0, khác các số thứ tự so sánh bắt đầu từ1. values đã gồm đơn vị, null là chưa biết, không phải không có. Nếu có labels riêng theo cột thì dùng nhãn ở cột tương ứng. Không trộn các cách tính phí khác nhau; chỉ verifiedComparisons mới xác minh được chênh lệch thuận/nghịch.
@@ -313,13 +314,14 @@ class OpenAIGenerativeClient(BaseGenerativeClient):
     async def generate_value_advice(self, question: str, evidence: dict[str, Any]) -> dict[str, Any]:
         ids = [item["id"] for item in evidence["candidates"]]
         main_ids = [item["id"] for item in evidence["mainListings"]]
+        recommend_main = evidence.get("recommendMain") is True
         fields = sorted(evidence.get("factMatrix") or {field: None for item in evidence["candidates"] for field in item.get("facts", {})})
-        if not ids or not main_ids or not fields:
+        if not main_ids or not fields or not ids and not recommend_main:
             return {"selectedId": None, "comparedListingIds": [], "advantages": [], "tradeoffs": []}
         proof = {"type": "object", "additionalProperties": False,
                  "properties": {"field": {"type": "string", "enum": fields}}, "required": ["field"]}
         assessment = {"type": "object", "additionalProperties": False,
-                      "properties": {"listingId": {"type": "string", "enum": ids},
+                      "properties": {"listingId": {"type": "string", "enum": ids or main_ids},
                                      "assessment": {"type": "string", "maxLength": 240},
                                      "worthConsidering": {"type": "boolean"}},
                       "required": ["listingId", "assessment", "worthConsidering"]}
@@ -332,6 +334,13 @@ class OpenAIGenerativeClient(BaseGenerativeClient):
                                  "advantages": {"type": "array", "items": proof, "maxItems": 3},
                                  "tradeoffs": {"type": "array", "items": proof, "maxItems": 3}},
                   "required": ["candidateAssessments", "selectedId", "comparedListingIds", "advantages", "tradeoffs"]}
+        if recommend_main:
+            schema["properties"]["mainRecommendation"] = {"type": "object", "additionalProperties": False,
+                "properties": {"listingId": {"type": ["string", "null"], "enum": main_ids + [None]},
+                               "fields": {"type": "array", "maxItems": 2,
+                                          "items": {"type": "string", "enum": sorted(set(fields + ["pricing.amount"]))}}},
+                "required": ["listingId", "fields"]}
+            schema["required"].append("mainRecommendation")
         raw = await self._generate(question, [{"content": json.dumps(evidence, ensure_ascii=False, default=str)}],
                                    audience="USER", mode="value_advice", output_schema=schema)
         try:
@@ -365,7 +374,8 @@ class OpenAIGenerativeClient(BaseGenerativeClient):
                             grounded.append({"field": proof["field"], "againstIds": against})
                     result[group] = grounded
             # The assessments guide selection only. Customer prose uses verified proofs, never these strings.
-            return {key: result[key] for key in ("selectedId", "comparedListingIds", "advantages", "tradeoffs")}
+            keys = ["selectedId", "comparedListingIds", "advantages", "tradeoffs"] + (["mainRecommendation"] if recommend_main else [])
+            return {key: result[key] for key in keys}
         except (ValueError, TypeError, KeyError):
             raise GenerationUnavailableError("Invalid boundary judgement.", retryable=False) from None
 

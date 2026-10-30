@@ -83,6 +83,7 @@ async def ask_agent(
             contract_context=result.contract_context, contract_cards=result.contract_cards,
             appointment_context=result.appointment_context, appointment_cards=result.appointment_cards,
             data_sources=result.data_sources,
+            suggested_questions=result.suggested_questions,
         )
     return public_answer(result)
 
@@ -197,5 +198,6 @@ def public_answer(result: AskResult) -> ApiResponse[AskResponse]:
             contractCards=[ContractCardItem(**card) for card in result.contract_cards],
             appointmentCards=[AppointmentCardItem(**card) for card in result.appointment_cards],
             dataSources=result.data_sources,
+            suggestedQuestions=result.suggested_questions,
         ),
     )

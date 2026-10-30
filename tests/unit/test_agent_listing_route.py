@@ -95,7 +95,7 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
             "search_listings", "ask_clarification", "get_listing_detail", "get_listing_details"}
         import json
         plan = search(c("category", "eq", "ROOM"), c("price_amount", "lte", "4000000"), c("room.restroom_type", "eq", "PRIVATE"),
-                      ward="Phường Gò Vấp", city="Thành phố Hồ Chí Minh", sort="newest", limit=5)
+                          ward="Phường Gò Vấp", city="Thành phố Hồ Chí Minh", sort="newest", limit=5, context={"occupants": 2})
         return {"status": "completed", "output": [{"type": "function_call", "name": "search_listings",
             "arguments": json.dumps(plan.arguments)}]}
 
@@ -124,7 +124,7 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
                 assert result["status"] == "ANSWERED"
                 return result
 
-            found = await ask("Tìm 10 phòng trọ ở Phường Gò Vấp, Thành phố Hồ Chí Minh, tối đa 4 triệu, WC riêng")
+            found = await ask("Tìm 10 phòng trọ cho 2 người ở Phường Gò Vấp, Thành phố Hồ Chí Minh, tối đa 4 triệu, WC riêng")
             assert found["listingIds"] == ids[:10]
             searches = [body for method, path, body in calls if path.endswith("/search")]
             assert searches[0]["limit"] == 10

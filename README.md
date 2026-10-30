@@ -1,5 +1,38 @@
 # HomeSpace AI Service
 
+## Tư vấn tìm phòng và câu hỏi tiếp theo
+
+Trước khi tìm listing, AI thu thập khu vực/địa điểm, loại hình, ngân sách và số người ở.
+Mỗi lượt chỉ hỏi tối đa hai thông tin còn thiếu, giữ các điều kiện khách đã cung cấp.
+Khách có thể nói rõ chưa chốt loại hình, chưa biết số người hoặc chỉ muốn khảo sát giá;
+hệ thống không tự đặt giới hạn thay khách. Thông tin sinh viên, người đi làm, gia đình hoặc
+làm từ xa chỉ được lưu khi khách tự mô tả, không tự suy ra con nhỏ, phương tiện hay ngân sách.
+
+Khi trả bảng kết quả, AI cân nhắc **một tin trong chính trang đang hiển thị**, tách biệt tin
+boundary. Lời khuyên gồm link và tối đa hai dữ kiện đã kiểm chứng. Một lượt đánh giá chung
+xử lý cả lựa chọn chính và boundary tùy chọn; nếu bước phụ lỗi, bảng kết quả vẫn được giữ.
+Câu hỏi “vì sao bạn ưu tiên phòng được chọn?” đọc lại tin và các trường đã chọn từ Core,
+không tự sinh thêm lý do hay lưu bản sao giá/diện tích trong memory.
+
+Sau kết quả, AI hỏi tối đa một câu để hiểu thêm mục đích thuê hoặc ưu tiên chưa rõ; không
+lặp lại câu đã hỏi khi “xem thêm”. Persona giúp tư vấn và đặt câu hỏi, không tự trở thành
+bộ lọc cứng. Nearby chỉ đọc kho địa điểm đã lưu, không gọi TomTom khi chat.
+
+API trả `suggestedQuestions` (tối đa bốn câu hỏi hoàn chỉnh), lưu cùng câu trả lời trong
+lịch sử tài khoản và phiên khách. Frontend hiển thị ngay trên ô chat ở cả trang chat và
+khung chat trang chủ. **Bấm gợi ý chỉ điền vào ô nhập; người dùng tự gửi.** Không dùng
+biểu mẫu, chỗ trống điền thông tin hoặc tự gửi câu hỏi. Tin nhắn cũ không có trường này
+vẫn đọc được; không đổi schema CSDL và không cần seed lại.
+
+Kiểm tra: `uv run pytest tests/unit -q`. Sau cập nhật, khởi động lại AI service và tải lại
+frontend. Ví dụ thử theo thứ tự:
+
+1. “Mình là sinh viên muốn thuê phòng trọ.” → hỏi khu vực/ngân sách, chưa tìm listing.
+2. “Ở phường Gò Vấp, TP.HCM, dưới 3,5 triệu, ở 2 người. Ưu tiên phòng rộng, mình đã có giường tủ.”
+   → bảng bốn tin, chọn một tin chính; boundary chỉ hiện nếu có lợi thế đủ bằng chứng.
+3. “Vì sao bạn ưu tiên phòng được chọn?” → đọc đúng tin chính, không nhầm boundary.
+4. “Xem thêm.” → trang tiếp theo, giữ ngân sách và nhu cầu; cân nhắc lại trên nhóm mới.
+
 ## Gợi ý boundary theo ngữ cảnh người thuê
 
 Kết quả chính luôn giữ nguyên điều kiện và ngân sách khách đã chốt. Ví dụ **dưới 4,5 triệu**:
@@ -14,7 +47,7 @@ ngày nhận, nội thất bắt buộc, chi phí khác, Nearby, v.v. Trường 
 không thể thay an toàn thì không mở rộng. Không xử lý lẫn giá theo người/m² với giá cả phòng/tháng.
 Bộ ứng viên có giới hạn, đa dạng theo tin mới/diện tích/giá; không tải hàng nghìn tin cho AI lọc.
 
-Khi có ứng viên, bước AI riêng dùng cùng mô hình listing đã cấu hình để đánh giá **toàn bộ nhóm đang hiển thị**,
+Trong bước đánh giá chung, AI dùng cùng mô hình listing đã cấu hình để đọc **toàn bộ nhóm đang hiển thị**,
 nhu cầu và ưu tiên đã lưu. Không còn chọn riêng một phòng yếu làm đối chiếu, không bắt buộc đạt một ngưỡng
 m² hoặc một field cố định. Một ban công đã có ở phòng rẻ hơn không đủ để gợi ý phòng đắt hơn chỉ vì có ban công.
 AI được quyền không chọn nếu lợi ích nhỏ, không liên quan, còn thiếu bằng chứng hoặc phải đánh đổi quá nhiều.
@@ -31,7 +64,7 @@ Ví dụ nội thất được khách nói là không quan trọng sẽ không �
 Payload đánh giá dùng nhãn chung và giữ nguyên giá trị/đơn vị từng tin để không vượt giới hạn đầu vào
 vì lặp metadata. `verifiedComparisons` cung cấp các chênh lệch dữ kiện đã kiểm chứng cho AI đánh giá;
 không phải thang điểm chất lượng. So sánh bằng nhau, khác đơn vị hoặc chưa biết không trở thành lợi thế.
-Không loại đề xuất chỉ vì đếm được hơn3 điểm đánh đổi; những điểm đã biết vẫn được công khai.
+Không loại đề xuất chỉ vì đếm được hơn3 điểm đánh đổi; chúng vẫn được giữ trong bằng chứng đánh giá nội bộ.
 AI nhận rõ hai mức riêng: trần tìm kiếm chính và trần được cân nhắc thêm500.000đ; không từ chối ứng viên
 chỉ vì cao hơn trần chính. Một lượt đánh giá đọc đủ từng ứng viên trước khi chọn; phần đánh giá nội bộ không
 hiện ra khách hàng. AI chọn field có ý nghĩa, backend tự ghép các tin so sánh từ dữ kiện đã xác minh.
@@ -42,8 +75,9 @@ Không đưa mô tả quảng cáo, ảnh, độ yên tĩnh/an ninh hoặc dữ 
 Ngày nhận đều trước/hôm nay không được xem là lợi thế “nhận sớm hơn”. Phí có đơn vị khác nhau không tự cộng
 thành tổng khi chưa biết lượng dùng. Giá và dữ kiện listing luôn đọc mới; memory chỉ giữ tiêu chí/ID.
 
-Chỉ hiện tối đa **một đoạn chữ có link dưới bảng**, ghi rõ tiền thuê và **vượt ngân sách bao nhiêu**,
-lợi ích so với các tin đang xem và điểm cần cân nhắc. Không thêm cột/card thứ5, không tăng trần ngân sách
+Chỉ hiện tối đa **một đoạn chữ ngắn có link dưới bảng**, ghi rõ tiền thuê, **vượt ngân sách bao nhiêu**
+và **một lợi thế nổi bật đã kiểm chứng**. Không liệt kê so sánh từng tin, phí/đánh đổi hay lời nhắc dài.
+Không thêm cột/card thứ5, không tăng trần ngân sách
 trong state, không cộng ứng viên vào43 tin chính. “Xem thêm” lấy trang tiếp theo trong43 tin,
 đồng thời có thể xét lại nhóm boundary theo trang mới; ID đã gợi ý được loại riêng để không lặp lại.
 `matchedTotal` trong Core v2 là tổng khớp trước loại ID phân trang, tránh trừ số tin còn lại hai lần.
@@ -52,7 +86,7 @@ Không gọi nhóm phụ khi thiếu trần tiền thuê, không có tin chính,
 chỉ hỏi chi tiết/so sánh trong tập đã chọn, hoặc khách từ chối tăng ngân sách/gợi ý.
 “Dưới/tối đa X” bình thường khác “X là hết khả năng, không thể tăng”. Quyết định từ chối được lưu
 qua các lượt “xem thêm”, tải lại và các câu hỏi chi tiết; chỉ thay khi khách đổi ý rõ ràng.
-Không có ứng viên thì không gọi AI đánh giá. Có ứng viên mới có thể thêm **một lượt OpenAI**;
+Không có ứng viên thì bước đánh giá chung chỉ chọn tin chính. Có ứng viên cũng dùng cùng **một lượt OpenAI**;
 không gọi TomTom/Geoapify và không ghi dữ liệu Nearby.
 Nếu tool/model phụ lỗi, quá hạn hoặc không có lựa chọn thuyết phục, giữ nguyên bảng chính và bỏ gợi ý.
 
@@ -76,9 +110,10 @@ FastAPI microservice for HomeSpace AI capabilities, local RAG knowledge base, an
 - Local Embedding: `intfloat/multilingual-e5-small` via `sentence-transformers` running on CPU (384-dimensional vector, normalized).
 - Generative Layer: OpenAI Responses / Disabled mode for synthesis with source citations.
 
-Listing search and comparison use live Core listing data. Map scans, radius searches and
-nearby-place distance ranking are currently unavailable. Landmark keyword searches only
-match listing text; they do not verify geographic proximity. No nearby-places API key is required.
+Listing search and comparison use live Core listing data. Landmark and nearby criteria use
+Core's existing place store and verified straight-line distances when that data is available.
+Missing coverage is not treated as proof that no amenity exists. Chat never scans providers
+or calls TomTom/Geoapify; no nearby provider API key is required in the AI service.
 
 ---
 

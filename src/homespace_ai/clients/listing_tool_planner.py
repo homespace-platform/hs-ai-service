@@ -82,6 +82,12 @@ def search_parameters(catalog: SearchCatalog, cap: int) -> dict[str, Any]:
             "description": "Only when this message changes willingness to see optional above-budget suggestions. Null keeps the stored policy."}),
         "needs": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 220},
                   "description": "Exact short quotes of qualitative tenant needs from THIS message, e.g. prefers spacious, already owns furniture. Never invent numeric thresholds."},
+        "renterProfile": {"type": "object", "additionalProperties": False,
+                          "properties": {"persona": {"type": ["string", "null"], "enum": ["STUDENT", "WORKING", "FAMILY", "REMOTE", "OTHER", None]},
+                                         "quote": {"type": ["string", "null"], "maxLength": 220},
+                                         "studyPlace": {"type": ["string", "null"], "maxLength": 160},
+                                         "workPlace": {"type": ["string", "null"], "maxLength": 160}},
+                          "required": ["persona", "quote", "studyPlace", "workPlace"]},
         "valuePriorities": {"type": "array", "maxItems": 6, "items": {"type": "object", "additionalProperties": False,
             "properties": {"field": {"type": "string", "maxLength": 120},
                            "direction": {"type": "string", "enum": ["HIGHER", "LOWER", "IGNORE"]},
@@ -145,8 +151,11 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "Elevator=amenity.ELEVATOR; private WC=room.restroom_type PRIVATE; free hours=room.access_hours_type FLEXIBLE; private balcony=room.balcony_type PRIVATE; "
         "gym in building=amenity.GYM, gym nearby is a nearby need. Pets: policy.petPolicy.value ALLOWED (APPROVAL_REQUIRED is not certain permission; 'có thể xin phép' may use in [ALLOWED, APPROVAL_REQUIRED]).",
         "Location: ward/city names exactly as said (no guessed codes); never the account address or the site header. "
-        "If no area and no named place, call ask_clarification for LOCATION before searching; do not invent a 'toàn quốc' search. "
-        "Do not ask budget/persona/amenities when the scope is already clear.",
+        "For rental searches, collect ALL known criteria with search_listings even if location/budget/category/occupants are missing; the application will ask up to two missing basics before calling Core search. Never invent a 'toàn quốc' search. "
+        "Never invent category, budget or occupant count. A short reply answers the pending intake slot. Persona does not imply numeric requirements. "
+        "Keep explicitly named school/workplace in renterProfile as exact customer text, not automatically a distance filter. Profile alone never implies cheap rent, children or a school. "
+        "renterProfile.persona requires an exact quote of the customer's SELF-description in THIS message; do not infer their profile from a search for someone else or from a hypothetical. "
+        "Use ask_clarification for ambiguity you cannot represent, not merely missing basic search slots.",
         "Contradictory bounds in one message (e.g. từ 5 đến 4 triệu): output them exactly as said; never swap or drop.",
         "Reading a displayed listing ('phòng 2 có thang máy không?', 'phí xe phòng này') uses get_listing_detail and adds NO criteria. "
         "'Chỉ giữ phòng có thang máy' is a filter: search_listings withinDisplayed=true. 'Nếu thêm người thì sao' is hypothetical.",
@@ -179,6 +188,7 @@ def state_summary(state: dict[str, Any] | None, catalog: SearchCatalog | None = 
             "boundaryAdvice": state.get("boundaryAdvice", "AUTO"),
             "needs": state.get("needs") or [],
             "valuePriorities": state.get("valuePriorities") or [],
+            "renterProfile": state.get("renterProfile") or {},
             "unsupported": [u["code"] for u in state.get("unsupported") or []],
             "pending": {"type": state["pending"]["type"], "question": state["pending"]["question"],
                         "candidates": [c["name"] + (" — " + c["address"] if c.get("address") else "") for c in state["pending"]["candidates"]]}

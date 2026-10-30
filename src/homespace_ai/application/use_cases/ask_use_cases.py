@@ -39,6 +39,7 @@ class AskResult:
     appointment_context: dict[str, Any] | None = None
     appointment_cards: list[dict[str, Any]] = field(default_factory=list)
     data_sources: list[str] = field(default_factory=list)
+    suggested_questions: list[str] = field(default_factory=list)
 
     @property
     def listing_positions(self) -> dict[str, int]:

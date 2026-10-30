@@ -37,6 +37,7 @@ from homespace_ai.application import renter_search_state as rs
 from homespace_ai.application.renter_criteria import normalize, boundary_policy
 from homespace_ai.application.renter_dates import request_today
 from homespace_ai.application import listing_value_advice as value_advice
+from homespace_ai.application import renter_guidance as guidance
 
 
 LISTING_SIGNAL = VietnamesePattern(
@@ -137,6 +138,7 @@ class ListingAsk:
         self.clock = clock
         self.catalog: SearchCatalog | None = None
         self._base: dict[str, Any] | None = None
+        self._require_search_basics = True
 
     def today(self):
         return request_today(self.clock, getattr(self.settings, "listing_search_utc_offset", None))
@@ -158,6 +160,14 @@ class ListingAsk:
                          state: dict[str, Any] | None = None) -> AskResult | None:
         state = rs.sanitize(state) if state is not None else rs.latest_state(history)
         self._base = deepcopy(state)
+        help_answer = guidance.help_answer(question)
+        if help_answer:
+            kept = deepcopy(state) if state else rs.empty_state()
+            field, text = help_answer
+            kept["pending"] = {**self._pending("INTAKE", text), "fields": [field]}
+            result = self._ask(request_id, current_scope(history), kept, text)
+            result.suggested_questions = guidance.suggested_questions(kept, has_results=bool(current_scope(history)))
+            return result
         policy = boundary_policy(question)
         if policy is not None and state is not None:
             state = deepcopy(state)
@@ -170,12 +180,25 @@ class ListingAsk:
                        "Mình vẫn có thể giúp tìm và so sánh phòng theo khu vực, giá thuê, diện tích và tiện nghi có trong tin đăng.",
                 status="ANSWERED", citations=[], request_id=request_id,
                 listing_context=self.context(current_scope(history), state))
-        return await self._listing_flow(question, history, request_id, state)
+        result = await self._listing_flow(question, history, request_id, state)
+        if result is not None and not result.suggested_questions:
+            context = result.listing_context or {}
+            result.suggested_questions = guidance.suggested_questions(context.get("searchState"), has_results=bool(result.listing_ids),
+                has_boundary=bool(context.get("valueSuggestion")), has_main=bool(context.get("mainRecommendation")), no_results=result.status == "NO_RESULTS")
+        return result
 
     async def _listing_flow(self, question: str, history: list[dict[str, Any]], request_id: str,
                             state: dict[str, Any] | None) -> AskResult | None:
         scope = current_scope(history)
         selection = scoped_selection(question, history)
+        chosen = None
+        if guidance.MAIN_REFERENCE.search(fold_text(question)) and not SEARCH_INTENT.search(question):
+            latest = next((item.get("listingContext") for item in reversed(history)
+                           if item.get("role") == "assistant" and item.get("listingContext")), {})
+            reference = latest.get("mainRecommendation") or {}
+            if reference.get("listingId") in scope:
+                chosen = reference
+                selection = [reference["listingId"]]
         if value_advice.VALUE_REFERENCE.search(question) and not SEARCH_INTENT.search(question):
             latest = next((item.get("listingContext") for item in reversed(history)
                            if item.get("role") == "assistant" and item.get("listingContext")), {})
@@ -210,7 +233,7 @@ class ListingAsk:
         try:
             nearby_memory = next((item.get("listingContext", {}).get("nearby") for item in reversed(history)
                                   if item.get("role") == "assistant" and isinstance(item.get("listingContext"), dict)), None)
-            if selection and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
+            if selection and not chosen and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
                 plan = ToolPlan("get_listing_nearby_places", {**nearby_memory, "listingIds": selection})
             elif selection and not (getattr(self.settings, "nearby_query_enabled", False) and NEARBY_INTENT.search(question)) and not rs.RESET.search(question):
                 # Reading known references needs neither the catalog nor a paid planner call, and never edits criteria.
@@ -237,7 +260,7 @@ class ListingAsk:
         logger.info("listing_tool_selected", request_id=request_id, tool=plan.name,
                     scope_count=len(scope), scoped_followup=bool(selection))
         if plan.name == "ask_clarification":
-            return self._model_clarification(request_id, scope, state, plan.arguments)
+            return await self._model_clarification(question, history, request_id, scope, state, plan.arguments)
         if plan.name == "get_listing_nearby_places":
             return await answer_nearby(self, question, history, request_id, plan.arguments, state=state)
         if plan.name == "search_listings":
@@ -267,6 +290,12 @@ class ListingAsk:
                 return AskResult(answer="Tin này hiện không còn hiển thị công khai, nên mình không dùng thông tin cũ để trả lời.",
                                  status="NO_RESULTS", citations=[], request_id=request_id, listing_context=self.context(scope, state))
             return self._unavailable(request_id, scope, state)
+        if chosen and plan.name == "get_listing_detail":
+            explanation = value_advice.explain_main(chosen, evidence["listings"], state or {}, scope, self.catalog)
+            if explanation:
+                context = self.context(scope, state) | {"mainRecommendation": chosen}
+                return AskResult(answer=explanation, status="ANSWERED", citations=[], request_id=request_id,
+                                 listing_context=context, listing_ids=selection)
         return await self._present(question, history, request_id, plan.name, evidence, scope, state, ids=None)
 
     async def _apply(self, question: str, history: list[dict[str, Any]], request_id: str, state: dict[str, Any] | None,
@@ -277,7 +306,8 @@ class ListingAsk:
         merged = rs.merge(state, {
             "constraints": update["constraints"], "alternatives": update["alternatives"],
             "boundaryAdvice": update.get("boundaryAdvice"),
-                        "needs": update.get("needs") or [], "valuePriorities": update.get("valuePriorities") or [],
+            "needs": update.get("needs") or [], "valuePriorities": update.get("valuePriorities") or [],
+            "renterProfile": update.get("renterProfile") or {}, "intakeOpen": update.get("intakeOpen") or [],
             "removeFields": update["removeFields"], "nationwide": update["nationwide"],
             "nearby": [{**n, "radiusMeters": n["radiusMeters"] or radius_default} for n in update["nearby"]],
             "context": update["context"], "sort": update["sort"], "keyword": update["keyword"],
@@ -330,7 +360,7 @@ class ListingAsk:
             merged["pending"] = self._pending("DATE", text)
             return self._ask(request_id, scope, merged, text)
         within = bool(update.get("withinDisplayed") and scope)
-        if not within and not rs.has_scope(merged):
+        if not within and not rs.has_scope(merged) and not getattr(self, "_require_search_basics", True):
             text = ("Bạn muốn tìm ở khu vực nào? Cho mình phường/xã và tỉnh/thành phố "
                     "(ví dụ: Phường Hạnh Thông, Thành phố Hồ Chí Minh), hoặc tên trường/nơi làm việc cụ thể nhé.")
             merged["pending"] = self._pending("LOCATION", text)
@@ -361,6 +391,15 @@ class ListingAsk:
         if not requested_count(question) and update.get("limit"):
             limit = min(limit, update["limit"])
         within = bool(update.get("withinDisplayed") and scope)
+        if not within and getattr(self, "_require_search_basics", True):
+            missing = guidance.missing_basics(criteria)
+            if missing:
+                pending = deepcopy(criteria)
+                pending["pending"] = {**self._pending("INTAKE", ""), "fields": missing[:2]}
+                answer = self._ask(request_id, scope, pending, guidance.intake_question(missing))
+                answer.status = "NEEDS_CLARIFICATION"
+                answer.suggested_questions = guidance.suggested_questions(pending)
+                return answer
         more = bool(update.get("moreResults") or MORE_PAGE.search(question))
         current = rs.fingerprint(criteria)
         exclude = criteria["shown"]["ids"] if more and criteria["shown"]["fingerprint"] == current else []
@@ -422,34 +461,48 @@ class ListingAsk:
         seen_boundary = rs.boundary_exclusions(persist)
         displayed_ids = answer.listing_ids
         displayed = [item for identifier in displayed_ids for item in full if item["id"] == identifier]
-        if (answer.status == "ANSWERED" and len(seen_boundary) < 40
-                and value_advice.eligible(question, criteria, payload, displayed, more=more, within=within)):
+        if answer.status == "ANSWERED" and displayed and hasattr(self.generative_client, "generate_value_advice"):
             try:
                 async with asyncio.timeout(value_advice_timeout_seconds()):
-                    boundary = await self.tools.value_opportunity(payload, displayed_ids, seen_boundary)
-                    # These are fresh public reads, bounded to eight candidates and four concurrent HTTP calls.
-                    semaphore = asyncio.Semaphore(4)
-                    async def read_candidate(identifier):
-                        async with semaphore:
-                            try:
-                                return await self.tools.detail(identifier)
-                            except ListingToolError as error:
-                                if error.status_code in {404, 410} or str(error) == "Listing is no longer public":
-                                    return None
-                                raise
-                    candidates = [item for item in await asyncio.gather(
-                        *(read_candidate(identifier) for identifier in boundary["candidateIds"])) if item is not None]
-                    suggestion = (await value_advice.evaluate(question, criteria | {"requestToday": self.today().isoformat()}, displayed, candidates, boundary,
-                                                            self.generative_client, self.catalog)) if candidates else None
+                    boundary, candidates = {"candidateIds": []}, []
+                    if len(seen_boundary) < 40 and value_advice.eligible(question, criteria, payload, displayed, more=more, within=within):
+                        try:
+                            boundary = await self.tools.value_opportunity(payload, displayed_ids, seen_boundary)
+                            semaphore = asyncio.Semaphore(4)
+                            async def read_candidate(identifier):
+                                async with semaphore:
+                                    try:
+                                        return await self.tools.detail(identifier)
+                                    except ListingToolError as error:
+                                        if error.status_code in {404, 410} or str(error) == "Listing is no longer public":
+                                            return None
+                                        raise
+                            candidates = [item for item in await asyncio.gather(
+                                *(read_candidate(identifier) for identifier in boundary["candidateIds"])) if item is not None]
+                        except (ListingToolError, HTTPException) as error:
+                            self._log_failure(request_id, "boundary_candidates", error, "find_value_opportunity")
+                            boundary, candidates = {"candidateIds": []}, []
+                    advice = await value_advice.evaluate(question, criteria | {"requestToday": self.today().isoformat()}, displayed,
+                        candidates, boundary, self.generative_client, self.catalog, recommend_main=True)
+                main, suggestion = (advice or {}).get("main"), (advice or {}).get("boundary")
+                if main:
+                    answer.answer += "\n\n" + value_advice.render_main(main, displayed)
+                    answer.listing_context["mainRecommendation"] = {"listingId": main["listingId"],
+                        "fields": [reason["field"] for reason in main["reasons"]]}
                 if suggestion:
                     answer.answer += "\n\n" + value_advice.render(suggestion, displayed, boundary)
-                    advice_state = rs.record_boundary(persist, suggestion["listingId"])
-                    answer.listing_context = self.context(answer.listing_context["listingIds"], advice_state)
+                    persist = rs.record_boundary(persist, suggestion["listingId"])
                     answer.listing_context["valueSuggestion"] = {"listingId": suggestion["listingId"]}
-                logger.info("listing_value_comparison", request_id=request_id, suggested=bool(suggestion), displayed=len(shown_ids))
+                logger.info("listing_value_comparison", request_id=request_id, suggested=bool(suggestion), main_selected=bool(main), displayed=len(displayed))
             except (ListingToolError, GenerationUnavailableError, HTTPException, TimeoutError, ValueError, TypeError, KeyError) as error:
                 # Optional advice failing must never discard valid main results or widen criteria.
                 self._log_failure(request_id, "value_comparison", error, "find_value_opportunity")
+            followup = guidance.followup_question(persist)
+            if followup:
+                answer.answer += "\n\n" + followup
+                persist["guidanceAsked"] = list(dict.fromkeys((persist.get("guidanceAsked") or []) + [followup]))[-6:]
+            references = {key: answer.listing_context[key] for key in ("mainRecommendation", "valueSuggestion") if key in answer.listing_context}
+            answer.listing_context = self.context(answer.listing_ids, persist) | references
         return answer
 
     def _check_label(self, fields: list[str]) -> str:
@@ -488,6 +541,9 @@ class ListingAsk:
         evidence["selectionScope"] = [{"listingId": value, "position": index} for index, value in enumerate(references, 1)]
         evidence["recentUserRequests"] = [item["content"][:1200] for item in history[-8:] if item.get("role") == "user"]
         evidence["scopeOnly"] = is_known_selection
+        if state:
+            evidence["confirmedCriteria"] = {key: state.get(key) for key in
+                ("constraints", "context", "needs", "valuePriorities", "renterProfile")}
         result_context = self.context(references, state)
         count_notice = self._count_notice(evidence) if tool == 'search_listings' else ''
 
@@ -557,10 +613,34 @@ class ListingAsk:
         return AskResult(answer=text, status="ANSWERED", citations=[], request_id=request_id,
                          listing_context=self.context(scope, state), data_sources=data_sources or [])
 
-    def _model_clarification(self, request_id: str, scope: list[str], state: dict[str, Any] | None,
+    async def _model_clarification(self, question: str, history: list[dict], request_id: str, scope: list[str], state: dict[str, Any] | None,
                              arguments: dict[str, Any]) -> AskResult:
         kept = deepcopy(state) if state else rs.empty_state()
         missing = arguments.get("missing") or ["OTHER"]
+        if self.catalog:
+            # Model tool choice never determines whether already-stated facts are remembered.
+            update = normalize(question, {"constraints": [], "context": {}, "location": {}}, self.catalog, state, self.today())
+            if not update.get("hypothetical"):
+                kept = rs.merge(kept, update, question)
+            try:
+                location = guidance.explicit_location(question, history)
+                if location:
+                    kept["location"] = location
+            except LocationClarification as error:
+                kept["pending"] = self._pending("LOCATION", str(error))
+                result = self._ask(request_id, scope, kept, str(error))
+                result.status = "NEEDS_CLARIFICATION"
+                return result
+            if getattr(self, "_require_search_basics", True):
+                needed = guidance.missing_basics(kept)
+                if needed:
+                    text = guidance.intake_question(needed)
+                    kept["pending"] = {**self._pending("INTAKE", text), "fields": needed[:2]}
+                    result = self._ask(request_id, scope, kept, text)
+                    result.status = "NEEDS_CLARIFICATION"
+                    return result
+                if set(missing) <= {"LOCATION", "CATEGORY", "BUDGET", "OCCUPANTS", "CONTEXT"}:
+                    return await self._apply(question, history, request_id, kept, update, scope)
         kind = "LOCATION" if "LOCATION" in missing else "TARGET" if "TARGET" in missing else "DATE" if "DATE" in missing else "MODEL"
         text = arguments["question"]
         if arguments.get("options"):

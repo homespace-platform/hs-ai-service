@@ -129,6 +129,7 @@ class ConversationRepository:
         listing_ids: list[str] | None = None, listing_positions: dict[str, int] | None = None,
         contract_context: dict[str, Any] | None = None, contract_cards: list[dict[str, Any]] | None = None,
         data_sources: list[str] | None = None,
+        suggested_questions: list[str] | None = None,
         appointment_context: dict[str, Any] | None = None, appointment_cards: list[dict[str, Any]] | None = None,
     ) -> bool:
         now = _now()
@@ -142,6 +143,7 @@ class ConversationRepository:
         if role == "assistant" and listing_context is not None:
             message["listingContext"] = listing_context
         if role == "assistant":
+            message["suggestedQuestions"] = (suggested_questions or [])[:4]
             message["listingIds"] = listing_ids or []
             message["listingPositions"] = listing_positions or {}
             if contract_context is not None:

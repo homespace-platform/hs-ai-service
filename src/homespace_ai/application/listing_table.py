@@ -378,10 +378,10 @@ def listing_table(listings: list[dict[str, Any]], references: list[str], section
                  "| Ảnh | " + " | ".join(images[part]) + " |"]
         lines += ["| " + _cell(label) + " | " + " | ".join(_cell(v) for v in values[part]) + " |" for label, values in rows]
         tables.append("\n".join(lines))
-    legend = "‘Chưa rõ’: tin đăng chưa cung cấp"
+    result = "\n\n".join(tables)
     if any(ABSENT in values for _, values in rows):
-        legend += " · ‘—’: tin không ghi mục này hoặc không áp dụng cho loại hình"
-    return "\n\n".join(tables) + "\n\n" + legend + "."
+        result += "\n\n‘—’: tin không ghi mục này hoặc không áp dụng cho loại hình."
+    return result
 
 
 def strip_tables(text: str) -> str:

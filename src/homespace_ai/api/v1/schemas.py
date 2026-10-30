@@ -167,6 +167,7 @@ class AskResponse(BaseModel):
     contractCards: list[ContractCardItem] = Field(default_factory=list)
     appointmentCards: list[AppointmentCardItem] = Field(default_factory=list)
     dataSources: list[str] = Field(default_factory=list)
+    suggestedQuestions: list[str] = Field(default_factory=list, max_length=4)
 
 
 class GuestStateRequest(BaseModel):
@@ -193,6 +194,7 @@ class ConversationMessage(BaseModel):
     contractCards: list[ContractCardItem] = Field(default_factory=list)
     appointmentCards: list[AppointmentCardItem] = Field(default_factory=list)
     dataSources: list[str] = Field(default_factory=list)
+    suggestedQuestions: list[str] = Field(default_factory=list, max_length=4)
 
 
 class ConversationSummary(BaseModel):

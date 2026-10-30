@@ -320,13 +320,15 @@ def _verified_comparisons(facts: dict, mains: dict) -> dict:
 
 
 async def evaluate(question: str, criteria: dict, main_listings: list[dict], candidates: list[dict], boundary: dict,
-                   generator, catalog=None) -> dict | None:
-    if (not main_listings or not candidates or criteria.get("boundaryAdvice") == "DENY"
+                   generator, catalog=None, *, recommend_main: bool = False) -> dict | None:
+    if (not main_listings or (not candidates or criteria.get("boundaryAdvice") == "DENY") and not recommend_main
             or any(item.get("status") != "PUBLISHED" for item in main_listings)):
         return None
-    ceiling, extra = number(boundary.get("budgetCeiling")), number(boundary.get("maxExtraMonthly"))
-    if ceiling <= 0 or not 0 < extra <= 500000:
+    ceiling, extra = number(boundary.get("budgetCeiling") or 0), number(boundary.get("maxExtraMonthly") or 0)
+    if (ceiling <= 0 or not 0 < extra <= 500000) and not recommend_main:
         raise ListingToolError("Invalid budget boundary")
+    if criteria.get("boundaryAdvice") == "DENY" or ceiling <= 0 or not 0 < extra <= 500000:
+        candidates = []
     allow_at_ceiling = any(c.get("strength") == "hard" and c.get("field") in {"rent.monthly_amount", "price_amount"}
                            and c.get("op") == "lt" and number(c.get("value")) == ceiling
                            for c in criteria.get("constraints") or [])
@@ -348,15 +350,15 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
         rent = number(pricing.get("amount"))
         if (rent > ceiling or allow_at_ceiling and rent == ceiling) and rent <= ceiling + extra:
             pool[identifier] = {"id": identifier, "rent": rent, "facts": _context_facts(item, criteria, catalog, today)}
-    if not pool:
+    if not pool and not recommend_main:
         return None
     pool = _prioritized_pool(pool, criteria)
     budget_constraints = [c for c in criteria.get("constraints") or [] if c.get("strength") == "hard"
                           and c.get("field") in {"rent.monthly_amount", "price_amount"} and c.get("op") in {"lt", "lte"}]
-    retained_criteria = {k: criteria.get(k) for k in ("constraints", "alternatives", "location", "target", "nearby", "context", "unsupported", "needs", "valuePriorities")}
+    retained_criteria = {k: criteria.get(k) for k in ("constraints", "alternatives", "location", "target", "nearby", "context", "unsupported", "needs", "valuePriorities", "renterProfile")}
     retained_criteria["constraints"] = [c for c in criteria.get("constraints") or [] if c not in budget_constraints]
     evidence = {"budgetCeiling": ceiling, "maxExtraMonthly": extra, "budgetField": boundary.get("budgetField"), "today": today,
-                "candidateBudgetLimit": ceiling + extra, "mainBudgetConstraints": budget_constraints,
+                "candidateBudgetLimit": ceiling + extra, "mainBudgetConstraints": budget_constraints, "recommendMain": recommend_main,
                 "boundaryPolicy": criteria.get("boundaryAdvice", "AUTO"), "confirmedCriteria": retained_criteria,
                 "mainListings": [{"id": item["id"], "rent": item.get("pricing", {}).get("amount"),
                                   "factColumn": column} for column, item in enumerate(main_listings)],
@@ -370,6 +372,62 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
     decision = await generator.generate_value_advice(question=question, evidence=evidence)
     if not isinstance(decision, dict):
         raise ListingToolError("Invalid boundary decision")
+    main = _main_recommendation(decision.get("mainRecommendation"), mains, main_listings, criteria) if recommend_main else None
+    try:
+        suggestion = _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, extra, allow_at_ceiling)
+    except ListingToolError:
+        if not recommend_main:
+            raise
+        suggestion = None  # A bad optional proof never removes a valid main recommendation.
+    return {"main": main, "boundary": suggestion} if recommend_main else suggestion
+
+
+def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict) -> dict | None:
+    if not isinstance(raw, dict) or raw.get("listingId") is None:
+        return None
+    identifier, fields = raw.get("listingId"), raw.get("fields")
+    if identifier not in mains or not isinstance(fields, list) or not 1 <= len(fields) <= 2 or len(set(fields)) != len(fields):
+        raise ListingToolError("Invalid main recommendation")
+    reasons = []
+    for path in fields:
+        if path == "pricing.amount":
+            listing = next(item for item in listings if item["id"] == identifier)
+            price = listing.get("pricing") or {}
+            if price.get("currency") == "VND" and price.get("unit") in {"MONTH", "ROOM_MONTH"}:
+                reasons.append({"field": path, "label": "Tiền thuê", "display": formatted(price["amount"]) + "đ/tháng"})
+        else:
+            fact = mains[identifier].get(path)
+            if fact is not None and not _ignored(fact, criteria):
+                reasons.append({"field": path, "label": fact["label"], "display": _display(fact)})
+    return {"listingId": identifier, "reasons": reasons} if reasons else None
+
+
+def render_main(decision: dict, main_listings: list[dict]) -> str:
+    ids = [item["id"] for item in main_listings]
+    identifier = decision["listingId"]
+    if identifier not in ids:
+        raise ListingToolError("Main recommendation is outside the displayed page")
+    noun = {"ROOM": "Phòng", "APARTMENT": "Căn", "HOUSE": "Nhà"}.get(main_listings[ids.index(identifier)].get("category"), "Tin")
+    reasons = "; ".join(f"{_clean(r['label'])}: **{_clean(r['display'])}**" for r in decision["reasons"])
+    return f"**Trong nhóm đúng ngân sách, mình ưu tiên [{noun} {ids.index(identifier)+1}](/rent/{identifier}):** {reasons}."
+
+
+def explain_main(reference: dict, listings: list[dict], criteria: dict, scope: list[str], catalog=None) -> str | None:
+    """Re-read selected facts; never regenerate motives or persist a second copy of prices."""
+    if not reference.get("fields"):
+        return None
+    facts = {item["id"]: _context_facts(item, criteria, catalog, None) for item in listings}
+    decision = _main_recommendation(reference, facts, listings, criteria)
+    if not decision:
+        return None
+    identifier = decision["listingId"]
+    label = f"Tin {scope.index(identifier)+1}" if identifier in scope else "Tin được chọn"
+    points = "; ".join(f"{_clean(r['label'])}: **{_clean(r['display'])}**" for r in decision["reasons"])
+    return f"**Các tiêu chí mình dùng để ưu tiên [{label}](/rent/{identifier}), theo thông tin hiện công bố:** {points}."
+
+
+def _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, extra, allow_at_ceiling):
+    main_ids = [item["id"] for item in main_listings]
     identifier = decision.get("selectedId")
     if identifier is None:
         return None
@@ -434,9 +492,8 @@ def render(decision: dict, main_listings: list[dict], boundary: dict) -> str:
         raise ListingToolError("Rendered boundary exceeds the customer's budget window")
     boundary_text = (f"**vượt ngân sách {formatted(rent-ceiling)}đ/tháng** so với mức {formatted(ceiling)}đ"
                      if rent > ceiling else f"**chạm mức ngân sách {formatted(ceiling)}đ/tháng**")
-    gains = "; ".join(_statement(p, ids) for p in decision["advantages"])
+    highlight = decision["advantages"][0]["fact"]
+    gains = f"**{highlight['label']}: {_display(highlight)}**"
     result = (f"**Một lựa chọn ngoài ngân sách để cân nhắc:** [Xem tin gợi ý](/rent/{identifier}) giá "
               f"**{formatted(rent)}đ/tháng**, {boundary_text}. Sau khi đối chiếu cả nhóm, điểm đáng cân nhắc là: {gains}.")
-    if decision["tradeoffs"]:
-        result += " **Điểm cần cân nhắc:** " + "; ".join(_statement(p, ids) for p in decision["tradeoffs"]) + "."
-    return result + " Đây là phương án tùy chọn; ngân sách và danh sách chính vẫn giữ nguyên. Bạn nên xem thêm phí dịch vụ và điều kiện thuê trước khi quyết định."
+    return result
