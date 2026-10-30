@@ -64,8 +64,8 @@ async def test_recommendation_cards_are_separate_from_followup_scope_and_remove_
     assistant.generative_client.generate_listing_answer = AsyncMock(return_value=ListingGeneratedAnswer(
         f"Mình chọn [Phòng 3](/rent/{IDS[2]}) cho bạn.", [IDS[2], IDS[2]]))
     result = await assistant.try_answer("Nên chọn phòng nào rẻ nhất?", previous(), "cards")
-    assert result.listing_ids == [IDS[2]]
-    assert result.listing_positions == {IDS[2]: 3}
+    assert result.listing_ids == IDS[:4], "A comparison keeps all columns; the main choice is separate metadata"
+    assert result.listing_positions == {value: index for index, value in enumerate(IDS[:4], 1)}
     assert result.listing_context["listingIds"] == IDS[:4]
     prose, _, table = result.answer.partition("\n\n|")
     assert prose == "Mình chọn Phòng 3 cho bạn.", "Model-written links are removed"

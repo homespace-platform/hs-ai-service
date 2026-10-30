@@ -56,8 +56,7 @@ def number(value: Any) -> Decimal:
 
 
 def eligible(question: str, criteria: dict, payload: dict, listings: list[dict], *, more: bool, within: bool) -> bool:
-    # Pagination exclusions concern main results, not the separate boundary pool.
-    if within or payload.get("scopeIds") is not None or not 1 <= len(listings) <= 4:
+    if more or within or payload.get("scopeIds") is not None or not 1 <= len(listings) <= 4:
         return False
     if criteria.get("boundaryAdvice") == "DENY" or DECLINED.search(question) or CHEAPEST_ONLY.search(question):
         return False
@@ -320,7 +319,7 @@ def _verified_comparisons(facts: dict, mains: dict) -> dict:
 
 
 async def evaluate(question: str, criteria: dict, main_listings: list[dict], candidates: list[dict], boundary: dict,
-                   generator, catalog=None, *, recommend_main: bool = False) -> dict | None:
+                   generator, catalog=None, *, recommend_main: bool = False, nearby_facts: dict | None = None) -> dict | None:
     if (not main_listings or (not candidates or criteria.get("boundaryAdvice") == "DENY") and not recommend_main
             or any(item.get("status") != "PUBLISHED" for item in main_listings)):
         return None
@@ -339,6 +338,9 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
     except ValueError:
         today = None
     mains = {item["id"]: _context_facts(item, criteria, catalog, today) for item in main_listings}
+    for identifier, facts in (nearby_facts or {}).items():
+        if identifier in mains:
+            mains[identifier].update(facts)
     pool = {}
     allowed = set(boundary.get("candidateIds") or [])
     for item in candidates[:8]:
@@ -402,14 +404,15 @@ def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict)
     return {"listingId": identifier, "reasons": reasons} if reasons else None
 
 
-def render_main(decision: dict, main_listings: list[dict]) -> str:
+def render_main(decision: dict, main_listings: list[dict], references: list[str] | None = None) -> str:
     ids = [item["id"] for item in main_listings]
     identifier = decision["listingId"]
     if identifier not in ids:
         raise ListingToolError("Main recommendation is outside the displayed page")
     noun = {"ROOM": "Phòng", "APARTMENT": "Căn", "HOUSE": "Nhà"}.get(main_listings[ids.index(identifier)].get("category"), "Tin")
     reasons = "; ".join(f"{_clean(r['label'])}: **{_clean(r['display'])}**" for r in decision["reasons"])
-    return f"**Trong nhóm đúng ngân sách, mình ưu tiên [{noun} {ids.index(identifier)+1}](/rent/{identifier}):** {reasons}."
+    ordinal = (references or ids).index(identifier) + 1
+    return f"**Trong nhóm phòng đang xét, mình ưu tiên [{noun} {ordinal}](/rent/{identifier}):** {reasons}."
 
 
 def explain_main(reference: dict, listings: list[dict], criteria: dict, scope: list[str], catalog=None) -> str | None:

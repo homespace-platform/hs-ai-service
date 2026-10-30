@@ -38,6 +38,7 @@ from homespace_ai.application.renter_criteria import normalize, boundary_policy
 from homespace_ai.application.renter_dates import request_today
 from homespace_ai.application import listing_value_advice as value_advice
 from homespace_ai.application import renter_guidance as guidance
+from homespace_ai.application.amenity_intent import ambiguous_amenities
 
 
 LISTING_SIGNAL = VietnamesePattern(
@@ -160,6 +161,9 @@ class ListingAsk:
                          state: dict[str, Any] | None = None) -> AskResult | None:
         state = rs.sanitize(state) if state is not None else rs.latest_state(history)
         self._base = deepcopy(state)
+        profile = guidance.profile_update(question)
+        if profile:
+            state = rs.merge(state, {"renterProfile": profile}, question)
         help_answer = guidance.help_answer(question)
         if help_answer:
             kept = deepcopy(state) if state else rs.empty_state()
@@ -191,6 +195,12 @@ class ListingAsk:
                             state: dict[str, Any] | None) -> AskResult | None:
         scope = current_scope(history)
         selection = scoped_selection(question, history)
+        if scope and guidance.profile_update(question) and not SEARCH_INTENT.search(question):
+            selection = scope
+        if scope and ambiguous_amenities(question):
+            return AskResult(answer="Bạn muốn xem tiện ích trong tòa nhà (như WiFi, thang máy) hay địa điểm xung quanh (như siêu thị, trường học)?",
+                status="NEEDS_CLARIFICATION", citations=[], request_id=request_id, listing_context=self.context(scope, state),
+                suggested_questions=["Các phòng trên có những tiện ích nào xung quanh?", "Các phòng trên có những tiện ích tòa nhà nào?"])
         chosen = None
         if guidance.MAIN_REFERENCE.search(fold_text(question)) and not SEARCH_INTENT.search(question):
             latest = next((item.get("listingContext") for item in reversed(history)
@@ -233,7 +243,11 @@ class ListingAsk:
         try:
             nearby_memory = next((item.get("listingContext", {}).get("nearby") for item in reversed(history)
                                   if item.get("role") == "assistant" and isinstance(item.get("listingContext"), dict)), None)
-            if selection and not chosen and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
+            chosen_nearby = chosen and any(f.startswith("nearby.") for f in chosen.get("fields", []))
+            if chosen_nearby and nearby_memory:
+                chosen = None  # Provider facts must be re-read by the nearby tool, not a detail-only explanation.
+                plan = ToolPlan("get_listing_nearby_places", {**nearby_memory, "listingIds": selection})
+            elif selection and not chosen and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
                 plan = ToolPlan("get_listing_nearby_places", {**nearby_memory, "listingIds": selection})
             elif selection and not (getattr(self.settings, "nearby_query_enabled", False) and NEARBY_INTENT.search(question)) and not rs.RESET.search(question):
                 # Reading known references needs neither the catalog nor a paid planner call, and never edits criteria.
@@ -259,6 +273,11 @@ class ListingAsk:
 
         logger.info("listing_tool_selected", request_id=request_id, tool=plan.name,
                     scope_count=len(scope), scoped_followup=bool(selection))
+        if (selection and NEARBY_INTENT.search(question) and getattr(self.settings, "nearby_query_enabled", False)
+                and plan.name in {"get_listing_detail", "get_listing_details"}):
+            # Explicit outside-place questions cannot be answered with inside-building amenities.
+            plan = ToolPlan("get_listing_nearby_places", {"listingIds": selection,
+                "radiusMeters": self.settings.nearby_default_radius_m, "groups": []})
         if plan.name == "ask_clarification":
             return await self._model_clarification(question, history, request_id, scope, state, plan.arguments)
         if plan.name == "get_listing_nearby_places":
@@ -296,7 +315,39 @@ class ListingAsk:
                 context = self.context(scope, state) | {"mainRecommendation": chosen}
                 return AskResult(answer=explanation, status="ANSWERED", citations=[], request_id=request_id,
                                  listing_context=context, listing_ids=selection)
-        return await self._present(question, history, request_id, plan.name, evidence, scope, state, ids=None)
+        result = await self._present(question, history, request_id, plan.name, evidence, scope, state, ids=None)
+        if len(evidence["listings"]) > 1:
+            displayed = [item for item in evidence["listings"] if item["id"] in result.listing_ids]
+            result = await self._advise_main(question, request_id, result, displayed, state)
+        return result
+
+    async def _advise_main(self, question: str, request_id: str, answer: AskResult, listings: list[dict],
+                           state: dict | None, *, nearby_facts: dict | None = None) -> AskResult:
+        """One current-scope recommendation on follow-ups, with no boundary or provider calls."""
+        if answer.status != "ANSWERED" or not listings or not hasattr(self.generative_client, "generate_value_advice"):
+            return answer
+        criteria = state or rs.empty_state()
+        try:
+            async with asyncio.timeout(value_advice_timeout_seconds()):
+                if self.catalog is None:
+                    self.catalog = SearchCatalog(await self.tools.catalog())
+                advice = await value_advice.evaluate(question, criteria | {"requestToday": self.today().isoformat()}, listings,
+                    [], {"candidateIds": []}, self.generative_client, self.catalog, recommend_main=True, nearby_facts=nearby_facts)
+            main = (advice or {}).get("main")
+            if main:
+                answer.answer += "\n\n" + value_advice.render_main(main, listings, answer.listing_context["listingIds"])
+                answer.listing_context["mainRecommendation"] = {"listingId": main["listingId"],
+                    "fields": [reason["field"] for reason in main["reasons"]]}
+        except (CatalogError, ListingToolError, GenerationUnavailableError, HTTPException, TimeoutError, ValueError, TypeError, KeyError) as error:
+            self._log_failure(request_id, "main_recommendation", error)
+        followup = guidance.followup_question(criteria)
+        if followup:
+            answer.answer += "\n\n" + followup
+            criteria = deepcopy(criteria)
+            criteria["guidanceAsked"] = list(dict.fromkeys((criteria.get("guidanceAsked") or []) + [followup]))[-6:]
+            references = {k: answer.listing_context[k] for k in ("mainRecommendation", "nearby") if k in answer.listing_context}
+            answer.listing_context = self.context(answer.listing_context["listingIds"], criteria) | references
+        return answer
 
     async def _apply(self, question: str, history: list[dict[str, Any]], request_id: str, state: dict[str, Any] | None,
                      update: dict[str, Any], scope: list[str]) -> AskResult:
@@ -461,11 +512,15 @@ class ListingAsk:
         seen_boundary = rs.boundary_exclusions(persist)
         displayed_ids = answer.listing_ids
         displayed = [item for identifier in displayed_ids for item in full if item["id"] == identifier]
+        allow_boundary = rs.boundary_turn(self._base, criteria, more=more, within=within)
+        if not within:
+            persist["boundaryArea"] = rs.boundary_area(criteria)
+            answer.listing_context = self.context(answer.listing_ids, persist)
         if answer.status == "ANSWERED" and displayed and hasattr(self.generative_client, "generate_value_advice"):
             try:
                 async with asyncio.timeout(value_advice_timeout_seconds()):
                     boundary, candidates = {"candidateIds": []}, []
-                    if len(seen_boundary) < 40 and value_advice.eligible(question, criteria, payload, displayed, more=more, within=within):
+                    if allow_boundary and len(seen_boundary) < 40 and value_advice.eligible(question, criteria, payload, displayed, more=more, within=within):
                         try:
                             boundary = await self.tools.value_opportunity(payload, displayed_ids, seen_boundary)
                             semaphore = asyncio.Semaphore(4)
@@ -541,6 +596,7 @@ class ListingAsk:
         evidence["selectionScope"] = [{"listingId": value, "position": index} for index, value in enumerate(references, 1)]
         evidence["recentUserRequests"] = [item["content"][:1200] for item in history[-8:] if item.get("role") == "user"]
         evidence["scopeOnly"] = is_known_selection
+        evidence["mainRecommendationManaged"] = len(evidence["listings"]) > 1
         if state:
             evidence["confirmedCriteria"] = {key: state.get(key) for key in
                 ("constraints", "context", "needs", "valuePriorities", "renterProfile")}
@@ -563,7 +619,7 @@ class ListingAsk:
                 evidence.get("moreResults") or MORE_PAGE.search(question) or not ADVICE_REQUEST.search(question)):
             return AskResult(answer=self._browse_answer(question, evidence, table_for(ids)), status="ANSWERED",
                              citations=[], request_id=request_id, listing_context=result_context, listing_ids=ids)
-        if tool != "search_listings" and wants_table and not recommend:
+        if tool != "search_listings" and not recommend and (wants_table or show_table and sections and not ADVICE_REQUEST.search(question)):
             return AskResult(answer=self._table_answer(sections, len(full), table_for(ids)), status="ANSWERED",
                              citations=[], request_id=request_id, listing_context=result_context, listing_ids=ids)
         parking_answer = None if recommend else self._parking_answer(question, evidence["listings"], references)
@@ -582,6 +638,8 @@ class ListingAsk:
                 raise GenerationUnavailableError("Unknown listing reference.", retryable=False)
             raw = customer_listing_text(generated.answer)
             selected_ids = list(dict.fromkeys(generated.listing_ids))
+            if show_table:
+                selected_ids = ids  # A follow-up comparison keeps every current column; advice is separate.
             if tool == 'search_listings' and requested_count(question) is not None:
                 selected_ids = ids  # Explicit page size applies to cards too, not just model prose references.
             raw = re.sub(r"\[([^\]]+)\]\(/rent/[0-9a-fA-F-]{36}\)", r"\1", raw)

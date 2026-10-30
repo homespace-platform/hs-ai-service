@@ -18,6 +18,24 @@ Sau kết quả, AI hỏi tối đa một câu để hiểu thêm mục đích t
 lặp lại câu đã hỏi khi “xem thêm”. Persona giúp tư vấn và đặt câu hỏi, không tự trở thành
 bộ lọc cứng. Nearby chỉ đọc kho địa điểm đã lưu, không gọi TomTom khi chat.
 
+Các lượt hỏi tiếp về nhóm phòng (tiện ích tòa nhà, phí, nội thất, Nearby…) cũng có bước chọn
+một tin chính theo nhu cầu và persona đã biết. Bảng giữ nguyên các cột/số thứ tự; lựa chọn chính
+được thêm riêng bên dưới, không cắt nhóm xuống ba tin. Hỏi “tiện ích” chưa rõ sẽ làm rõ nguồn:
+WiFi/thang máy/giặt phơi là tiện ích tòa nhà; trường học/siêu thị/bệnh viện bên ngoài là Nearby.
+Câu “Các phòng trên có những tiện ích nào xung quanh?” phải gọi `get_listing_nearby_places`,
+không được đọc tiện ích tòa nhà để trả lời thay.
+
+Nearby dùng một batch `POST /api/v1/public/listings/ai/nearby-summary` cho nhóm tối đa 20 tin,
+đọc các quan hệ đã lưu trong CSDL. Bảng do ứng dụng dựng, mỗi nhóm tiện ích có tên địa điểm
+gần nhất đã ghi nhận và khoảng cách đường chim bay, mặc định 2 km. Không gửi toàn bộ 100 POI
+của từng tin cho AI. Nhóm thiếu bằng chứng được ghi “Chưa ghi nhận trong dữ liệu đã lưu”,
+không suy ra không có tiện ích. Dữ kiện Nearby dùng để tư vấn chỉ lấy từ phạm vi đã phủ;
+giáo dục chung không được xem là đúng trường đại học của sinh viên. Nếu thiếu bằng chứng vị trí,
+AI vẫn có thể cân nhắc dữ kiện căn phòng, nhưng không bịa ưu thế về vị trí.
+
+Gợi ý câu hỏi luôn có câu hỏi về Nearby sau kết quả. Memory chỉ giữ ID/phạm vi và các mã
+trường dùng để giải thích; không giữ bản sao POI. Khi hỏi lại phải đọc dữ liệu mới từ Core.
+
 API trả `suggestedQuestions` (tối đa bốn câu hỏi hoàn chỉnh), lưu cùng câu trả lời trong
 lịch sử tài khoản và phiên khách. Frontend hiển thị ngay trên ô chat ở cả trang chat và
 khung chat trang chủ. **Bấm gợi ý chỉ điền vào ô nhập; người dùng tự gửi.** Không dùng
@@ -31,7 +49,10 @@ frontend. Ví dụ thử theo thứ tự:
 2. “Ở phường Gò Vấp, TP.HCM, dưới 3,5 triệu, ở 2 người. Ưu tiên phòng rộng, mình đã có giường tủ.”
    → bảng bốn tin, chọn một tin chính; boundary chỉ hiện nếu có lợi thế đủ bằng chứng.
 3. “Vì sao bạn ưu tiên phòng được chọn?” → đọc đúng tin chính, không nhầm boundary.
-4. “Xem thêm.” → trang tiếp theo, giữ ngân sách và nhu cầu; cân nhắc lại trên nhóm mới.
+4. “Các phòng trên có những tiện ích nào xung quanh?” → bảng Nearby, chọn một phòng chính,
+   không tìm boundary và không gọi TomTom.
+5. “Xem thêm.” → trang tiếp theo, giữ ngân sách và nhu cầu; chọn một phòng chính trong nhóm mới,
+   không tìm boundary lại.
 
 ## Gợi ý boundary theo ngữ cảnh người thuê
 
@@ -78,8 +99,11 @@ thành tổng khi chưa biết lượng dùng. Giá và dữ kiện listing luô
 Chỉ hiện tối đa **một đoạn chữ ngắn có link dưới bảng**, ghi rõ tiền thuê, **vượt ngân sách bao nhiêu**
 và **một lợi thế nổi bật đã kiểm chứng**. Không liệt kê so sánh từng tin, phí/đánh đổi hay lời nhắc dài.
 Không thêm cột/card thứ5, không tăng trần ngân sách
-trong state, không cộng ứng viên vào43 tin chính. “Xem thêm” lấy trang tiếp theo trong43 tin,
-đồng thời có thể xét lại nhóm boundary theo trang mới; ID đã gợi ý được loại riêng để không lặp lại.
+trong state, không cộng ứng viên vào43 tin chính. Boundary chỉ được xét ở lần tìm đầu đã có kết quả,
+hoặc khi đổi phường/tỉnh/thành. `searchState.boundaryArea` ghi dấu khu vực đã xét dù không có ứng viên.
+Hỏi tiếp, so sánh Nearby, “xem thêm”, đổi giá/tiện nghi hoặc reset trong cùng khu vực không gọi lại
+tool boundary. Chuyển khu vực mới có thể xét lại, vẫn tôn trọng từ chối vượt ngân sách.
+“Xem thêm” chỉ lấy trang tiếp theo trong43 tin; ID gợi ý không nhập vào tập tin chính.
 `matchedTotal` trong Core v2 là tổng khớp trước loại ID phân trang, tránh trừ số tin còn lại hai lần.
 
 Không gọi nhóm phụ khi thiếu trần tiền thuê, không có tin chính, thiếu đơn vị tiền so sánh,
@@ -95,7 +119,7 @@ Cấu hình nghiệp vụ bắt buộc, không phải secret:
 - AI `src/homespace_ai/application.properties`: `listing.value-advice.timeout-seconds=18` (tổng thời gian bước phụ).
 
 Sau khi cập nhật, khởi động lại Core và AI service. Không cần đổi schema hay seed lại CSDL.
-Kiểm thử offline: `uv run pytest tests/unit/test_listing_value_advice.py tests/unit/test_boundary_pagination.py -q`.
+Kiểm thử offline: `uv run pytest tests/unit/test_nearby_followup_workflow.py tests/unit/test_nearby_listing_advice.py tests/unit/test_listing_value_advice.py tests/unit/test_boundary_pagination.py -q`.
 Kiểm thử PostgreSQL nằm trong `AiListingSearchPostgresTest`, chỉ chạy với CSDL test dùng một lần.
 
 FastAPI microservice for HomeSpace AI capabilities, local RAG knowledge base, and platform agent integration:

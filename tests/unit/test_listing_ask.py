@@ -445,7 +445,7 @@ async def test_generation_failure_after_tool_read_does_not_claim_tool_failed():
 
     assistant.generative_client = FailedGenerator()
     history = [{"role": "assistant", "content": "1 phòng", "listingContext": {"version": 1, "listingIds": [ID]}}]
-    result = await assistant.try_answer("Phòng này có tiện ích gì?", history, "truncated")
+    result = await assistant.try_answer("Vì sao phòng này có tiện ích tòa nhà phù hợp?", history, "truncated")
     assert result.status == "GENERATION_UNAVAILABLE" and "đã kiểm tra tin đăng" in result.answer
 
 

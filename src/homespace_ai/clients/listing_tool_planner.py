@@ -138,7 +138,7 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "contextual advantages justify one text suggestion; a perk already available in a cheaper displayed room is not enough. "
         "boundaryAdvice=null keeps the previous policy; DENY for 'không thể tăng', 'không được vượt', budget at absolute limit, no suggestions, "
         "or only-cheapest/nearest objective. ALLOW only for an explicit willingness to consider spending more. Do not treat every ordinary "
-        "'dưới/tối đa X' as DENY. 'Xem thêm' preserves policy, fetches the next main page and may compare a new boundary candidate. "
+        "'dưới/tối đa X' as DENY. 'Xem thêm' preserves policy and fetches the next main page WITHOUT another boundary lookup. Boundary is considered only on the first usable search or a changed ward/city, never for same-area budget/amenity refinements. "
         "Boundary comparison is application-managed: return search_listings normally, never emit find_value_opportunity. "
         "Use sort=newest by default unless the customer requested a different order; do not silently choose cheapest for a budget query.",
         "Budget: 'dưới X' lt, 'tối đa/không quá X' lte, 'trên X' gt, 'ít nhất/từ X trở lên' gte. Money in VND digits (3tr/3 củ = 3000000). "
@@ -159,6 +159,10 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "Contradictory bounds in one message (e.g. từ 5 đến 4 triệu): output them exactly as said; never swap or drop.",
         "Reading a displayed listing ('phòng 2 có thang máy không?', 'phí xe phòng này') uses get_listing_detail and adds NO criteria. "
         "'Chỉ giữ phòng có thang máy' is a filter: search_listings withinDisplayed=true. 'Nếu thêm người thì sao' is hypothetical.",
+        "Building amenities (WiFi, elevator, shared laundry, guards) are INSIDE the property and use listing details. "
+        "'Các phòng trên có những tiện ích nào xung quanh?', 'xung quanh có gì?', 'gần đó có gì?' mean OUTSIDE POIs: "
+        "get_listing_nearby_places for the existing selection, never get_listing_details. If 'tiện ích' alone is ambiguous, "
+        "ask whether building facilities or surrounding places. Mixed questions require BOTH labeled sources, never call WiFi an external POI.",
         "'Xem thêm', '10 tin khác' = moreResults=true with unchanged criteria. Respect an explicit result count up to " + str(cap) + " via limit.",
         "Quiet/safe/airy/travel time/flooding have no data: put them in unsupported, never invent numeric or boolean filters. Unsupported: " + unsupported,
         "'Mình không hút thuốc' describes the renter, not a house rule filter.",

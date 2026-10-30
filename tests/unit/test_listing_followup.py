@@ -42,7 +42,8 @@ async def test_reported_followup_reads_exactly_four_rooms_and_reaches_grounded_g
     result = await assistant.try_answer(question, previous(), "reported-followup")
     assert result.status == "ANSWERED"
     assert assistant.tools.read == IDS[:4]
-    assert assistant.tools.catalog_calls == assistant.tools.search_calls == 0
+    assert assistant.tools.search_calls == 0
+    assert assistant.tools.catalog_calls == 1, "Shared main advice reads labels, not a new listing search"
     assert assistant.planner.history is None  # No paid planner call for known references.
     evidence = json.loads(assistant.generative_client.kwargs["context_chunks"][0]["content"])
     assert evidence["scopeOnly"] is True

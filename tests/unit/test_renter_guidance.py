@@ -66,7 +66,7 @@ async def test_intake_keeps_known_criteria_then_searches_and_remembers_student_w
     second = await chat.ask("Gò Vấp, HCM, dưới 3,5 triệu cho 2 người nhé")
     assert second.status == "ANSWERED" and len(a.tools.payloads) == 1 and second.listing_ids == IDS[:4]
     assert second.listing_context["mainRecommendation"] == {"listingId": IDS[0], "fields": ["areaM2", "pricing.amount"]}
-    assert "Trong nhóm đúng ngân sách" in second.answer and "Bạn đang học trường nào" in second.answer
+    assert "Trong nhóm phòng đang xét" in second.answer and "Bạn đang học trường nào" in second.answer
     assert len(a.generative_client.boundary_calls) == 1 and not a.tools.nearby_calls
     assert any("Vì sao" in q for q in second.suggested_questions)
     assert second.listing_context["searchState"]["renterProfile"]["persona"] == "STUDENT"

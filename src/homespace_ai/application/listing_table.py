@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
 from homespace_ai.application.vietnamese_text import VietnamesePattern
+from homespace_ai.application.amenity_intent import NEARBY_INTENT, BUILDING_INTENT
 
 UNKNOWN = "Chưa rõ"
 ABSENT = "—"
@@ -18,7 +19,7 @@ LISTING_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA
 SAFE_IMAGE = re.compile(r"^https://[^\s<>()|\\\"']+$")
 
 SECTIONS: dict[str, tuple[str, VietnamesePattern]] = {
-    "amenities": ("Tiện ích", VietnamesePattern(
+    "amenities": ("Tiện ích tòa nhà & dịch vụ", VietnamesePattern(
         r"tiện ích(?!\s*(?:xung quanh|lân cận|gần|quanh|bên ngoài|khu vực))|tiện nghi|thang máy|wifi|camera|bảo vệ|an ninh")),
     "furnishings": ("Nội thất", VietnamesePattern(
         r"nội thất|đồ đạc|trang thiết bị|trang bị|bàn giao|máy lạnh|điều hòa|máy giặt|tủ lạnh|giường|tủ quần áo|nóng lạnh")),
@@ -75,7 +76,8 @@ def requested_sections(question: str, *, search_page: bool = False) -> list[str]
         return [name for name in SECTIONS if name in requested]
     if ALL_SECTIONS.search(question):
         return list(SECTIONS)
-    return [name for name, (_, pattern) in SECTIONS.items() if pattern.search(question)]
+    return [name for name, (_, pattern) in SECTIONS.items() if pattern.search(question)
+            and (name != "amenities" or not NEARBY_INTENT.search(question) or BUILDING_INTENT.search(question))]
 
 
 def section_labels(sections: list[str]) -> list[str]:

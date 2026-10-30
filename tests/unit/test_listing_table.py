@@ -96,7 +96,7 @@ async def test_follow_up_make_a_table_reads_the_shown_listings_without_the_plann
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("question,rows", [
-    ("so sánh tiện ích và nội quy các phòng trên", ["| WiFi | Có | Có |", "| Nuôi thú cưng | Không cho phép | Không cho phép |",
+    ("so sánh tiện ích tòa nhà và nội quy các phòng trên", ["| WiFi | Có | Có |", "| Nuôi thú cưng | Không cho phép | Không cho phép |",
                                                   "| Báo trước khi chấm dứt | 30 ngày | 30 ngày |"]),
     ("thêm nội thất và lịch xem vào bảng", ["| Mức nội thất | Đầy đủ | Đầy đủ |", "| Giường | 1 cái, Còn tốt | 1 cái, Còn tốt |",
                                            "| Ngày xem | T2, T7 | T2, T7 |", "| Khung giờ xem | Tối | Tối |"]),
@@ -142,7 +142,7 @@ async def test_conversation_search_then_amenities_table():
     assistant = assistant_with(search(ward="Hạnh Thông", city="HCM"), details)
     talk = Conversation(assistant)
     first = await talk.ask("Tìm phòng trọ ở Hạnh Thông HCM")
-    second = await talk.ask("các phòng trên có tiện ích gì")
+    second = await talk.ask("các phòng trên có tiện ích tòa nhà gì")
     assert "| Gửi xe máy |" in first.answer
     assert "| WiFi | Có | Có |" in second.answer and second.listing_ids == IDS[:2]
 

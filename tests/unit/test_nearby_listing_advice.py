@@ -39,16 +39,16 @@ def assistant(complete=True, enabled=True, place_query=None):
 
 
 @pytest.mark.asyncio
-async def test_t15_hard_criteria_are_rechecked_in_scope_before_ranking_top_three():
+async def test_t15_hard_criteria_are_rechecked_in_scope_before_showing_all_eligible_columns():
     a = assistant()
     a.tools.ids = IDS[:5]  # Only the first five still satisfy the stored hard criteria in Core.
     state = rs.merge(None, {"constraints": [{"field": "amenity.ELEVATOR", "op": "eq", "value": True, "strength": "hard"}]}, "")
     result = await a.try_answer("Trong các phòng này, tiện ích xung quanh thì nên chọn phòng nào?", HISTORY, "t15", state=state)
     check = a.tools.payloads[0]
     assert check["scopeIds"] == IDS and {"field": "amenity.ELEVATOR", "op": "eq", "value": "true"} in check["where"]["all"]
-    assert result.listing_ids == [IDS[4], IDS[3], IDS[2]], "Better-ranked rooms that fail a hard criterion are excluded"
+    assert result.listing_ids == IDS[:5], "Failed hard criteria are excluded; eligible columns keep their original order"
     assert a.tools.read == result.listing_ids
-    assert a.generative_client.evidence["eligibleInScope"] == 5
+    assert len(a.generative_client.boundary_calls[0]["mainListings"]) == 5
 
 
 @pytest.mark.asyncio
@@ -61,11 +61,11 @@ async def test_t15_no_eligible_room_in_scope_is_no_results_not_a_nearby_pick():
     assert a.generative_client.kwargs is None
 
 @pytest.mark.asyncio
-async def test_default_advice_uses_seven_collected_groups_and_still_selects_only_three():
+async def test_default_advice_uses_seven_collected_groups_and_preserves_all_columns():
     a = assistant()
     result = await answer_nearby(a, "Tiện ích xung quanh thì nên chọn phòng nào?", HISTORY, "combined",
                                 {"listingIds": IDS, "radiusMeters": 2000})
-    assert result.status == "ANSWERED" and len(result.listing_ids) == 3
+    assert result.status == "ANSWERED" and result.listing_ids == IDS
     assert len(a.tools.nearby_calls[0][2]) == 7
     assert "SPORTS" not in a.tools.nearby_calls[0][2]
 
@@ -82,12 +82,12 @@ async def test_uncollected_sports_is_unknown_and_does_not_support_a_recommendati
     a.tools.nearby = not_collected
     result = await answer_nearby(a, "Phòng nào gần phòng gym thì nên chọn?", HISTORY, "sports",
                                 {"listingIds": IDS, "radiusMeters": 2000, "groups": ["SPORTS"]})
-    assert "chưa đủ" in result.answer
-    assert not result.listing_ids and not a.tools.read
+    assert "Chưa ghi nhận" in result.answer and result.listing_ids == IDS
+    assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
     assert a.generative_client.kwargs is None
 
 @pytest.mark.asyncio
-async def test_limited_hundred_result_sample_can_compare_positive_evidence_and_only_recommend_three():
+async def test_limited_hundred_result_sample_keeps_positive_evidence_without_inventing_missing_schools():
     a = assistant()
     original = a.tools.nearby
     async def limited(*args):
@@ -100,11 +100,11 @@ async def test_limited_hundred_result_sample_can_compare_positive_evidence_and_o
         return evidence
     a.tools.nearby = limited
     result = await a.try_answer("Trong các phòng này, tiện ích xung quanh thì nên chọn phòng nào?", HISTORY, "single-request")
-    assert len(result.listing_ids) == len(a.tools.read) == 3
-    evidence = json.loads(a.generative_client.kwargs["context_chunks"][0]["content"])
-    assert evidence["limitedSelection"] is True
-    assert evidence["comparisonGroups"] == ["SHOPPING"]
-    assert "không kết luận nhóm 0 kết quả" in evidence["limitations"]
+    assert len(result.listing_ids) == len(a.tools.read) == 10
+    evidence = a.generative_client.boundary_calls[0]
+    assert "nearby.SHOPPING.distanceMeters" in evidence["factMatrix"]
+    assert "nearby.EDUCATION.distanceMeters" not in evidence["factMatrix"]
+    assert "không có nghĩa" in result.answer
 
 @pytest.mark.asyncio
 async def test_limited_sample_with_no_school_evidence_cannot_claim_a_school_recommendation():
@@ -119,19 +119,19 @@ async def test_limited_sample_with_no_school_evidence_cannot_claim_a_school_reco
     a.tools.nearby = no_evidence
     result = await answer_nearby(a, "Phòng nào gần trường học thì nên chọn?", HISTORY, "unknown-school",
                                 {"listingIds": IDS, "radiusMeters": 2000, "groups": ["EDUCATION"]})
-    assert not result.listing_ids and not a.tools.read
+    assert result.listing_ids == IDS and "Chưa ghi nhận" in result.answer
+    assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
     assert a.generative_client.kwargs is None
 
 @pytest.mark.asyncio
-async def test_scoped_ten_are_ranked_from_cached_summary_but_only_three_details_reach_model():
+async def test_scoped_ten_use_bounded_cached_summary_without_reordering_or_losing_ordinals():
     a = assistant()
     result = await a.try_answer("Trong các phòng này, tiện ích xung quanh thuận tiện thì nên chọn phòng nào?", HISTORY, "nearby")
     assert result.status == "ANSWERED"
-    assert len(result.listing_ids) == len(a.tools.read) == 3
-    assert a.tools.read == [IDS[9], IDS[8], IDS[7]]
-    evidence = json.loads(a.generative_client.kwargs["context_chunks"][0]["content"])
-    assert evidence["distanceType"] == "STRAIGHT_LINE"
-    assert len(evidence["nearby"]) == 3
+    assert result.listing_ids == a.tools.read == IDS
+    evidence = a.generative_client.boundary_calls[0]
+    assert len(evidence["mainListings"]) == 10
+    assert "đường chim bay" in result.answer
     assert result.listing_context["listingIds"] == IDS
     assert result.listing_positions[IDS[9]] == 10
     assert result.listing_context["nearby"]["radiusMeters"] == 3000
@@ -142,8 +142,9 @@ async def test_five_km_request_cannot_be_silently_answered_as_three_or_rank_part
     a = assistant(complete=False)
     result = await a.try_answer("Trong các phòng này, bán kính 5 km thì nên chọn phòng nào?", HISTORY, "partial")
     assert a.tools.nearby_calls[0][1] == 5000
-    assert not result.listing_ids and not a.tools.read
-    assert "chưa đủ" in result.answer
+    assert result.listing_ids == IDS
+    assert "5 km" in result.answer and "Dữ liệu là mẫu" in result.answer
+    assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
     assert result.listing_context["listingIds"] == IDS
     assert a.generative_client.kwargs is None
 
@@ -169,7 +170,8 @@ async def test_specific_target_distance_takes_precedence_over_generic_school_den
     a = assistant(place_query="Đúng trường")
     a.tools.resolve_nearby_search = AsyncMock(return_value={"arguments": {"nearby": {"placeId": IDS[0]}}})
     result = await a.try_answer("Phòng nào gần trường Đại học của mình nhất?", HISTORY, "target")
-    assert result.listing_ids == IDS[:3]  # Specific target ordering is opposite the generic group fixture.
+    assert result.listing_ids == IDS  # The target affects advice facts, never the table's ordinal mapping.
+    assert "nearby.target.distanceMeters" in a.generative_client.boundary_calls[0]["factMatrix"]
     assert a.tools.nearby_calls[0][3] == IDS[0]
 
 @pytest.mark.asyncio
@@ -180,7 +182,7 @@ async def test_followup_keeps_radius_and_target_references_without_old_poi_facts
     result = await a.try_answer("Vậy nên chọn phòng nào trong các phòng này?", history, "memory")
     assert a.planner.history is None
     assert a.tools.nearby_calls[0][1:3] == (5000, ["SHOPPING"])
-    assert len(result.listing_ids) == 3
+    assert result.listing_ids == IDS
 
 @pytest.mark.asyncio
 async def test_native_nearby_registry_is_feature_gated_and_rejects_unknown_selection(monkeypatch):

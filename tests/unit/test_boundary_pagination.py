@@ -39,7 +39,7 @@ def choose(assistant, candidate, main):
 
 
 @pytest.mark.asyncio
-async def test_43_matches_page_two_has35_remaining_and_independent_new_boundary_choice():
+async def test_43_matches_page_two_has35_remaining_without_another_boundary_lookup():
     assistant = make()
     choose(assistant, EXTRA[0], MAIN[:4])
     conversation = Conversation(assistant)
@@ -54,12 +54,12 @@ async def test_43_matches_page_two_has35_remaining_and_independent_new_boundary_
     choose(assistant, EXTRA[1], MAIN[4:8])
     second = await conversation.ask("Xem thêm")
     assert second.status == "ANSWERED" and second.listing_ids == MAIN[4:8]
-    assert "35 tin" in second.answer and EXTRA[1] in second.answer and EXTRA[0] not in second.answer
+    assert "35 tin" in second.answer and EXTRA[1] not in second.answer and EXTRA[0] not in second.answer
     assert assistant.tools.payloads[1]["excludeIds"] == MAIN[:4]
     canonical = lambda where: {tuple(sorted(leaf.items())) for leaf in where["all"]}
     assert canonical(assistant.tools.payloads[1]["where"]) == canonical(original_main["where"]), "Main budget never increases to5m"
-    assert assistant.tools.value_calls[1][2] == [EXTRA[0]], "Boundary IDs have their own exclusions"
-    assert rs.boundary_exclusions(second.listing_context["searchState"]) == EXTRA
+    assert len(assistant.tools.value_calls) == 1, "Pagination never searches the boundary pool again"
+    assert rs.boundary_exclusions(second.listing_context["searchState"]) == EXTRA[:1]
     assert second.listing_context["searchState"]["shown"]["ids"] == MAIN[:8]
     assert not assistant.tools.nearby_calls
 

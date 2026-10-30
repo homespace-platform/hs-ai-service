@@ -36,7 +36,7 @@ def empty_state() -> dict[str, Any]:
             "location": None, "nationwide": False, "target": None, "nearby": [], "context": {},
             "sort": None, "keyword": None, "unsupported": [], "pending": None, "needs": [], "valuePriorities": [],
             "renterProfile": {}, "intakeOpen": [], "guidanceAsked": [],
-            "boundaryAdvice": "AUTO", "boundarySeen": {"fingerprint": None, "ids": []},
+            "boundaryAdvice": "AUTO", "boundaryArea": None, "boundarySeen": {"fingerprint": None, "ids": []},
             "shown": {"fingerprint": None, "ids": []}}
 
 
@@ -138,6 +138,8 @@ def sanitize(raw: Any) -> dict[str, Any] | None:
                       "ids": [i for i in map(_uuid, shown.get("ids") or []) if i][:MAX_SHOWN]}
     if raw.get("boundaryAdvice") in {"AUTO", "ALLOW", "DENY"}:
         state["boundaryAdvice"] = raw["boundaryAdvice"]
+    area = raw.get("boundaryArea")
+    state["boundaryArea"] = area if isinstance(area, str) and re_full_area(area) else None
     seen = raw.get("boundarySeen") if isinstance(raw.get("boundarySeen"), dict) else {}
     state["boundarySeen"] = {"fingerprint": seen.get("fingerprint") if isinstance(seen.get("fingerprint"), str) else None,
                              "ids": list(dict.fromkeys(i for i in map(_uuid, seen.get("ids") or []) if i))[-40:]}
@@ -186,8 +188,10 @@ def merge(previous: dict[str, Any] | None, update: dict[str, Any], question: str
     turn = base["turn"] + 1
     if RESET.search(question):
         keep_shown = base["shown"]
+        keep_area = base.get("boundaryArea")
         base = empty_state()
         base["shown"] = keep_shown
+        base["boundaryArea"] = keep_area
     base["turn"] = turn
     base["pending"] = None
     if update.get("boundaryAdvice") in {"AUTO", "ALLOW", "DENY"}:
@@ -363,6 +367,31 @@ def fingerprint(state: dict[str, Any]) -> str:
     material["alternatives"] = [sorted((c["field"], c["op"], json.dumps(c["value"], ensure_ascii=False)) for c in g)
                                 for g in state["alternatives"]]
     return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:24]
+
+
+def re_full_area(value: str) -> bool:
+    return len(value) == 24 and all(c in "0123456789abcdef" for c in value)
+
+
+def boundary_area(state: dict[str, Any] | None) -> str | None:
+    state = state or {}
+    location = state.get("location") or {}
+    identity = [location.get("cityId"), location.get("wardId")]
+    if not any(identity):
+        identity = ["target", (state.get("target") or {}).get("placeId")]
+        if not identity[1]:
+            return None
+    return hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()[:24]
+
+
+def boundary_turn(previous: dict | None, current: dict, *, more: bool, within: bool) -> bool:
+    if more or within:
+        return False
+    before = previous or {}
+    last = before.get("boundaryArea")
+    if not last and (before.get("shown") or {}).get("ids"):
+        last = boundary_area(before)  # Existing conversations must not repeat the same area's advice.
+    return boundary_area(current) != last or last is None
 
 
 def boundary_fingerprint(state: dict[str, Any]) -> str:

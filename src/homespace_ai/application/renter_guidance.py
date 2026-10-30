@@ -139,12 +139,7 @@ def suggested_questions(state: dict | None, *, has_results=False, has_boundary=F
     if not has_results:
         return []
     result = ["Vì sao bạn ưu tiên phòng được chọn?"] if has_main else ["Trong các phòng này, tôi nên cân nhắc phòng nào?"]
+    result.append("Các phòng trên có những tiện ích nào xung quanh?")
     result.append("Trong các phòng này, các khoản phí hằng tháng khác nhau thế nào?")
-    if has_boundary:
-        result.append("Phòng gợi ý ngoài ngân sách có gì đáng cân nhắc?")
-    elif (state.get("renterProfile") or {}).get("persona") == "STUDENT" and (state.get("target") or (state.get("renterProfile") or {}).get("studyPlace")):
-        result.append("Trong các phòng này, phòng nào thuận tiện đi học hơn?")
-    else:
-        result.append("Có phòng nào rộng hơn mà vẫn giữ ngân sách hiện tại không?")
     result.append("Cho tôi xem thêm các phòng phù hợp với tiêu chí hiện tại được không?")
     return result[:4]

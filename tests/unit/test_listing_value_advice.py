@@ -347,9 +347,10 @@ async def test_persisted_optout_or_unpublished_candidate_never_calls_the_judge()
     generator.generate_value_advice.assert_not_awaited()
 
 
-def test_pagination_is_eligible_and_auto_price_sort_does_not_disable_advice():
+def test_pagination_is_ineligible_but_auto_price_sort_does_not_disable_first_search_advice():
     criteria = {"constraints": [c("rent.monthly_amount", "lt", 4500000)], "boundaryAdvice": "AUTO", "sort": "price_asc"}
-    assert value.eligible("xem thêm", criteria, {"excludeIds": IDS[6:8]}, rooms(), more=True, within=False)
+    assert not value.eligible("xem thêm", criteria, {"excludeIds": IDS[6:8]}, rooms(), more=True, within=False)
+    assert value.eligible("tìm phòng", criteria, {}, rooms(), more=False, within=False)
     assert not value.eligible("xem thêm", criteria | {"boundaryAdvice": "DENY"}, {}, rooms(), more=True, within=False)
     assert not value.eligible("không thể tăng ngân sách", criteria, {}, rooms(), more=False, within=False)
     assert not value.eligible("chỉ tìm phòng rẻ nhất", criteria, {}, rooms(), more=False, within=False)
@@ -386,6 +387,20 @@ async def test_structured_judge_uses_same_listing_model_and_bounded_output_witho
         assert "đã có ở phòng rẻ hơn" in VALUE_ADVICE_SYSTEM_PROMPT
     finally:
         monkeypatch.undo()
+
+
+@pytest.mark.asyncio
+async def test_main_only_judge_must_choose_one_current_listing_even_without_boundary(monkeypatch):
+    raw = {"candidateAssessments": [], "selectedId": None, "comparedListingIds": IDS[:2],
+           "advantages": [], "tradeoffs": [], "mainRecommendation": {"listingId": IDS[0], "fields": ["areaM2"]}}
+    calls = mock_http(monkeypatch, [httpx.Response(200, json=completed(json.dumps(raw)))])
+    evidence = {"mainListings": [{"id": identifier} for identifier in IDS[:2]], "candidates": [],
+                "recommendMain": True, "factMatrix": {"areaM2": {"label": "Diện tích", "values": [25, 20]}}}
+    result = await OpenAIGenerativeClient(settings()).generate_value_advice("Các phòng trên có gì xung quanh?", evidence)
+    schema = json.loads(calls[0].content)["text"]["format"]["schema"]["properties"]["mainRecommendation"]["properties"]
+    assert schema["listingId"] == {"type": "string", "enum": IDS[:2]}
+    assert schema["fields"]["minItems"] == 1 and schema["fields"]["maxItems"] == 2
+    assert result["mainRecommendation"]["listingId"] == IDS[0] and result["selectedId"] is None
 
 
 @pytest.mark.asyncio
