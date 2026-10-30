@@ -34,7 +34,8 @@ RESET = VietnamesePattern(
 def empty_state() -> dict[str, Any]:
     return {"version": STATE_VERSION, "revision": 0, "turn": 0, "constraints": [], "alternatives": [],
             "location": None, "nationwide": False, "target": None, "nearby": [], "context": {},
-            "sort": None, "keyword": None, "unsupported": [], "pending": None,
+            "sort": None, "keyword": None, "unsupported": [], "pending": None, "needs": [], "valuePriorities": [],
+            "boundaryAdvice": "AUTO", "boundarySeen": {"fingerprint": None, "ids": []},
             "shown": {"fingerprint": None, "ids": []}}
 
 
@@ -108,6 +109,13 @@ def sanitize(raw: Any) -> dict[str, Any] | None:
     state["keyword"] = raw["keyword"][:160] if isinstance(raw.get("keyword"), str) and raw["keyword"].strip() else None
     state["unsupported"] = [{"code": str(u.get("code"))[:40], "text": str(u.get("text") or "")[:200]}
                             for u in (raw.get("unsupported") or [])[:10] if isinstance(u, dict) and u.get("code")]
+    notes = raw.get("needs") if isinstance(raw.get("needs"), list) else []
+    state["needs"] = list(dict.fromkeys(note.strip()[:220] for note in notes if isinstance(note, str) and note.strip()))[-6:]
+    priorities = raw.get("valuePriorities") if isinstance(raw.get("valuePriorities"), list) else []
+    state["valuePriorities"] = [{"field": item["field"], "direction": item["direction"], "quote": item["quote"][:220]}
+                                for item in priorities if isinstance(item, dict) and isinstance(item.get("field"), str)
+                                and 1 <= len(item["field"]) <= 120 and item.get("direction") in {"HIGHER", "LOWER", "IGNORE"}
+                                and isinstance(item.get("quote"), str) and item["quote"].strip()][-6:]
     pending = raw.get("pending")
     if isinstance(pending, dict) and pending.get("type") in PENDING_TYPES:
         state["pending"] = {"type": pending["type"], "question": str(pending.get("question") or "")[:600],
@@ -121,6 +129,11 @@ def sanitize(raw: Any) -> dict[str, Any] | None:
     shown = raw.get("shown") if isinstance(raw.get("shown"), dict) else {}
     state["shown"] = {"fingerprint": shown.get("fingerprint") if isinstance(shown.get("fingerprint"), str) else None,
                       "ids": [i for i in map(_uuid, shown.get("ids") or []) if i][:MAX_SHOWN]}
+    if raw.get("boundaryAdvice") in {"AUTO", "ALLOW", "DENY"}:
+        state["boundaryAdvice"] = raw["boundaryAdvice"]
+    seen = raw.get("boundarySeen") if isinstance(raw.get("boundarySeen"), dict) else {}
+    state["boundarySeen"] = {"fingerprint": seen.get("fingerprint") if isinstance(seen.get("fingerprint"), str) else None,
+                             "ids": list(dict.fromkeys(i for i in map(_uuid, seen.get("ids") or []) if i))[-40:]}
     return state
 
 
@@ -170,11 +183,18 @@ def merge(previous: dict[str, Any] | None, update: dict[str, Any], question: str
         base["shown"] = keep_shown
     base["turn"] = turn
     base["pending"] = None
+    if update.get("boundaryAdvice") in {"AUTO", "ALLOW", "DENY"}:
+        base["boundaryAdvice"] = update["boundaryAdvice"]
     for code in update.get("removeFields") or []:
         if not isinstance(code, str):
             continue
         if code == "location":
             base["location"], base["nationwide"] = None, False
+        elif code == "needs":
+            base["needs"] = []
+            base["valuePriorities"] = []
+        elif code == "valuePriorities":
+            base["valuePriorities"] = []
         elif code == "target":
             base["target"] = None
             if base["sort"] == "target_distance":
@@ -245,6 +265,13 @@ def merge(previous: dict[str, Any] | None, update: dict[str, Any], question: str
             base["unsupported"].append({"code": item["code"][:40], "text": str(item.get("text") or "")[:200]})
             known.add(item["code"])
     base["unsupported"] = base["unsupported"][-10:]
+    base["needs"] = list(dict.fromkeys(base.get("needs", []) + [note[:220] for note in update.get("needs") or []
+                                                               if isinstance(note, str) and note.strip()]))[-6:]
+    priorities = {item["field"]: item for item in base.get("valuePriorities") or []}
+    for item in update.get("valuePriorities") or []:
+        if isinstance(item, dict) and isinstance(item.get("field"), str):
+            priorities[item["field"]] = item
+    base["valuePriorities"] = list(priorities.values())[-6:]
     return base
 
 
@@ -325,6 +352,24 @@ def fingerprint(state: dict[str, Any]) -> str:
     material["alternatives"] = [sorted((c["field"], c["op"], json.dumps(c["value"], ensure_ascii=False)) for c in g)
                                 for g in state["alternatives"]]
     return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:24]
+
+
+def boundary_fingerprint(state: dict[str, Any]) -> str:
+    """Advice is also scoped to preferences; its history never resets the main pagination."""
+    preferences = sorted((c["field"], c["op"], str(c["value"])) for c in state["constraints"] if c["strength"] == "preference")
+    return hashlib.sha256(json.dumps([fingerprint(state), preferences, state.get("needs") or [], state.get("valuePriorities") or []], ensure_ascii=False).encode()).hexdigest()[:24]
+
+
+def boundary_exclusions(state: dict[str, Any]) -> list[str]:
+    seen = state.get("boundarySeen") or {}
+    return list(seen.get("ids") or []) if seen.get("fingerprint") == boundary_fingerprint(state) else []
+
+
+def record_boundary(state: dict[str, Any], identifier: str) -> dict[str, Any]:
+    result = deepcopy(state)
+    result["boundarySeen"] = {"fingerprint": boundary_fingerprint(state),
+                              "ids": list(dict.fromkeys(boundary_exclusions(state) + [identifier]))[-40:]}
+    return result
 
 
 def _leaf(c: dict[str, Any]) -> dict[str, Any]:

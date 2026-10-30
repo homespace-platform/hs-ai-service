@@ -126,12 +126,43 @@ class ListingTools:
             distance = item.get("targetDistanceMeters")
             evidence.append({"listingId": item["listingId"], "checks": checks,
                              "targetDistanceMeters": distance if isinstance(distance, (int, float)) and not isinstance(distance, bool) and isfinite(distance) and distance >= 0 else None})
-        total = result.get("total")
+        total = result.get("matchedTotal", result.get("total"))
         unknown = result.get("unknownTotal")
         return {"listingIds": ids, "total": total if isinstance(total, int) else len(ids),
                 "unknownTotal": unknown if isinstance(unknown, int) else 0, "readAt": result.get("readAt"),
                 "catalogVersion": result.get("catalogVersion"),
                 "contextMissing": [str(v) for v in result.get("contextMissing") or []][:10], "evidence": evidence}
+
+    async def value_opportunity(self, search: dict[str, Any], displayed_ids: list[str],
+                                excluded_suggestion_ids: list[str] | None = None) -> dict[str, Any]:
+        """A bounded above-budget pool, separate from main pagination and all main counts."""
+        if not 1 <= len(displayed_ids) <= 4 or len(set(displayed_ids)) != len(displayed_ids):
+            raise ListingToolError("Invalid value comparison selection")
+        displayed_ids = [str(UUID(value)) for value in displayed_ids]
+        excluded = [str(UUID(value)) for value in (excluded_suggestion_ids or [])][-40:]
+        response = await self.gateway.request("POST", f"{self.base_path}/value-opportunity", request=self.request,
+                                              json={"search": search, "displayedIds": displayed_ids,
+                                                    "excludedSuggestionIds": excluded}, timeout=5.0)
+        result = self._result(response)
+        ids = result.get("candidateIds")
+        if not isinstance(ids, list) or len(ids) > 8:
+            raise ListingToolError("Invalid boundary candidate pool")
+        try:
+            ids = [str(UUID(value)) for value in ids]
+        except (TypeError, ValueError, AttributeError):
+            raise ListingToolError("Invalid boundary candidate ID") from None
+        if len(set(ids)) != len(ids) or set(ids) & set(displayed_ids + excluded):
+            raise ListingToolError("Core repeated an excluded boundary candidate")
+        if ids:
+            from decimal import Decimal, InvalidOperation
+            try:
+                ceiling, maximum = Decimal(str(result["budgetCeiling"])), Decimal(str(result["maxExtraMonthly"]))
+                if (not ceiling.is_finite() or ceiling <= 0 or not maximum.is_finite() or not 0 < maximum <= 500000
+                        or result.get("budgetField") not in {"rent.monthly_amount", "price_amount"}):
+                    raise ValueError
+            except (ValueError, InvalidOperation, KeyError):
+                raise ListingToolError("Invalid boundary budget metadata") from None
+        return {key: result.get(key) for key in ("budgetField", "budgetCeiling", "maxExtraMonthly", "readAt")} | {"candidateIds": ids}
 
     async def resolve_place(self, query: str) -> list[dict[str, Any]]:
         """Candidates from the stored POI catalog only. Never a provider call, never a guessed ID."""

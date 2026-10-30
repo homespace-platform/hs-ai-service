@@ -1,5 +1,69 @@
 # HomeSpace AI Service
 
+## Gợi ý boundary theo ngữ cảnh người thuê
+
+Kết quả chính luôn giữ nguyên điều kiện và ngân sách khách đã chốt. Ví dụ **dưới 4,5 triệu**:
+43 tin khớp được phân trang như bình thường, mỗi trang mặc định4 tin. Công cụ phụ
+`POST /api/v1/public/listings/ai/value-opportunity` lấy riêng tối đa8 ứng viên trong **4,5–5 triệu**.
+Mốc500k tính từ **trần ngân sách**, không phải giá của một phòng trong bảng.
+Nếu ngân sách dùng `<=4,5 triệu`, nhóm phụ bắt đầu **trên**4,5 triệu; nếu dùng `<4,5 triệu`,
+căn đúng4,5 triệu có thể được cân nhắc nhưng lời gợi ý phải nói “chạm mức ngân sách”.
+
+Core chỉ nới đúng cận trên tiền thuê, giữ các điều kiện khác: khu vực, loại hình, người ở,
+ngày nhận, nội thất bắt buộc, chi phí khác, Nearby, v.v. Trường hợp cận ngân sách trong nhánh OR
+không thể thay an toàn thì không mở rộng. Không xử lý lẫn giá theo người/m² với giá cả phòng/tháng.
+Bộ ứng viên có giới hạn, đa dạng theo tin mới/diện tích/giá; không tải hàng nghìn tin cho AI lọc.
+
+Khi có ứng viên, bước AI riêng dùng cùng mô hình listing đã cấu hình để đánh giá **toàn bộ nhóm đang hiển thị**,
+nhu cầu và ưu tiên đã lưu. Không còn chọn riêng một phòng yếu làm đối chiếu, không bắt buộc đạt một ngưỡng
+m² hoặc một field cố định. Một ban công đã có ở phòng rẻ hơn không đủ để gợi ý phòng đắt hơn chỉ vì có ban công.
+AI được quyền không chọn nếu lợi ích nhỏ, không liên quan, còn thiếu bằng chứng hoặc phải đánh đổi quá nhiều.
+
+Các nhu cầu định tính như “đã có giường tủ”, “ưu tiên phòng rộng”, “nội thất không quan trọng” được giữ
+trong `searchState.needs` bằng lời khách nói, kể cả khi “xem thêm”; không biến chúng thành diện tích tối thiểu
+hay bộ lọc nội thất do AI tự đoán. Câu “mình cần thuê phòng…” không chuyển sang hỏi hợp đồng cá nhân
+chỉ vì đồng thời có từ “tiền thuê” và “mình đã có”. Bảng tìm phòng vẫn có diện tích và thông tin cơ bản;
+câu “cho xem4 phòng” không tự yêu cầu một bảng kiểm kê giường tủ.
+`valuePriorities` lưu field catalog, chiều HIGHER/LOWER/IGNORE và trích dẫn xác nhận tương ứng.
+Nó chỉ hướng dẫn thứ tự đọc toàn bộ nhóm ứng viên và kiểm tra lý do gợi ý, không đổi bộ lọc cứng.
+Ví dụ nội thất được khách nói là không quan trọng sẽ không được dùng để biện minh thêm tiền.
+
+Payload đánh giá dùng nhãn chung và giữ nguyên giá trị/đơn vị từng tin để không vượt giới hạn đầu vào
+vì lặp metadata. `verifiedComparisons` cung cấp các chênh lệch dữ kiện đã kiểm chứng cho AI đánh giá;
+không phải thang điểm chất lượng. So sánh bằng nhau, khác đơn vị hoặc chưa biết không trở thành lợi thế.
+Không loại đề xuất chỉ vì đếm được hơn3 điểm đánh đổi; những điểm đã biết vẫn được công khai.
+AI nhận rõ hai mức riêng: trần tìm kiếm chính và trần được cân nhắc thêm500.000đ; không từ chối ứng viên
+chỉ vì cao hơn trần chính. Một lượt đánh giá đọc đủ từng ứng viên trước khi chọn; phần đánh giá nội bộ không
+hiện ra khách hàng. AI chọn field có ý nghĩa, backend tự ghép các tin so sánh từ dữ kiện đã xác minh.
+
+Đầu ra AI chỉ là ID và bằng chứng có cấu trúc; ứng dụng kiểm tra ID, dữ kiện thật, so sánh cả nhóm,
+điểm tốt trùng với phòng rẻ hơn, các phí/điểm đánh đổi đã biết trước khi tự dựng lời gợi ý.
+Không đưa mô tả quảng cáo, ảnh, độ yên tĩnh/an ninh hoặc dữ liệu thiếu thành lợi ích đã xác minh.
+Ngày nhận đều trước/hôm nay không được xem là lợi thế “nhận sớm hơn”. Phí có đơn vị khác nhau không tự cộng
+thành tổng khi chưa biết lượng dùng. Giá và dữ kiện listing luôn đọc mới; memory chỉ giữ tiêu chí/ID.
+
+Chỉ hiện tối đa **một đoạn chữ có link dưới bảng**, ghi rõ tiền thuê và **vượt ngân sách bao nhiêu**,
+lợi ích so với các tin đang xem và điểm cần cân nhắc. Không thêm cột/card thứ5, không tăng trần ngân sách
+trong state, không cộng ứng viên vào43 tin chính. “Xem thêm” lấy trang tiếp theo trong43 tin,
+đồng thời có thể xét lại nhóm boundary theo trang mới; ID đã gợi ý được loại riêng để không lặp lại.
+`matchedTotal` trong Core v2 là tổng khớp trước loại ID phân trang, tránh trừ số tin còn lại hai lần.
+
+Không gọi nhóm phụ khi thiếu trần tiền thuê, không có tin chính, thiếu đơn vị tiền so sánh,
+chỉ hỏi chi tiết/so sánh trong tập đã chọn, hoặc khách từ chối tăng ngân sách/gợi ý.
+“Dưới/tối đa X” bình thường khác “X là hết khả năng, không thể tăng”. Quyết định từ chối được lưu
+qua các lượt “xem thêm”, tải lại và các câu hỏi chi tiết; chỉ thay khi khách đổi ý rõ ràng.
+Không có ứng viên thì không gọi AI đánh giá. Có ứng viên mới có thể thêm **một lượt OpenAI**;
+không gọi TomTom/Geoapify và không ghi dữ liệu Nearby.
+Nếu tool/model phụ lỗi, quá hạn hoặc không có lựa chọn thuyết phục, giữ nguyên bảng chính và bỏ gợi ý.
+
+Cấu hình nghiệp vụ bắt buộc, không phải secret:
+- Core `hs-api-service/src/main/resources/application.properties`: `listing.ai.value.max-extra-monthly=500000`, `listing.ai.value.candidate-limit=8`.
+- AI `src/homespace_ai/application.properties`: `listing.value-advice.timeout-seconds=18` (tổng thời gian bước phụ).
+
+Sau khi cập nhật, khởi động lại Core và AI service. Không cần đổi schema hay seed lại CSDL.
+Kiểm thử offline: `uv run pytest tests/unit/test_listing_value_advice.py tests/unit/test_boundary_pagination.py -q`.
+Kiểm thử PostgreSQL nằm trong `AiListingSearchPostgresTest`, chỉ chạy với CSDL test dùng một lần.
+
 FastAPI microservice for HomeSpace AI capabilities, local RAG knowledge base, and platform agent integration:
 
 - Listens on port `8084` in local development.

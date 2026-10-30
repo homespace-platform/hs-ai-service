@@ -40,3 +40,10 @@ def nearby_default_radius_m() -> int:
     if not value.isdigit() or not 100 <= int(value) <= 5000:
         raise ValueError("AI application.properties must explicitly set nearby.default-radius-m between 100 and 5000")
     return int(value)
+
+
+def value_advice_timeout_seconds() -> float:
+    value = _properties().get("listing.value-advice.timeout-seconds", "")
+    if not re.fullmatch(r"\d+(?:\.\d+)?", value) or not 1 <= float(value) <= 20:
+        raise ValueError("AI application.properties must explicitly set listing.value-advice.timeout-seconds between 1 and 20")
+    return float(value)

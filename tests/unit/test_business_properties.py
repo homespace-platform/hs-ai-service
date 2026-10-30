@@ -5,11 +5,11 @@ from homespace_ai.core.config import Settings
 
 def test_business_flag_comes_from_properties_and_ignores_old_env_name(tmp_path, monkeypatch):
     path = tmp_path / "application.properties"
-    path.write_text("nearby.query-enabled=false\nnearby.default-radius-m=2000\nlisting.search-utc-offset=+07:00\n", encoding="utf-8")
+    path.write_text("nearby.query-enabled=false\nnearby.default-radius-m=2000\nlisting.search-utc-offset=+07:00\nlisting.value-advice.timeout-seconds=12\n", encoding="utf-8")
     monkeypatch.setattr(business_properties, "PROPERTIES_FILE", path)
     monkeypatch.setenv("NEARBY_QUERY_ENABLED", "true")
     assert Settings(_env_file=None).nearby_query_enabled is False
-    path.write_text("nearby.query-enabled=true\nnearby.default-radius-m=2500\nlisting.search-utc-offset=+07:00\n", encoding="utf-8")
+    path.write_text("nearby.query-enabled=true\nnearby.default-radius-m=2500\nlisting.search-utc-offset=+07:00\nlisting.value-advice.timeout-seconds=12\n", encoding="utf-8")
     assert Settings(_env_file=None).nearby_query_enabled is True
     assert Settings(_env_file=None).nearby_default_radius_m == 2500
 
@@ -35,4 +35,14 @@ def test_missing_or_invalid_business_setting_fails_startup(tmp_path, monkeypatch
 def test_missing_properties_file_fails_startup(tmp_path, monkeypatch):
     monkeypatch.setattr(business_properties, "PROPERTIES_FILE", tmp_path / "missing.properties")
     with pytest.raises(FileNotFoundError):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("timeout", ["", "0", "21", "NaN"])
+def test_optional_advice_timeout_is_required_and_bounded_at_startup(tmp_path, monkeypatch, timeout):
+    path = tmp_path / "application.properties"
+    path.write_text("nearby.query-enabled=true\nnearby.default-radius-m=2000\nlisting.search-utc-offset=+07:00\n"
+                    f"listing.value-advice.timeout-seconds={timeout}\n", encoding="utf-8")
+    monkeypatch.setattr(business_properties, "PROPERTIES_FILE", path)
+    with pytest.raises(ValueError, match="must explicitly set listing.value-advice.timeout-seconds"):
         Settings(_env_file=None)

@@ -78,6 +78,15 @@ def search_parameters(catalog: SearchCatalog, cap: int) -> dict[str, Any]:
         "removeFields": {"type": "array", "items": {"type": "string", "maxLength": 120}, "maxItems": 20},
         "moreResults": {"type": "boolean"},
         "withinDisplayed": {"type": "boolean"},
+        "boundaryAdvice": _nullable({"type": "string", "enum": ["AUTO", "ALLOW", "DENY"],
+            "description": "Only when this message changes willingness to see optional above-budget suggestions. Null keeps the stored policy."}),
+        "needs": {"type": "array", "maxItems": 6, "items": {"type": "string", "maxLength": 220},
+                  "description": "Exact short quotes of qualitative tenant needs from THIS message, e.g. prefers spacious, already owns furniture. Never invent numeric thresholds."},
+        "valuePriorities": {"type": "array", "maxItems": 6, "items": {"type": "object", "additionalProperties": False,
+            "properties": {"field": {"type": "string", "maxLength": 120},
+                           "direction": {"type": "string", "enum": ["HIGHER", "LOWER", "IGNORE"]},
+                           "quote": {"type": "string", "maxLength": 220}}, "required": ["field", "direction", "quote"]},
+            "description": "Qualitative value preferences only, using exact catalog field and exact quote. Prefer spacious: area_m2 HIGHER; furniture unimportant: room.furnishing_status IGNORE. Never a hard filter or numeric threshold."},
         "unsupported": {"type": "array", "maxItems": 6, "items": _object({
             "code": {"type": "string", "enum": [u["code"] for u in catalog.unsupported] or ["OTHER"]},
             "text": {"type": "string", "maxLength": 200}})},
@@ -111,6 +120,21 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "'không cần thang máy' = removeFields amenity.ELEVATOR, never elevator=false. Reset only when the customer explicitly restarts.",
         "A short reply answers PENDING: fill exactly that slot (e.g. a ward name answers LOCATION) and keep all other criteria.",
         "Explicit conditions are hard. 'ưu tiên', 'nếu được', 'có thì tốt' are preference. 'khoảng/tầm X' is op=approx strength=preference, never a range.",
+        "Qualitative needs such as 'ưu tiên phòng rộng', 'đã có giường tủ', 'nội thất không quan trọng' go to needs as exact customer quotes. "
+        "Never invent area >=30 or force furnished/unfurnished to represent those phrases. needs persists on pagination. If the customer "
+        "reverses an old qualitative need, removeFields=['needs'] and add only the remaining/current needs; do not let stale quotes override new hard criteria.",
+        "Also encode explicit qualitative value priorities in valuePriorities with a real catalog field, HIGHER/LOWER/IGNORE and exact quote. "
+        "For 'ưu tiên phòng rộng, nội thất không quan trọng': area_m2 HIGHER and room.furnishing_status IGNORE. These only guide optional value advice, "
+        "never add numeric area constraints or require UNFURNISHED. Omitted priorities persist; reverse an old one by updating its direction or removing valuePriorities.",
+        "Keep the original budget unchanged for search_listings, including pagination. The application may separately fetch a bounded "
+        "boundary pool between that budget ceiling and ceiling+VND500000, then judge it against ALL displayed rooms and the tenant's needs. "
+        "This optional pool is outside the main budget and never counts as main matches or changes CURRENT_STATE. Only genuinely worthwhile "
+        "contextual advantages justify one text suggestion; a perk already available in a cheaper displayed room is not enough. "
+        "boundaryAdvice=null keeps the previous policy; DENY for 'không thể tăng', 'không được vượt', budget at absolute limit, no suggestions, "
+        "or only-cheapest/nearest objective. ALLOW only for an explicit willingness to consider spending more. Do not treat every ordinary "
+        "'dưới/tối đa X' as DENY. 'Xem thêm' preserves policy, fetches the next main page and may compare a new boundary candidate. "
+        "Boundary comparison is application-managed: return search_listings normally, never emit find_value_opportunity. "
+        "Use sort=newest by default unless the customer requested a different order; do not silently choose cheapest for a budget query.",
         "Budget: 'dưới X' lt, 'tối đa/không quá X' lte, 'trên X' gt, 'ít nhất/từ X trở lên' gte. Money in VND digits (3tr/3 củ = 3000000). "
         "Monthly rent uses rent.monthly_amount (per-person prices need context.occupants). 'Tổng chi phí mỗi tháng' uses cost.fixed_monthly_total "
         "with context occupants/motorbikes/cars; electricity/water usage only if the customer gave kWh/m³ (cost.estimated_monthly_total).",
@@ -152,6 +176,9 @@ def state_summary(state: dict[str, Any] | None, catalog: SearchCatalog | None = 
             "location": state.get("location"), "nationwide": state.get("nationwide"),
             "target": {"name": state["target"]["name"], "radiusMeters": state["target"]["radiusMeters"]} if state.get("target") else None,
             "nearby": state.get("nearby"), "context": state.get("context"), "sort": state.get("sort"),
+            "boundaryAdvice": state.get("boundaryAdvice", "AUTO"),
+            "needs": state.get("needs") or [],
+            "valuePriorities": state.get("valuePriorities") or [],
             "unsupported": [u["code"] for u in state.get("unsupported") or []],
             "pending": {"type": state["pending"]["type"], "question": state["pending"]["question"],
                         "candidates": [c["name"] + (" — " + c["address"] if c.get("address") else "") for c in state["pending"]["candidates"]]}

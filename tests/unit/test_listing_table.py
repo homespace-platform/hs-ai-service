@@ -256,6 +256,13 @@ def test_requested_sections(question, expected):
     assert requested_sections(question) == expected
 
 
+def test_generic_show_search_request_does_not_turn_previous_owned_furniture_need_into_inventory():
+    question = ("Mình cần thuê phòng trọ cho 2 người, tiền thuê dưới 3,5 triệu. "
+                "Bọn mình đã có giường tủ nên ưu tiên phòng rộng, nội thất không quan trọng. Cho mình xem 4 phòng mới đăng.")
+    assert requested_sections(question, search_page=True) == []
+    assert requested_sections(question + " Cho mình xem chi phí và nội thất trong bảng.", search_page=True) == ["furnishings", "charges"]
+
+
 @pytest.mark.parametrize("question,scoped", [
     ("lập bảng so sánh trực quan", True),
     ("so sánh các phòng trên theo tiêu chí liên quan tới chi phí", True),

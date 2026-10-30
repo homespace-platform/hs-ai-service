@@ -45,6 +45,36 @@ MONEY_FIELDS_BUDGET = ("rent.monthly_amount", "price_amount")
 TOTAL_WORDS = re.compile(r"\b(?:tong chi phi|tong tien|tat ca chi phi|bao gom (?:ca )?(?:dien nuoc|phi)|all.?in|chi phi moi thang|tong moi thang)\b")
 
 
+def boundary_policy(question: str, proposed: Any = None) -> str | None:
+    """Persist an explicit no-increase decision; a later 'xem thêm' cannot reset it."""
+    text = fold_text(question)
+    if HYPOTHETICAL.search(text):
+        return None
+    if re.search(r"\b(?:khong|dung)\s+(?:(?:the|muon|chap nhan|can)\s+)?(?:tang|vuot|them tien|nang ngan sach|goi y|de xuat)\b|"
+                 r"\btuyet doi\s+khong\s+vuot\b|\b(?:het co|het kha nang|khong nhich them|khong du them)\b", text):
+        return "DENY"
+    if not HYPOTHETICAL.search(text) and re.search(
+            r"\b(?:co the|san sang|chap nhan|cho phep)\s+(?:minh\s+|toi\s+)?(?:nhich|tang|nang ngan sach|vuot ngan sach|them tien)\b", text):
+        return "ALLOW"
+    if proposed == "DENY":
+        return "DENY"  # A conservative planner interpretation only suppresses optional advice.
+    flexibility = re.search(r"\b(?:nhich|them tien|nang ngan sach|tang ngan sach|noi ngan sach|vuot ngan sach|"
+                            r"bo gioi han ngan sach|xem phong dat hon|can nhac phong dat hon)\b", text)
+    return proposed if proposed in {"AUTO", "ALLOW"} and flexibility else None
+
+
+def grounded_needs(question: str, proposed: Any = None) -> list[str]:
+    """Qualitative needs stay customer quotes, never invented numeric search thresholds."""
+    text = fold_text(question)
+    notes = [note.strip()[:220] for note in (proposed if isinstance(proposed, list) else [])
+             if isinstance(note, str) and note.strip() and fold_text(note.strip()) in text]
+    for clause in re.split(r"[.;\n,]", question):
+        if re.search(r"\b(?:uu tien|khong quan trong|khong can|da co (?:san )?(?:giuong|tu|noi that|do)|"
+                     r"mang theo|nhieu do|khong gian rong)\b", fold_text(clause)):
+            notes.append(clause.strip()[:220])
+    return list(dict.fromkeys(notes))[-6:]
+
+
 def _amount(number: str, unit: str | None) -> Decimal | None:
     return money(number + (unit or ""))
 
@@ -392,6 +422,12 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         "nearby": nearby, "context": context, "sort": sort, "keyword": keyword,
         "limit": args.get("limit") if type(args.get("limit")) is int and args["limit"] > 0 else None,
         "unsupported": unsupported, "moreResults": args.get("moreResults") is True,
+        "boundaryAdvice": boundary_policy(question, args.get("boundaryAdvice")),
+        "needs": grounded_needs(question, args.get("needs")),
+        "valuePriorities": [item for item in (args.get("valuePriorities") or [])[:6] if isinstance(item, dict)
+                            and item.get("field") in catalog.fields and item.get("direction") in {"HIGHER", "LOWER", "IGNORE"}
+                            and isinstance(item.get("quote"), str) and item["quote"].strip()
+                            and len(item["quote"]) <= 220 and fold_text(item["quote"].strip()) in text],
         "withinDisplayed": args.get("withinDisplayed") is True, "hypothetical": bool(HYPOTHETICAL.search(text)),
         "dateAmbiguous": dates.ambiguous is not None and dates.move_in_by is None,
     }

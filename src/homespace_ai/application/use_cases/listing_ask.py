@@ -4,6 +4,7 @@ Renter criteria persist in a versioned state (see renter_search_state). Every ha
 compiled by Core before LIMIT; an empty result is reported and asked about, never relaxed.
 """
 
+import asyncio
 import json
 import re
 import time
@@ -23,6 +24,7 @@ from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnav
 from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.clients.listing_tool_planner import ListingToolPlanner, ToolPlan
 from homespace_ai.core.config import Settings
+from homespace_ai.core.business_properties import value_advice_timeout_seconds
 from homespace_ai.tools.listings import ListingSearchRejected, ListingToolError, ListingTools
 from homespace_ai.application.vietnamese_text import VietnamesePattern, fold_text
 from homespace_ai.application.listing_location import LocationClarification, catalog as admin_catalog, resolve_location_filters
@@ -32,8 +34,9 @@ from homespace_ai.application.listing_table import (SHOW_REQUEST, TABLE_REQUEST,
                                                     section_labels, strip_images, strip_tables)
 from homespace_ai.application.nearby_listing_advice import NEARBY_INTENT, answer_nearby
 from homespace_ai.application import renter_search_state as rs
-from homespace_ai.application.renter_criteria import normalize
+from homespace_ai.application.renter_criteria import normalize, boundary_policy
 from homespace_ai.application.renter_dates import request_today
+from homespace_ai.application import listing_value_advice as value_advice
 
 
 LISTING_SIGNAL = VietnamesePattern(
@@ -155,6 +158,10 @@ class ListingAsk:
                          state: dict[str, Any] | None = None) -> AskResult | None:
         state = rs.sanitize(state) if state is not None else rs.latest_state(history)
         self._base = deepcopy(state)
+        policy = boundary_policy(question)
+        if policy is not None and state is not None:
+            state = deepcopy(state)
+            state["boundaryAdvice"] = policy  # Fact/detail shortcuts must also preserve an explicit opt-out.
         if SUPPORT_INTENT.search(question) and not SEARCH_INTENT.search(question):
             return None
         if MAP_EVIDENCE_REQUEST.search(question) and not getattr(self.settings, "nearby_query_enabled", False):
@@ -169,6 +176,19 @@ class ListingAsk:
                             state: dict[str, Any] | None) -> AskResult | None:
         scope = current_scope(history)
         selection = scoped_selection(question, history)
+        if value_advice.VALUE_REFERENCE.search(question) and not SEARCH_INTENT.search(question):
+            latest = next((item.get("listingContext") for item in reversed(history)
+                           if item.get("role") == "assistant" and item.get("listingContext")), {})
+            identifier = (latest.get("valueSuggestion") or {}).get("listingId")
+            if not identifier and state:
+                previous_suggestions = rs.boundary_exclusions(state)
+                identifier = previous_suggestions[-1] if previous_suggestions else None
+            if identifier:
+                selection = [identifier]  # Server-stored reference; never a fifth ordinal in the original table.
+            else:
+                return AskResult(answer="Bạn muốn xem tin gợi ý nào? Bạn gửi lại đường dẫn hoặc nhắc đặc điểm của tin đó nhé.",
+                                 status="ANSWERED", citations=[], request_id=request_id,
+                                 listing_context=self.context(scope, state))
         pending = (state or {}).get("pending")
         if selection == []:
             return self._clarify(request_id, scope, state)
@@ -256,6 +276,8 @@ class ListingAsk:
         radius_default = self.settings.nearby_default_radius_m
         merged = rs.merge(state, {
             "constraints": update["constraints"], "alternatives": update["alternatives"],
+            "boundaryAdvice": update.get("boundaryAdvice"),
+                        "needs": update.get("needs") or [], "valuePriorities": update.get("valuePriorities") or [],
             "removeFields": update["removeFields"], "nationwide": update["nationwide"],
             "nearby": [{**n, "radiusMeters": n["radiusMeters"] or radius_default} for n in update["nearby"]],
             "context": update["context"], "sort": update["sort"], "keyword": update["keyword"],
@@ -395,8 +417,40 @@ class ListingAsk:
             "shownSoFar": len(persist["shown"]["ids"]) if more else len(listings),
         }
         distances = {item["id"]: item["targetDistanceMeters"] for item in listings if item.get("targetDistanceMeters") is not None}
-        return await self._present(question, history, request_id, "search_listings", evidence, scope, persist, ids=shown_ids,
-                                   table_source=full, distances=distances)
+        answer = await self._present(question, history, request_id, "search_listings", evidence, scope, persist, ids=shown_ids,
+                                     table_source=full, distances=distances)
+        seen_boundary = rs.boundary_exclusions(persist)
+        displayed_ids = answer.listing_ids
+        displayed = [item for identifier in displayed_ids for item in full if item["id"] == identifier]
+        if (answer.status == "ANSWERED" and len(seen_boundary) < 40
+                and value_advice.eligible(question, criteria, payload, displayed, more=more, within=within)):
+            try:
+                async with asyncio.timeout(value_advice_timeout_seconds()):
+                    boundary = await self.tools.value_opportunity(payload, displayed_ids, seen_boundary)
+                    # These are fresh public reads, bounded to eight candidates and four concurrent HTTP calls.
+                    semaphore = asyncio.Semaphore(4)
+                    async def read_candidate(identifier):
+                        async with semaphore:
+                            try:
+                                return await self.tools.detail(identifier)
+                            except ListingToolError as error:
+                                if error.status_code in {404, 410} or str(error) == "Listing is no longer public":
+                                    return None
+                                raise
+                    candidates = [item for item in await asyncio.gather(
+                        *(read_candidate(identifier) for identifier in boundary["candidateIds"])) if item is not None]
+                    suggestion = (await value_advice.evaluate(question, criteria | {"requestToday": self.today().isoformat()}, displayed, candidates, boundary,
+                                                            self.generative_client, self.catalog)) if candidates else None
+                if suggestion:
+                    answer.answer += "\n\n" + value_advice.render(suggestion, displayed, boundary)
+                    advice_state = rs.record_boundary(persist, suggestion["listingId"])
+                    answer.listing_context = self.context(answer.listing_context["listingIds"], advice_state)
+                    answer.listing_context["valueSuggestion"] = {"listingId": suggestion["listingId"]}
+                logger.info("listing_value_comparison", request_id=request_id, suggested=bool(suggestion), displayed=len(shown_ids))
+            except (ListingToolError, GenerationUnavailableError, HTTPException, TimeoutError, ValueError, TypeError, KeyError) as error:
+                # Optional advice failing must never discard valid main results or widen criteria.
+                self._log_failure(request_id, "value_comparison", error, "find_value_opportunity")
+        return answer
 
     def _check_label(self, fields: list[str]) -> str:
         if not fields:
@@ -441,9 +495,7 @@ class ListingAsk:
         full = {item["id"]: item for item in (table_source if table_source is not None else evidence["listings"])}
         recommend = bool(RECOMMENDATION.search(question))
         wants_table = bool(TABLE_REQUEST.search(question))
-        sections = requested_sections(question)
-        if tool == "search_listings" and not SHOW_REQUEST.search(question):
-            sections = []  # "tìm phòng có máy lạnh" is a filter, not a request to list every furnishing row.
+        sections = requested_sections(question, search_page=tool == "search_listings")
         show_table = tool == "search_listings" or len(full) >= 1 and (wants_table or len(full) >= 2 and bool(sections or recommend))
 
         def table_for(selected: list[str]) -> str:

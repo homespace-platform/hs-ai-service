@@ -99,6 +99,33 @@ async def _none():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("with_contract_history", [False, True])
+async def test_renter_search_with_existing_furniture_never_calls_personal_contract_or_rag(monkeypatch, with_contract_history):
+    from homespace_ai.core.config import get_settings
+    question = ("Mình cần thuê phòng trọ cho 2 người ở phường Gò Vấp, TP.HCM, tiền thuê dưới 3,5 triệu/tháng. "
+                "Bọn mình đã có giường tủ nên ưu tiên phòng rộng, nội thất không quan trọng. Cho mình xem 4 phòng mới đăng gần đây.")
+    history = [{"role": "assistant", "content": "Hợp đồng của bạn", "contractContext": make_context([C1])}] if with_contract_history else []
+    seen = []
+
+    async def listing(self, text, messages, request_id, **kwargs):
+        seen.append(text)
+        return AskResult(answer="Bảng 4 phòng", status="ANSWERED", citations=[], request_id=request_id)
+
+    async def fail(self, *args, **kwargs):
+        raise AssertionError("A new rental search must not query personal contracts, appointments or RAG")
+
+    monkeypatch.setattr(agent_ask, "get_generative_client", lambda settings: object())
+    monkeypatch.setattr(agent_ask.ListingAsk, "try_answer", listing)
+    monkeypatch.setattr(agent_ask.ContractAsk, "try_answer", fail)
+    monkeypatch.setattr(agent_ask.AppointmentAsk, "try_answer", fail)
+    monkeypatch.setattr(agent_ask.AskUseCases, "ask", fail)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(gateway_client=object())), headers={})
+    user = UserContext(**{"X-User-Id": "tenant", "X-User-Role": "USER"})
+    result = await agent_ask.generate_answer(question, history, request, user, None, get_settings(), None)
+    assert result.answer == "Bảng 4 phòng" and seen == [question]
+
+
+@pytest.mark.asyncio
 async def test_guest_personal_contract_question_is_blocked_before_core_and_rag(monkeypatch):
     class Gateway:
         async def request(self, *args, **kwargs):

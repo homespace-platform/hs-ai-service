@@ -65,8 +65,14 @@ SLOTS = {"MORNING": "Sáng", "AFTERNOON": "Chiều", "EVENING": "Tối"}
 Row = tuple[str, list[str]]
 
 
-def requested_sections(question: str) -> list[str]:
+def requested_sections(question: str, *, search_page: bool = False) -> list[str]:
     """Field groups the customer asked to see, in a stable display order."""
+    if search_page:
+        # A separate "cho mình xem 4 phòng" does not ask for a furniture inventory
+        # merely because an earlier sentence says "đã có giường tủ / không quan trọng".
+        requested = {name for clause in re.split(r"[.!?;\n]", question) if SHOW_REQUEST.search(clause)
+                     for name in requested_sections(clause)}
+        return [name for name in SECTIONS if name in requested]
     if ALL_SECTIONS.search(question):
         return list(SECTIONS)
     return [name for name, (_, pattern) in SECTIONS.items() if pattern.search(question)]

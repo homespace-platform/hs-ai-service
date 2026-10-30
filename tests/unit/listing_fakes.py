@@ -66,6 +66,9 @@ class FakeTools:
         self.context_missing: list[str] = []
         self.evidence: list[dict] = []
         self.summaries = None
+        self.value_calls = []
+        self.value_suggestion = None
+        self.value_boundary = {"candidateIds": [], "budgetField": None, "budgetCeiling": None, "maxExtraMonthly": 500000}
 
     async def catalog(self):
         self.catalog_calls += 1
@@ -84,7 +87,8 @@ class FakeTools:
         if self.reject is not None:
             raise self.reject
         ids = self.select(payload)
-        return {"listingIds": ids[:payload["limit"]], "total": len(ids), "unknownTotal": self.unknown_total,
+        total = len([i for i in self.ids if payload.get("scopeIds") is None or i in payload["scopeIds"]])
+        return {"listingIds": ids[:payload["limit"]], "total": total, "unknownTotal": self.unknown_total,
                 "contextMissing": list(self.context_missing), "evidence": [e for e in self.evidence if e["listingId"] in ids],
                 "readAt": "2026-10-29T03:00:00Z", "catalogVersion": CATALOG["catalogVersion"]}
 
@@ -97,6 +101,12 @@ class FakeTools:
     async def resolve_place(self, query):
         self.place_queries.append(query)
         return deepcopy(self.places.get(query, []))
+
+    async def value_opportunity(self, payload, displayed_ids, excluded_suggestion_ids=None):
+        self.value_calls.append((deepcopy(payload), list(displayed_ids), list(excluded_suggestion_ids or [])))
+        result = deepcopy(self.value_boundary)
+        result["candidateIds"] = [i for i in result["candidateIds"] if i not in (excluded_suggestion_ids or [])]
+        return result
 
     async def nearby(self, listing_ids, radius, groups, target_id=None):
         self.nearby_calls.append((list(listing_ids), radius, list(groups), target_id))
@@ -121,6 +131,12 @@ class FakeGenerator:
     def __init__(self):
         self.kwargs = None
         self.evidence = None
+        self.boundary_decision = {"selectedId": None, "comparedListingIds": [], "advantages": [], "tradeoffs": []}
+        self.boundary_calls = []
+
+    async def generate_value_advice(self, question, evidence):
+        self.boundary_calls.append(deepcopy(evidence))
+        return deepcopy(self.boundary_decision)
 
     async def generate_answer(self, **kwargs):
         self.kwargs = kwargs

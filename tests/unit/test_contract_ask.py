@@ -102,6 +102,12 @@ def assistant(context=None, status="ANSWERED"):
     ("Tiền cọc là gì?", None),
     ("Cách thanh toán tiền thuê trên HomeSpace?", None),
     ("Xin chào", None),
+    ("Mình cần thuê phòng trọ cho 2 người ở phường Gò Vấp, TP.HCM, tiền thuê dưới 3,5 triệu/tháng. Bọn mình đã có giường tủ nên ưu tiên phòng rộng, nội thất không quan trọng. Cho mình xem 4 phòng mới đăng gần đây.", None),
+    ("Minh can thue phong tro, tien thue duoi 3,5 trieu, minh da co giuong tu", None),
+    ("Bây giờ mình muốn thuê căn hộ, mình có tiền thuê tối đa 10 triệu", None),
+    ("Mình đang thuê ở HCM nhưng muốn tìm phòng khác dưới 4 triệu tiền thuê", None),
+    ("Tìm phòng tôi đang thuê, tiền thuê hiện nay bao nhiêu?", "CONTRACT"),
+    ("Cho mình xem hợp đồng của tôi đang thuê và nội thất bàn giao", "CONTRACT"),
 ])
 def test_routing_examples(question, expected):
     route = classify(question, [])
@@ -132,6 +138,7 @@ def test_loose_followup_only_continues_the_latest_contract_turn():
     assert classify("Giá thuê bao nhiêu?", immediate) is not None
     assert classify("Nó có gửi xe không?", later_listing) is None
     assert classify("Hợp đồng đó còn bao lâu?", later_listing) is not None
+    assert classify("Mình cần thuê phòng trọ, tiền thuê dưới 4 triệu, mình đã có giường tủ", immediate) is None
 
 
 def test_reference_resolution_is_ordinal_aware_and_bounded():

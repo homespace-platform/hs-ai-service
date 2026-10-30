@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from homespace_ai.application.vietnamese_text import VietnamesePattern
+
 History = list[dict[str, Any]]
 
 # Domain words that can point at the caller's own contracts.
@@ -27,6 +29,13 @@ GENERIC = re.compile(
     r"như thế nào|thế nào|cách |làm sao|làm thế nào|quy trình|thủ tục|hướng dẫn|là gì|các bước|bước nào|"
     r"cần (?:những )?gì|điều kiện|ra sao", re.IGNORECASE)
 NEW_LISTING_SEARCH = re.compile(r"^\s*(?:tìm|kiếm|cho (?:tôi|mình) xem|gợi ý)\b", re.IGNORECASE)
+RENTER_SEARCH = VietnamesePattern(
+    r"\b(?:tìm|kiếm|cần thuê|muốn thuê|dự định thuê|thuê giúp)\s+(?:(?:một|1|cái|căn|thuê)\s+)?"
+    r"(?:phòng|trọ|căn hộ|chung cư|nhà)\b")
+OWNED_TARGET = VietnamesePattern(
+    r"\b(?:hợp đồng|phụ lục)\s+(?:thuê\s+)?(?:của (?:tôi|mình)|đó|này|kia|đã ký)|"
+    r"\b(?:phòng|nhà|căn hộ)\s+(?:(?:mà )?(?:tôi|mình)\s+)?(?:đang thuê|đang cho thuê)|"
+    r"\b(?:phòng|nhà|căn hộ)\s+của (?:tôi|mình)\b")
 LISTING_ORDINAL = re.compile(r"(?:phòng|căn hộ|căn|nhà|tin)\s*(?:thứ\s*|số\s*)?\d+\b", re.IGNORECASE)
 CONTRACT_ORDINAL = re.compile(r"hợp đồng\s*(?:thứ\s*|số\s*)?(\d+)\b", re.IGNORECASE)
 WORD_ORDINAL = re.compile(
@@ -90,6 +99,10 @@ def classify(question: str, history: History) -> Route | None:
     """Decide whether the caller's own contracts are involved. None leaves the question to Listing/RAG."""
     q = question.strip()
     context, immediate = last_context(history)
+    # Rental-search intent outranks generic financial/ownership words in a need:
+    # "tiền thuê" + "mình đã có giường tủ" is not a request for personal contracts.
+    if RENTER_SEARCH.search(q) and not OWNED_TARGET.search(q):
+        return None
     if NEW_LISTING_SEARCH.search(q) and not re.search(r"của tôi|đang thuê|đang cho thuê|đã ký", q, re.IGNORECASE):
         return None
     explicit = bool(CONTRACT_ORDINAL.search(q) or WORD_ORDINAL.search(q)
