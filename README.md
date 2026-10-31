@@ -26,15 +26,23 @@ Câu “Các phòng trên có những tiện ích nào xung quanh?” phải g�
 không được đọc tiện ích tòa nhà để trả lời thay.
 
 Nearby dùng một batch `POST /api/v1/public/listings/ai/nearby-summary` cho nhóm tối đa 20 tin,
-đọc các quan hệ đã lưu trong CSDL. Bảng do ứng dụng dựng, mỗi nhóm tiện ích có tên địa điểm
-gần nhất đã ghi nhận và khoảng cách đường chim bay, mặc định 2 km. Không gửi toàn bộ 100 POI
-của từng tin cho AI. Nhóm thiếu bằng chứng được ghi “Chưa ghi nhận trong dữ liệu đã lưu”,
+đọc các quan hệ đã lưu trong CSDL với `nearestPerGroup=5`. Bảng do ứng dụng dựng, mỗi nhóm
+có tối đa 5 tên địa điểm trong phạm vi mặc định 2 km; đồng bộ trang đầu khi lọc nhóm tại
+chi tiết tin đăng (5 địa điểm/trang). Khoảng cách chỉ dùng nội bộ để lọc và đối chiếu,
+không hiển thị trong bảng AI, danh sách hay popup bản đồ. Không gửi toàn bộ 100 POI
+của từng tin cho AI. Nhóm thiếu bằng chứng được ghi “Chưa có thông tin cho nhóm này”,
 không suy ra không có tiện ích. Dữ kiện Nearby dùng để tư vấn chỉ lấy từ phạm vi đã phủ;
 giáo dục chung không được xem là đúng trường đại học của sinh viên. Nếu thiếu bằng chứng vị trí,
 AI vẫn có thể cân nhắc dữ kiện căn phòng, nhưng không bịa ưu thế về vị trí.
 
 Gợi ý câu hỏi luôn có câu hỏi về Nearby sau kết quả. Memory chỉ giữ ID/phạm vi và các mã
 trường dùng để giải thích; không giữ bản sao POI. Khi hỏi lại phải đọc dữ liệu mới từ Core.
+
+“Vì sao bạn ưu tiên phòng được chọn?” đọc lại **toàn bộ nhóm phòng đang xét** từ Core,
+cho mô hình chọn các tiêu chí liên quan và điểm cần cân nhắc từ ma trận đã kiểm chứng.
+Ứng dụng dựng câu trả lời bằng gạch đầu dòng, đối chiếu từng phòng; dữ kiện chung không
+được trình bày thành lợi thế riêng. Bước này không tìm lại phòng, không gọi boundary hay
+TomTom. Nếu lý do trước có Nearby, chỉ đọc lại các quan hệ POI đã lưu.
 
 API trả `suggestedQuestions` (tối đa bốn câu hỏi hoàn chỉnh), lưu cùng câu trả lời trong
 lịch sử tài khoản và phiên khách. Frontend hiển thị ngay trên ô chat ở cả trang chat và
@@ -73,6 +81,18 @@ nhu cầu và ưu tiên đã lưu. Không còn chọn riêng một phòng yếu 
 m² hoặc một field cố định. Một ban công đã có ở phòng rẻ hơn không đủ để gợi ý phòng đắt hơn chỉ vì có ban công.
 AI được quyền không chọn nếu lợi ích nhỏ, không liên quan, còn thiếu bằng chứng hoặc phải đánh đổi quá nhiều.
 
+`wholePageAdvantageFields` xác minh riêng từng field so với **từng phòng trên trang**: phải tốt hơn
+cả nhóm theo dữ kiện so sánh được, không có phòng bằng/tốt hơn và không thiếu giá trị đối chiếu.
+Không cộng lợi thế từng phần rồi hiển thị một field vốn đã có ở phòng rẻ hơn. Ví dụ WC
+`Riêng/Chung/Chung/Chung` và ứng viên WC riêng thì **WC không phải lý do gợi ý**. Nếu ứng viên
+rộng35m² trong khi cả nhóm tối đa29m², diện tích có thể làm lý do; AI vẫn cân nhắc tiền thêm,
+nhu cầu và đánh đổi để quyết định chọn hoặc bỏ qua. Cùng quy tắc áp dụng WC/bếp/ban công,
+nội thất, sức chứa, phí cùng đơn vị, ngày nhận và nội quy có nhu cầu rõ; không khóa theo diện tích.
+Không coi khác tầng/nội quy là tốt hơn nếu chưa chứng minh đáp ứng đúng nhu cầu được nêu.
+Toàn bộ field cấu trúc và các dòng thiết bị/nội quy được đưa vào ma trận (không cắt âm thầm
+ở dòng24/field80); giới hạn tổng byte đầu vào vẫn được giữ. Nếu không có lợi ích hợp lệ hoặc AI
+đánh giá không đáng thêm tiền, không render boundary và vẫn giữ bảng/lựa chọn chính.
+
 Các nhu cầu định tính như “đã có giường tủ”, “ưu tiên phòng rộng”, “nội thất không quan trọng” được giữ
 trong `searchState.needs` bằng lời khách nói, kể cả khi “xem thêm”; không biến chúng thành diện tích tối thiểu
 hay bộ lọc nội thất do AI tự đoán. Câu “mình cần thuê phòng…” không chuyển sang hỏi hợp đồng cá nhân
@@ -97,7 +117,8 @@ Ngày nhận đều trước/hôm nay không được xem là lợi thế “nh�
 thành tổng khi chưa biết lượng dùng. Giá và dữ kiện listing luôn đọc mới; memory chỉ giữ tiêu chí/ID.
 
 Chỉ hiện tối đa **một đoạn chữ ngắn có link dưới bảng**, ghi rõ tiền thuê, **vượt ngân sách bao nhiêu**
-và **một lợi thế nổi bật đã kiểm chứng**. Không liệt kê so sánh từng tin, phí/đánh đổi hay lời nhắc dài.
+và **một lợi thế nổi bật đã kiểm chứng**, kèm một mốc nhóm ngắn khi so sánh được (ví dụ35m² so với
+mức tốt nhất29m²). Không liệt kê so sánh từng tin, phí/đánh đổi hay lời nhắc dài.
 Không thêm cột/card thứ5, không tăng trần ngân sách
 trong state, không cộng ứng viên vào43 tin chính. Boundary chỉ được xét ở lần tìm đầu đã có kết quả,
 hoặc khi đổi phường/tỉnh/thành. `searchState.boundaryArea` ghi dấu khu vực đã xét dù không có ứng viên.

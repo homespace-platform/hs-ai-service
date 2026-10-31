@@ -66,7 +66,7 @@ async def test_intake_keeps_known_criteria_then_searches_and_remembers_student_w
     second = await chat.ask("Gò Vấp, HCM, dưới 3,5 triệu cho 2 người nhé")
     assert second.status == "ANSWERED" and len(a.tools.payloads) == 1 and second.listing_ids == IDS[:4]
     assert second.listing_context["mainRecommendation"] == {"listingId": IDS[0], "fields": ["areaM2", "pricing.amount"]}
-    assert "Trong nhóm phòng đang xét" in second.answer and "Bạn đang học trường nào" in second.answer
+    assert "Mình gợi ý bạn cân nhắc" in second.answer and "Bạn đang học trường nào" in second.answer
     assert len(a.generative_client.boundary_calls) == 1 and not a.tools.nearby_calls
     assert any("Vì sao" in q for q in second.suggested_questions)
     assert second.listing_context["searchState"]["renterProfile"]["persona"] == "STUDENT"
@@ -101,7 +101,7 @@ async def test_main_reference_is_separate_from_the_boundary_reference_and_needs_
     a.tools.read.clear()
     a.tools.details[IDS[0]]["areaM2"] = 28
     result = await chat.ask("Vì sao bạn ưu tiên phòng được chọn?")
-    assert result.listing_ids == [IDS[0]] and a.tools.read == [IDS[0]]
+    assert result.listing_ids == IDS[:4] and a.tools.read == IDS[:4]
     assert "28 m²" in result.answer and a.generative_client.kwargs is None
     assert "fields" in result.listing_context["mainRecommendation"]
     assert len(a.tools.payloads) == calls and a.planner.calls == planner_calls
@@ -129,8 +129,9 @@ async def test_main_explanation_uses_its_verified_fields_even_after_a_nearby_com
     await chat.ask("Tìm phòng trọ ở Gò Vấp, HCM, dưới 3,5 triệu cho 2 người")
     chat.messages[-1]["listingContext"]["nearby"] = {"radiusMeters": 2000, "groups": ["EDUCATION"]}
     result = await chat.ask("Vì sao bạn chọn phòng đó là phù hợp nhất?")
-    assert result.listing_ids == [IDS[0]] and not a.tools.nearby_calls
-    assert "Các tiêu chí mình dùng" in result.answer and a.generative_client.kwargs is None
+    assert result.listing_ids == IDS[:4] and not a.tools.nearby_calls
+    assert "Mình đã đối chiếu lại" in result.answer and "\n- " in result.answer
+    assert a.generative_client.kwargs is None
 
 
 @pytest.mark.asyncio

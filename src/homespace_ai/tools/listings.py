@@ -223,7 +223,7 @@ class ListingTools:
         if not groups or len(groups) > 8 or any(not isinstance(g, str) or g not in valid_groups for g in groups) or len(set(groups)) != len(groups):
             raise ListingToolError("Invalid nearby groups")
         response = await self.gateway.request("POST", f"{self.base_path}/nearby-summary", request=self.request,
-            json={"listingIds": listing_ids, "radiusMeters": radius_meters, "groups": groups, "nearestPerGroup": 1,
+            json={"listingIds": listing_ids, "radiusMeters": radius_meters, "groups": groups, "nearestPerGroup": 5,
                   "targetPlaceId": target_place_id})
         if response.status_code != 200:
             raise ListingToolError("Nearby lookup unavailable", status_code=response.status_code)
@@ -245,7 +245,7 @@ class ListingTools:
             for group in evidence_groups:
                 nearest = group.get("nearest")
                 covered = group.get("radiusCoveredMeters")
-                if not isinstance(group.get("coverageStatus"), str) or not isinstance(nearest, list) or len(nearest) > 1 or (covered is not None and not distance(covered)):
+                if not isinstance(group.get("coverageStatus"), str) or not isinstance(nearest, list) or len(nearest) > 5 or (covered is not None and not distance(covered)):
                     raise ListingToolError("Invalid nearby coverage")
                 for place in nearest:
                     if not isinstance(place, dict) or not isinstance(place.get("name"), str) or not distance(place.get("distanceMeters")) or place["distanceMeters"] > radius_meters:

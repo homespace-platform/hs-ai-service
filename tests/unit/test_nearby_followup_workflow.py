@@ -44,7 +44,7 @@ async def test_outside_wording_never_uses_building_facilities_even_if_planner_ch
     assert "| Tiện ích xung quanh |" in result.answer and "| Phòng" not in result.answer
     assert all(f"/rent/{identifier}" in result.answer for identifier in IDS[:4])
     assert "Địa điểm SHOPPING" in result.answer and "WiFi" not in result.answer
-    assert "Trong nhóm phòng đang xét" in result.answer
+    assert "Mình gợi ý bạn cân nhắc" in result.answer
     assert a.generative_client.kwargs is None, "POI table is rendered by the app, never model-written"
 
 
@@ -100,13 +100,15 @@ async def test_single_main_pick_can_use_fresh_nearby_facts_but_never_persist_pro
     a, state, history = setup()
     a.generative_client.boundary_decision["mainRecommendation"] = {"listingId": IDS[0], "fields": ["nearby.SHOPPING.distanceMeters"]}
     result = await a.try_answer("Các phòng trên có những tiện ích nào xung quanh?", history, "nearby-pick", state=state)
-    assert "Địa điểm SHOPPING — 100 m" in result.answer
+    assert "Địa điểm SHOPPING" in result.answer and "100 m" not in result.answer
     assert result.listing_context["mainRecommendation"] == {"listingId": IDS[0], "fields": ["nearby.SHOPPING.distanceMeters"]}
     assert "Địa điểm SHOPPING" not in str(result.listing_context)
     a.tools.summaries[0]["groups"][2]["nearest"][0]["distanceMeters"] = 150
+    a.tools.summaries[0]["groups"][2]["nearest"][0]["name"] = "Siêu thị mới cập nhật"
     history.append({"role": "assistant", "content": "Đã đối chiếu", "listingContext": result.listing_context})
     next_result = await a.try_answer("Vì sao bạn ưu tiên phòng được chọn?", history, "fresh-nearby", state=state)
-    assert "Địa điểm SHOPPING — 150 m" in next_result.answer and not a.tools.value_calls
+    assert "Siêu thị mới cập nhật" in next_result.answer and "150 m" not in next_result.answer
+    assert a.tools.read[-4:] == IDS[:4] and len(a.tools.nearby_calls) == 2 and not a.tools.value_calls
 
 
 @pytest.mark.asyncio
@@ -116,8 +118,8 @@ async def test_missing_poi_evidence_keeps_all_columns_and_does_not_claim_absence
         for group in summary["groups"]:
             group.update(nearest=[], knownCount=0)
     result = await a.try_answer("Các phòng trên có những tiện ích nào xung quanh?", history, "partial", state=state)
-    assert result.listing_ids == IDS[:4] and "Chưa ghi nhận trong dữ liệu đã lưu" in result.answer
-    assert "không có nghĩa" in result.answer
+    assert result.listing_ids == IDS[:4] and "Chưa có thông tin cho nhóm này" in result.answer
+    assert "không có tiện ích" not in result.answer
     assert not any(key.startswith("nearby.") for key in a.generative_client.boundary_calls[-1]["factMatrix"])
 
 

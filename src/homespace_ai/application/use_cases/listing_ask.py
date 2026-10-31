@@ -38,6 +38,7 @@ from homespace_ai.application.renter_criteria import normalize, boundary_policy
 from homespace_ai.application.renter_dates import request_today
 from homespace_ai.application import listing_value_advice as value_advice
 from homespace_ai.application import renter_guidance as guidance
+from homespace_ai.application.listing_recommendation_explanation import explain as explain_main_choice
 from homespace_ai.application.amenity_intent import ambiguous_amenities
 
 
@@ -208,7 +209,7 @@ class ListingAsk:
             reference = latest.get("mainRecommendation") or {}
             if reference.get("listingId") in scope:
                 chosen = reference
-                selection = [reference["listingId"]]
+                selection = scope  # Explain against the whole shortlist, not one isolated record.
         if value_advice.VALUE_REFERENCE.search(question) and not SEARCH_INTENT.search(question):
             latest = next((item.get("listingContext") for item in reversed(history)
                            if item.get("role") == "assistant" and item.get("listingContext")), {})
@@ -239,6 +240,8 @@ class ListingAsk:
             proposed = deepcopy(pending["proposed"])
             proposed["pending"] = None
             return await self._search(question, history, request_id, proposed, proposed, scope, {})
+        if chosen:
+            return await self._explain_chosen(question, request_id, chosen, scope, state, history)
         stage = "field_catalog"
         try:
             nearby_memory = next((item.get("listingContext", {}).get("nearby") for item in reversed(history)
@@ -309,17 +312,38 @@ class ListingAsk:
                 return AskResult(answer="Tin này hiện không còn hiển thị công khai, nên mình không dùng thông tin cũ để trả lời.",
                                  status="NO_RESULTS", citations=[], request_id=request_id, listing_context=self.context(scope, state))
             return self._unavailable(request_id, scope, state)
-        if chosen and plan.name == "get_listing_detail":
-            explanation = value_advice.explain_main(chosen, evidence["listings"], state or {}, scope, self.catalog)
-            if explanation:
-                context = self.context(scope, state) | {"mainRecommendation": chosen}
-                return AskResult(answer=explanation, status="ANSWERED", citations=[], request_id=request_id,
-                                 listing_context=context, listing_ids=selection)
         result = await self._present(question, history, request_id, plan.name, evidence, scope, state, ids=None)
         if len(evidence["listings"]) > 1:
             displayed = [item for item in evidence["listings"] if item["id"] in result.listing_ids]
             result = await self._advise_main(question, request_id, result, displayed, state)
         return result
+
+    async def _explain_chosen(self, question, request_id, chosen, scope, state, history):
+        nearby=next((m.get("listingContext",{}).get("nearby") for m in reversed(history)
+                     if m.get("role")=="assistant" and isinstance(m.get("listingContext"),dict)),None)
+        try:
+            async with asyncio.timeout(value_advice_timeout_seconds()):
+                listings, gone = await self._details(scope, request_id)
+                if not any(item["id"] == chosen["listingId"] for item in listings):
+                    return AskResult(answer="Phòng được gợi ý trước đó hiện không còn hiển thị công khai. Bạn muốn mình đối chiếu lại các phòng còn lại không?",
+                        status="NO_RESULTS", citations=[], request_id=request_id, listing_context=self.context(scope,state))
+                if self.catalog is None:
+                    self.catalog = SearchCatalog(await self.tools.catalog())
+                location_facts=None
+                if nearby and any(field.startswith("nearby.") for field in chosen.get("fields",[])):
+                    from homespace_ai.application.nearby_table import facts as nearby_facts
+                    evidence=await self.tools.nearby([item["id"] for item in listings],nearby["radiusMeters"],nearby["groups"],nearby.get("targetPlaceId"))
+                    location_facts=nearby_facts(evidence["summaries"],radius=nearby["radiusMeters"],profile=(state or {}).get("renterProfile"))
+                text = await explain_main_choice(question, chosen, listings,
+                    (state or rs.empty_state()) | {"requestToday": self.today().isoformat()}, scope, self.catalog, self.generative_client,location_facts)
+            context=self.context(scope,state) | {"mainRecommendation":chosen}
+            if nearby:
+                context["nearby"]=nearby
+            return AskResult(answer=text or "Bạn muốn mình giải thích rõ hơn về giá, không gian hay tiện nghi của phòng được chọn?",
+                status="ANSWERED",citations=[],request_id=request_id,listing_context=context,listing_ids=[item["id"] for item in listings])
+        except (CatalogError,ListingToolError,GenerationUnavailableError,HTTPException,TimeoutError,ValueError,TypeError,KeyError) as error:
+            self._log_failure(request_id,"explain_main",error)
+            return self._unavailable(request_id,scope,state)
 
     async def _advise_main(self, question: str, request_id: str, answer: AskResult, listings: list[dict],
                            state: dict | None, *, nearby_facts: dict | None = None) -> AskResult:

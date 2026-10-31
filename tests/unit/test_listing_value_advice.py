@@ -109,6 +109,105 @@ async def test_a_balcony_is_not_an_upgrade_when_cheaper_main_rooms_already_have_
 
 
 @pytest.mark.asyncio
+async def test_reported_private_wc_case_cannot_upsell_a_benefit_already_in_main1():
+    mains, proposed = rooms(), candidate(areaM2=22, pricing={"amount": 3500000, "currency": "VND", "unit": "ROOM_MONTH"})
+    for i, listing in enumerate(mains):
+        listing["areaM2"] = [22, 22, 23, 21][i]
+        listing["pricing"]["amount"] = [3200000, 3200000, 3200000, 2600000][i]
+        listing["roomDetail"]["restroomType"] = "PRIVATE" if i == 0 else "SHARED"
+    result, generator = await evaluate(decision("roomDetail.restroomType"), mains=mains, proposed=[proposed],
+        bounds=boundary(budgetCeiling=3500000), criteria={"constraints": [c("rent.monthly_amount", "lt", 3500000)]})
+    assert result is None
+    evidence = generator.generate_value_advice.await_args.kwargs["evidence"]
+    assert "roomDetail.restroomType" not in evidence["candidates"][0]["wholePageAdvantageFields"]
+    assert evidence["candidates"][0]["verifiedComparisons"]["roomDetail.restroomType"]["higherBenefitThan"] == [2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_invalid_first_highlight_is_removed_instead_of_hiding_the_real_group_upgrade():
+    mains, proposed = rooms(), candidate(areaM2=40)
+    for i, item in enumerate(mains):
+        item["roomDetail"]["restroomType"] = "PRIVATE" if i == 0 else "SHARED"
+    raw = decision(advantages=[{"field": "roomDetail.restroomType", "againstIds": IDS[:4]},
+                               {"field": "areaM2", "againstIds": IDS[:4]}])
+    result, _ = await evaluate(raw, mains=mains, proposed=[proposed])
+    assert [p["field"] for p in result["advantages"]] == ["areaM2"]
+    text = value.render(result, mains, boundary())
+    assert "Diện tích: 40 m²" in text and "mức tốt nhất trong nhóm hiện tại: 35 m²" in text
+    assert "Nhà vệ sinh" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path,raw_main,raw_candidate", [
+    ("areaM2", 29, 35),
+    ("roomDetail.restroomType", "SHARED", "PRIVATE"),
+    ("roomDetail.kitchenType", "SHARED", "PRIVATE"),
+    ("roomDetail.balconyType", "NONE", "PRIVATE"),
+    ("roomDetail.furnishingStatus", "BASIC", "FULLY_FURNISHED"),
+    ("roomDetail.hasWindow", False, True),
+    ("roomDetail.maxOccupants", 2, 3),
+    ("maxMotorbikeCount", 1, 2),
+])
+async def test_any_verified_structured_field_can_justify_a_real_whole_group_gain(path, raw_main, raw_candidate):
+    mains, proposed = rooms(), candidate(areaM2=10)
+    def set_fact(item, raw):
+        if "." in path:
+            root, key = path.split("."); item[root][key] = raw
+        else:
+            item[path] = raw
+    for listing in mains:
+        set_fact(listing, raw_main)
+    set_fact(proposed, raw_candidate)
+    result, generator = await evaluate(decision(path), mains=mains, proposed=[proposed])
+    assert result is not None and result["advantages"][0]["field"] == path
+    assert path in generator.generate_value_advice.await_args.kwargs["evidence"]["candidates"][0]["wholePageAdvantageFields"]
+    # One tie is enough to invalidate this field as the reason for extra rent.
+    set_fact(mains[1], raw_candidate)
+    result, _ = await evaluate(decision(path), mains=mains, proposed=[proposed])
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_fee_gain_requires_beating_the_lowest_comparable_rate_in_the_whole_group():
+    mains, proposed = rooms(), candidate(areaM2=10)
+    for item, amount in zip(mains + [proposed], [3000, 3500, 4000, 3500, 2800]):
+        item["charges"] = [{"chargeType": "ELECTRICITY", "amount": amount, "unit": "kWh", "billingMethod": "PER_KWH", "includedInRent": False}]
+    result, _ = await evaluate(decision("charges.ELECTRICITY.amount"), mains=mains, proposed=[proposed])
+    assert result is not None
+    mains[1]["charges"][0]["amount"] = 2700
+    result, _ = await evaluate(decision("charges.ELECTRICITY.amount"), mains=mains, proposed=[proposed])
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_a_real_universal_gain_does_not_force_the_model_to_propose_it():
+    raw = {"selectedId": None, "comparedListingIds": [], "advantages": [], "tradeoffs": []}
+    result, generator = await evaluate(raw, proposed=[candidate(areaM2=70)])
+    assert result is None and generator.generate_value_advice.await_count == 1
+    assert "areaM2" in generator.generate_value_advice.await_args.kwargs["evidence"]["candidates"][0]["wholePageAdvantageFields"]
+
+
+@pytest.mark.asyncio
+async def test_model_can_choose_a_later_meaningful_candidate_instead_of_the_first_shared_feature():
+    mains, same, larger = rooms(), candidate(areaM2=35), candidate(id=IDS[5], areaM2=45)
+    raw = decision(selectedId=IDS[5])
+    result, generator = await evaluate(raw, mains=mains, proposed=[same,larger], bounds=boundary(candidateIds=IDS[4:6]))
+    assert result["listingId"] == IDS[5]
+    evidence = generator.generate_value_advice.await_args.kwargs["evidence"]
+    assert "areaM2" not in evidence["candidates"][0]["wholePageAdvantageFields"]
+    assert "areaM2" in evidence["candidates"][1]["wholePageAdvantageFields"]
+
+
+def test_detailed_listing_does_not_lose_late_equipment_and_policies_at_old_row_caps():
+    proposed = candidate(amenities=[{"code": f"EXTRA_{i}", "name": f"Tiện nghi {i}"} for i in range(40)],
+        furnishings=[{"itemCode": f"ITEM_{i}", "assetName": f"Thiết bị {i}", "quantity": 1} for i in range(35)],
+        policies=[{"code": "petPermission", "value": "ALLOWED"}])
+    facts = value._facts(proposed, CAT)
+    assert len(facts) > 80
+    assert "amenities.EXTRA_39" in facts and "furnishings.ITEM_34.quantity" in facts and "policies.petPermission" in facts
+
+
+@pytest.mark.asyncio
 async def test_explicit_priorities_order_all_candidates_and_ignore_unimportant_upgrade_fields():
     first, larger = candidate(), candidate(id=IDS[5], areaM2=55)
     criteria = {"valuePriorities": [{"field": "area_m2", "direction": "HIGHER", "quote": "ưu tiên rộng"},
@@ -136,13 +235,13 @@ async def test_model_can_abstain_for_trivial_gain_and_no_fixed_area_threshold_fo
 
 
 @pytest.mark.asyncio
-async def test_contextual_combination_can_beat_the_group_without_one_field_being_unique():
+async def test_partial_benefits_cannot_be_combined_to_force_a_boundary_suggestion():
     combined = candidate(areaM2=35)
     raw = decision(advantages=[{"field": "areaM2", "againstIds": IDS[:3]},
                                {"field": "roomDetail.balconyType", "againstIds": [IDS[3]]}])
     result, _ = await evaluate(raw, proposed=[combined], criteria={"constraints": [c("area_m2", "gte", 30, "preference"),
                                                                                   c("room.balcony_type", "eq", "PRIVATE", "preference")]})
-    assert result is not None and len(result["advantages"]) == 2
+    assert result is None, "No individual highlight beats the best room in the current group"
 
 
 @pytest.mark.asyncio
@@ -157,6 +256,9 @@ async def test_floor_difference_requires_stated_floor_need_instead_of_invented_p
     result, _ = await evaluate(raw, mains=mains, proposed=[proposed],
                                criteria={"constraints": [c("room.floor_number", "lte", 2, "preference")]})
     assert result is not None
+    result, _ = await evaluate(raw, mains=mains, proposed=[proposed],
+                               criteria={"constraints": [c("room.floor_number", "eq", 4, "preference")]})
+    assert result is None, "A lower floor is not an upgrade when the customer wants floor4"
 
 
 @pytest.mark.asyncio
@@ -189,6 +291,15 @@ async def test_missing_values_do_not_become_absence_or_zero():
     unknown = candidate(areaM2=None)
     with pytest.raises(ListingToolError, match="Unknown boundary fact"):
         await evaluate(proposed=[unknown])
+
+
+@pytest.mark.asyncio
+async def test_bad_optional_boundary_keeps_a_valid_main_choice():
+    mains, proposed = rooms(), candidate(areaM2=35)
+    raw = decision("roomDetail.restroomType", mainRecommendation={"listingId": IDS[0], "fields": ["pricing.amount", "areaM2"]})
+    generator = AsyncMock(); generator.generate_value_advice.return_value = raw
+    result = await value.evaluate("Tìm phòng dưới4,5 triệu", {}, mains, [proposed], boundary(), generator, CAT, recommend_main=True)
+    assert result["boundary"] is None and result["main"]["listingId"] == IDS[0]
 
 
 @pytest.mark.asyncio
@@ -305,8 +416,7 @@ async def test_unproven_secondary_comparison_cannot_hide_a_verified_main_advanta
                                {"field": "roomDetail.balconyType", "againstIds": IDS[:4]}])
     result, _ = await evaluate(raw)
     assert result is not None
-    assert [proof["field"] for proof in result["advantages"]] == ["areaM2", "roomDetail.balconyType"]
-    assert [row["listingId"] for row in result["advantages"][1]["comparisons"]] == [IDS[0], IDS[3]]
+    assert [proof["field"] for proof in result["advantages"]] == ["areaM2"]
     assert "Nhà vệ sinh" not in value.render(result, rooms(), boundary())
     result, _ = await evaluate(decision("roomDetail.restroomType"))
     assert result is None, "An entirely unproven benefit still cannot justify a suggestion"

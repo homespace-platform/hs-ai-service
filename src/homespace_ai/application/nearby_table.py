@@ -1,5 +1,7 @@
 """Bounded, authoritative Nearby tables and recommendation facts from cached Core evidence."""
 from math import isfinite
+from html import escape
+import re
 
 from homespace_ai.application.listing_table import COLUMN, COLUMNS_PER_TABLE, _cell, _header
 
@@ -16,7 +18,11 @@ def distance(value) -> str:
 
 
 def _place(place: dict) -> str:
-    return f"{place.get('name') or 'Địa điểm đã lưu'} — {distance(place.get('distanceMeters'))}"
+    return place.get('name') or 'Địa điểm trong khu vực'
+
+
+def _place_cell(place: dict) -> str:
+    return re.sub(r"([\\`*{}\[\]()!_>])", r"\\\1", escape(_cell(_place(place), limit=200), quote=False))
 
 
 def render(summaries: list[dict], listings: list[dict], scope: list[str], radius: int) -> str:
@@ -29,20 +35,20 @@ def render(summaries: list[dict], listings: list[dict], scope: list[str], radius
         lines = ["| Tiện ích xung quanh | " + " | ".join(headers) + " |",
                  "| --- | " + " | ".join("---" for _ in headers) + " |"]
         if any(by_id[item["id"]].get("target") for item in part):
-            lines.append("| Địa điểm đang đối chiếu | " + " | ".join(_cell(_place(by_id[item["id"]]["target"]))
+            lines.append("| Địa điểm đang đối chiếu | " + " | ".join(_place_cell(by_id[item["id"]]["target"])
                 if by_id[item["id"]].get("target") else "Chưa có dữ liệu" for item in part) + " |")
         for code in codes:
             cells = []
             for item in part:
                 group = next((g for g in by_id[item["id"]].get("groups", []) if g.get("code") == code), {})
                 nearest = group.get("nearest") or []
-                cells.append(_cell(_place(nearest[0]), limit=200) if nearest else "Chưa ghi nhận trong dữ liệu đã lưu")
+                # Escape each source name before adding trusted line breaks. Never let
+                # provider markup enter the Markdown table or truncate away POIs2–5.
+                cells.append("<br>".join(f"{index+1}. {_place_cell(p)}" for index,p in enumerate(nearest[:5]))
+                             if nearest else "Chưa có thông tin cho nhóm này")
             lines.append("| " + GROUP_LABELS[code] + " | " + " | ".join(cells) + " |")
         tables.append("\n".join(lines))
-    note = f"Trong phạm vi {distance(radius)}, khoảng cách đường chim bay từ từng bài đăng. Nguồn địa điểm: TomTom, đọc từ dữ liệu đã lưu."
-    if any(g.get("coverageStatus") != "COMPLETE_PROVIDER_RESPONSE" or (g.get("radiusCoveredMeters") or 0) < radius
-           for s in summaries for g in s.get("groups", [])):
-        note += " Dữ liệu là mẫu đã thu thập; chưa ghi nhận không có nghĩa khu vực không có tiện ích."
+    note = f"Các địa điểm trên nằm trong phạm vi {distance(radius)} quanh từng phòng; mỗi nhóm hiển thị tối đa 5 địa điểm để bạn dễ so sánh."
     return "\n\n".join(tables + [note])
 
 
@@ -63,7 +69,7 @@ def facts(summaries: list[dict], *, radius: int, profile: dict | None = None) ->
             # A generic education group may be a kindergarten, not the student's university.
             if code == "EDUCATION" and (profile or {}).get("persona") == "STUDENT":
                 continue
-            evidence.append((code, GROUP_LABELS[code] + " đã ghi nhận gần nhất", group["nearest"][0]))
+            evidence.append((code, GROUP_LABELS[code] + " quanh phòng", group["nearest"][0]))
         for code, label, place in evidence:
             meters = place.get("distanceMeters")
             if not isinstance(meters, (int, float)) or isinstance(meters, bool) or not isfinite(meters) or not 0 <= meters <= radius:

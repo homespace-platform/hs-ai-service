@@ -24,7 +24,9 @@ _LABELS = {"areaM2": "Diện tích", "availableFrom": "Ngày có thể nhận", 
            "accessType": "Lối đi", "electricMeterType": "Đồng hồ điện", "waterMeterType": "Đồng hồ nước",
            "parkingPolicy": "Chính sách gửi xe", "totalFloors": "Số tầng", "hasRooftop": "Sân thượng",
            "hasGarage": "Gara", "minimumLeaseMonths": "Thời hạn thuê tối thiểu", "depositMonths": "Số tháng cọc",
-           "depositAmount": "Tiền cọc cố định", "paymentCycle": "Chu kỳ thanh toán", "includedInRent": "Đã gồm trong tiền thuê"}
+           "depositAmount": "Tiền cọc cố định", "paymentCycle": "Chu kỳ thanh toán", "includedInRent": "Đã gồm trong tiền thuê",
+           "vatIncluded": "Thuế VAT đã gồm trong giá", "managementFeeIncluded": "Phí quản lý đã gồm trong giá",
+           "negotiable": "Có thể thương lượng"}
 _ENUMS = {"PRIVATE": "Riêng", "SHARED": "Chung", "NONE": "Không có", "UNFURNISHED": "Không nội thất",
           "BASIC": "Cơ bản", "PARTIALLY_FURNISHED": "Một phần", "FULLY_FURNISHED": "Đầy đủ", "LUXURY": "Cao cấp",
           "FLEXIBLE": "Tự do", "CURFEW": "Có giờ giới hạn", "SEPARATE": "Riêng biệt", "COMMON": "Dùng chung",
@@ -138,7 +140,7 @@ def _facts(item: dict, catalog=None, today: date | None = None) -> dict[str, dic
     pricing = item.get("pricing") or {}
     for key in ("minimumLeaseMonths", "depositMonths", "depositAmount", "paymentCycle", "negotiable", "managementFeeIncluded", "vatIncluded"):
         add("pricing." + key, pricing.get(key), _snake(key), key)
-    for row in (item.get("charges") or [])[:24]:
+    for row in item.get("charges") or []:
         kind = row.get("chargeType") if isinstance(row, dict) else None
         if kind not in _CHARGE_LABELS:
             continue  # Multiple OTHER rows have no stable identity; never compare unrelated custom fees.
@@ -151,25 +153,27 @@ def _facts(item: dict, catalog=None, today: date | None = None) -> dict[str, dic
             if prefix + ".amount" in result:
                 result[prefix + ".amount"]["direction"] = "LOWER"
                 result[prefix + ".amount"]["comparisonKey"] = [method, row.get("unit"), False]
-    for row in (item.get("amenities") or [])[:24]:
+    for row in item.get("amenities") or []:
         if isinstance(row, dict) and re.fullmatch(r"[A-Z0-9_]{1,60}", str(row.get("code") or "")):
             code = row["code"]
             add("amenities." + code, True, "amenity." + code, code, label=row.get("name"))
-    for row in (item.get("furnishings") or [])[:24]:
+    for row in item.get("furnishings") or []:
         code = row.get("itemCode") if isinstance(row, dict) else None
         if isinstance(code, str) and re.fullmatch(r"[A-Z0-9_]{1,60}", code) and isinstance(row.get("quantity"), (int, float)):
             path = "furnishings." + code + ".quantity"
             total = row["quantity"] + (result.get(path) or {}).get("value", 0)
             add(path, total, "furnishing." + code + ".total_quantity", "quantity", "cái", row.get("assetName"))
             result[path]["direction"] = "HIGHER"
-    for row in (item.get("policies") or [])[:24]:
+    for row in item.get("policies") or []:
         if not isinstance(row, dict):
             continue
         code = row.get("code") or row.get("policyCode")
         if isinstance(code, str) and re.fullmatch(r"[a-zA-Z0-9_]{1,60}", code):
             raw = row.get("value") if "value" in row else row.get("policyValue")
             add("policies." + code, raw, "policy." + code + ".value", code)
-    return dict(list(result.items())[:80])
+    # The complete structured offer participates; evaluate() bounds total bytes instead
+    # of silently dropping policies/equipment near the end of a detailed listing.
+    return result
 
 
 def _comparison(candidate: dict, main: dict) -> int | None:
@@ -222,30 +226,67 @@ def _proofs(raw, chosen: dict, mains: dict, *, advantage: bool) -> list[dict]:
     return result
 
 
-def _redundant(advantages: list[dict], facts: dict) -> bool:
-    """Do not charge more for the same benefits a cheaper main already supplies."""
-    for proof in advantages:
-        previous = facts.get(proof["field"])
-        if previous is None:
-            return False
-        change = _comparison(proof["fact"], previous)
-        if change is None or change > 0:
-            return False
-    return True
+def _whole_page_advantages(facts: dict, mains: dict, criteria: dict) -> list[str]:
+    """Factual eligibility, not a score: a highlight must improve on EVERY main.
+
+    An unknown value cannot prove absence. A private WC already offered by even
+    one cheaper main is not a novel benefit, regardless of gains in other fields.
+    The judge still decides relevance, materiality, tradeoffs and whether to abstain.
+    """
+    result = []
+    for path, fact in facts.items():
+        if _ignored(fact, criteria):
+            continue
+        changes = []
+        for previous in mains.values():
+            if path not in previous:
+                changes.append(None)
+                continue
+            change = _comparison(fact, previous[path])
+            if change == 2 and not _context_improves(fact, previous[path], criteria):
+                change = None
+            changes.append(change)
+        if changes and all(change in {1, 2} for change in changes):
+            result.append(path)
+    return result
 
 
-def _requested_context(fact: dict, criteria: dict) -> bool:
-    """A different floor/access rule/policy is not an upgrade without a stated related need."""
-    wanted = list(criteria.get("constraints") or [])
-    for group in criteria.get("alternatives") or []:
-        if isinstance(group, list):
-            wanted.extend(group)
+def _context_improves(fact: dict, previous: dict, criteria: dict) -> bool:
+    """A context-only difference must actually meet a stated need the main misses.
+
+    'Floor2' is not an upgrade over floor4 when the customer asked for floor4.
+    Complex alternatives and free text stay in the judge's full matrix, but cannot
+    alone be presented as a verified universal upgrade.
+    """
     code = fact["code"]
-    aliases = {code}
-    if code.startswith(("room.", "house.", "apartment.")):
-        aliases.add("detail." + code.partition(".")[2])
-    wanted.extend(item for item in criteria.get("valuePriorities") or [] if item.get("direction") != "IGNORE")
-    return any(isinstance(item, dict) and item.get("field") in aliases for item in wanted)
+    aliases = {code, "detail." + code.partition(".")[2]} if code.startswith(("room.", "house.", "apartment.")) else {code}
+    conditions = [c for c in criteria.get("constraints") or [] if isinstance(c, dict) and c.get("field") in aliases]
+    if not conditions:
+        return False
+
+    def matches(raw, condition):
+        target, op = condition.get("value"), condition.get("op")
+        if isinstance(raw, bool):
+            if isinstance(target, str) and target.lower() in {"true", "false"}:
+                target = target.lower() == "true"
+            if not isinstance(target, bool):
+                return None
+        if op in {"eq", "ne"}:
+            equal = str(raw).casefold() == str(target).casefold()
+            return equal if op == "eq" else not equal
+        if op == "in" and isinstance(target, list):
+            return str(raw).casefold() in {str(v).casefold() for v in target}
+        if op in {"lt", "lte", "gt", "gte"}:
+            try:
+                x, y = number(raw), number(target)
+                return {"lt": x < y, "lte": x <= y, "gt": x > y, "gte": x >= y}[op]
+            except ListingToolError:
+                return None
+        return None
+
+    before = [matches(previous["value"], c) for c in conditions]
+    after = [matches(fact["value"], c) for c in conditions]
+    return all(v is True for v in after) and any(v is False for v in before)
 
 
 def _ignored(fact: dict, criteria: dict) -> bool:
@@ -297,6 +338,8 @@ def _judge_matrix(rows: list[dict]) -> dict:
         row["values"] = [_display(facts[path]) if path in facts else None for facts in rows]
         if any(path in facts and facts[path]["label"] != row["label"] for facts in rows):
             row["labels"] = [facts[path]["label"] if path in facts else None for facts in rows]
+        if path.startswith("nearby."):
+            row["comparisonValues"] = [facts[path]["value"] if path in facts else None for facts in rows]
     return result
 
 
@@ -366,6 +409,7 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
                                   "factColumn": column} for column, item in enumerate(main_listings)],
                 "candidates": [{"id": item["id"], "rent": item["rent"], "budgetOverrun": item["rent"] - ceiling,
                                 "factColumn": len(main_listings) + column,
+                                "wholePageAdvantageFields": _whole_page_advantages(item["facts"], mains, criteria),
                                 "verifiedComparisons": _verified_comparisons(item["facts"], mains)} for column, item in enumerate(pool.values())],
                 "factMatrix": _judge_matrix(list(mains.values()) + [item["facts"] for item in pool.values()]),
                 "readAt": boundary.get("readAt")}
@@ -396,12 +440,38 @@ def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict)
             listing = next(item for item in listings if item["id"] == identifier)
             price = listing.get("pricing") or {}
             if price.get("currency") == "VND" and price.get("unit") in {"MONTH", "ROOM_MONTH"}:
-                reasons.append({"field": path, "label": "Tiền thuê", "display": formatted(price["amount"]) + "đ/tháng"})
+                reasons.append({"field": path, "label": "Tiền thuê", "display": formatted(price["amount"]) + "đ/tháng", "value": price["amount"]})
         else:
             fact = mains[identifier].get(path)
             if fact is not None and not _ignored(fact, criteria):
-                reasons.append({"field": path, "label": fact["label"], "display": _display(fact)})
+                reasons.append({"field": path, "label": fact["label"], "display": _display(fact), "value": fact["value"]})
     return {"listingId": identifier, "reasons": reasons} if reasons else None
+
+
+def reason_text(reason: dict) -> str:
+    path, label, shown = reason["field"], _clean(reason["label"]), _clean(reason["display"])
+    raw = reason.get("value")
+    if path == "pricing.amount":
+        return f"giá thuê **{shown}**"
+    if path == "areaM2":
+        return f"có diện tích **{shown}**"
+    if path.startswith("amenities."):
+        return f"có **{label}**" if raw is True else f"{label.lower()}: **{shown}**"
+    if path == "pricing.vatIncluded":
+        return "giá đã gồm **VAT**" if raw is True else "giá **chưa gồm VAT**"
+    if path == "pricing.managementFeeIncluded":
+        return "giá đã gồm **phí quản lý**" if raw is True else "**phí quản lý** tính riêng"
+    if path.endswith(".hasWindow") and raw is True:
+        return "có **cửa sổ**"
+    if path.endswith(".restroomType"):
+        return f"WC **{shown.lower()}**"
+    if path.endswith(".kitchenType"):
+        return f"**bếp {shown.lower()}**"
+    if path.endswith(".balconyType"):
+        return f"**ban công {shown.lower()}**"
+    if path.startswith("nearby."):
+        return f"quanh phòng có **{shown}**"
+    return f"{label.lower()} **{shown}**"
 
 
 def render_main(decision: dict, main_listings: list[dict], references: list[str] | None = None) -> str:
@@ -410,23 +480,9 @@ def render_main(decision: dict, main_listings: list[dict], references: list[str]
     if identifier not in ids:
         raise ListingToolError("Main recommendation is outside the displayed page")
     noun = {"ROOM": "Phòng", "APARTMENT": "Căn", "HOUSE": "Nhà"}.get(main_listings[ids.index(identifier)].get("category"), "Tin")
-    reasons = "; ".join(f"{_clean(r['label'])}: **{_clean(r['display'])}**" for r in decision["reasons"])
+    reasons = " và ".join(reason_text(r) for r in decision["reasons"])
     ordinal = (references or ids).index(identifier) + 1
-    return f"**Trong nhóm phòng đang xét, mình ưu tiên [{noun} {ordinal}](/rent/{identifier}):** {reasons}."
-
-
-def explain_main(reference: dict, listings: list[dict], criteria: dict, scope: list[str], catalog=None) -> str | None:
-    """Re-read selected facts; never regenerate motives or persist a second copy of prices."""
-    if not reference.get("fields"):
-        return None
-    facts = {item["id"]: _context_facts(item, criteria, catalog, None) for item in listings}
-    decision = _main_recommendation(reference, facts, listings, criteria)
-    if not decision:
-        return None
-    identifier = decision["listingId"]
-    label = f"Tin {scope.index(identifier)+1}" if identifier in scope else "Tin được chọn"
-    points = "; ".join(f"{_clean(r['label'])}: **{_clean(r['display'])}**" for r in decision["reasons"])
-    return f"**Các tiêu chí mình dùng để ưu tiên [{label}](/rent/{identifier}), theo thông tin hiện công bố:** {points}."
+    return f"**Mình gợi ý bạn cân nhắc [{noun} {ordinal}](/rent/{identifier})** vì {reasons}."
 
 
 def _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, extra, allow_at_ceiling):
@@ -439,17 +495,12 @@ def _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, ex
         raise ListingToolError("Boundary decision did not compare the complete current page")
     candidate = pool[identifier]
     advantages = _proofs(decision.get("advantages"), candidate["facts"], mains, advantage=True)
-    advantages = [proof for proof in advantages if not _ignored(proof["fact"], criteria)]
+    allowed = set(_whole_page_advantages(candidate["facts"], mains, criteria))
+    # Never render a partial-group benefit first and hide the actual novel benefit.
+    # Every retained highlight, not merely the union of proofs, must beat the group.
+    advantages = [proof for proof in advantages if proof["field"] in allowed
+                  and {c["listingId"] for c in proof["comparisons"]} == set(main_ids)]
     if not advantages:
-        return None
-    if any(proof["fact"]["direction"] == "CONTEXT" and not _requested_context(proof["fact"], criteria)
-           for proof in advantages):
-        return None
-    covered = {c["listingId"] for proof in advantages for c in proof["comparisons"]}
-    if covered != set(main_ids):
-        return None
-    if any(_redundant(advantages, mains[item["id"]]) for item in main_listings
-           if number(item.get("pricing", {}).get("amount")) < candidate["rent"]):
         return None
     tradeoffs = _proofs(decision.get("tradeoffs"), candidate["facts"], mains, advantage=False)
     noted = {p["field"] for p in tradeoffs}
@@ -495,8 +546,19 @@ def render(decision: dict, main_listings: list[dict], boundary: dict) -> str:
         raise ListingToolError("Rendered boundary exceeds the customer's budget window")
     boundary_text = (f"**vượt ngân sách {formatted(rent-ceiling)}đ/tháng** so với mức {formatted(ceiling)}đ"
                      if rent > ceiling else f"**chạm mức ngân sách {formatted(ceiling)}đ/tháng**")
-    highlight = decision["advantages"][0]["fact"]
+    proof = decision["advantages"][0]
+    if {c["listingId"] for c in proof["comparisons"]} != set(ids):
+        raise ListingToolError("Boundary highlight does not improve on the complete page")
+    highlight = proof["fact"]
     gains = f"**{highlight['label']}: {_display(highlight)}**"
+    # One short baseline explains what the extra rent buys. Do not dump all rows.
+    baselines = list(dict.fromkeys(_display(c["fact"]) for c in proof["comparisons"]))
+    if len(baselines) == 1:
+        gains += f" (cả {len(ids)} tin hiện tại: {baselines[0]})"
+    elif highlight["direction"] in {"HIGHER", "LOWER"} and all(isinstance(c["fact"]["value"], (int, float, Decimal))
+                                                           and not isinstance(c["fact"]["value"], bool) for c in proof["comparisons"]):
+        best = (max if highlight["direction"] == "HIGHER" else min)(proof["comparisons"], key=lambda c: number(c["fact"]["value"]))["fact"]
+        gains += f" (mức tốt nhất trong nhóm hiện tại: {_display(best)})"
     result = (f"**Một lựa chọn ngoài ngân sách để cân nhắc:** [Xem tin gợi ý](/rent/{identifier}) giá "
               f"**{formatted(rent)}đ/tháng**, {boundary_text}. Sau khi đối chiếu cả nhóm, điểm đáng cân nhắc là: {gains}.")
     return result

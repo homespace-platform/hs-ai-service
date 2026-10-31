@@ -82,7 +82,7 @@ async def test_uncollected_sports_is_unknown_and_does_not_support_a_recommendati
     a.tools.nearby = not_collected
     result = await answer_nearby(a, "Phòng nào gần phòng gym thì nên chọn?", HISTORY, "sports",
                                 {"listingIds": IDS, "radiusMeters": 2000, "groups": ["SPORTS"]})
-    assert "Chưa ghi nhận" in result.answer and result.listing_ids == IDS
+    assert "Chưa có thông tin cho nhóm này" in result.answer and result.listing_ids == IDS
     assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
     assert a.generative_client.kwargs is None
 
@@ -104,7 +104,7 @@ async def test_limited_hundred_result_sample_keeps_positive_evidence_without_inv
     evidence = a.generative_client.boundary_calls[0]
     assert "nearby.SHOPPING.distanceMeters" in evidence["factMatrix"]
     assert "nearby.EDUCATION.distanceMeters" not in evidence["factMatrix"]
-    assert "không có nghĩa" in result.answer
+    assert "mỗi nhóm hiển thị tối đa 5 địa điểm" in result.answer
 
 @pytest.mark.asyncio
 async def test_limited_sample_with_no_school_evidence_cannot_claim_a_school_recommendation():
@@ -119,7 +119,7 @@ async def test_limited_sample_with_no_school_evidence_cannot_claim_a_school_reco
     a.tools.nearby = no_evidence
     result = await answer_nearby(a, "Phòng nào gần trường học thì nên chọn?", HISTORY, "unknown-school",
                                 {"listingIds": IDS, "radiusMeters": 2000, "groups": ["EDUCATION"]})
-    assert result.listing_ids == IDS and "Chưa ghi nhận" in result.answer
+    assert result.listing_ids == IDS and "Chưa có thông tin cho nhóm này" in result.answer
     assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
     assert a.generative_client.kwargs is None
 
@@ -131,7 +131,7 @@ async def test_scoped_ten_use_bounded_cached_summary_without_reordering_or_losin
     assert result.listing_ids == a.tools.read == IDS
     evidence = a.generative_client.boundary_calls[0]
     assert len(evidence["mainListings"]) == 10
-    assert "đường chim bay" in result.answer
+    assert "3 km" in result.answer and "đường chim bay" not in result.answer
     assert result.listing_context["listingIds"] == IDS
     assert result.listing_positions[IDS[9]] == 10
     assert result.listing_context["nearby"]["radiusMeters"] == 3000
@@ -143,7 +143,7 @@ async def test_five_km_request_cannot_be_silently_answered_as_three_or_rank_part
     result = await a.try_answer("Trong các phòng này, bán kính 5 km thì nên chọn phòng nào?", HISTORY, "partial")
     assert a.tools.nearby_calls[0][1] == 5000
     assert result.listing_ids == IDS
-    assert "5 km" in result.answer and "Dữ liệu là mẫu" in result.answer
+    assert "5 km" in result.answer and "Dữ liệu là mẫu" not in result.answer
     assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
     assert result.listing_context["listingIds"] == IDS
     assert a.generative_client.kwargs is None
@@ -253,3 +253,46 @@ async def test_tool_rejects_more_than_twenty_candidates_before_any_request():
     with pytest.raises(ListingToolError):
         await tools.nearby([f"00000000-0000-0000-0000-{i:012d}" for i in range(21)], 3000, ["EDUCATION"])
     gateway.request.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_batch_requests_five_pois_per_group_and_render_keeps_all_five_names_without_distances():
+    from homespace_ai.application.nearby_table import render
+    from tests.unit.listing_fakes import room
+    summaries = (await NearbyTools().nearby(IDS[:4], 2000, ["EDUCATION", "SHOPPING"]))["summaries"]
+    for index, summary in enumerate(summaries):
+        for group in summary["groups"]:
+            group["nearest"] = [{"id": f"poi-{index}-{n}", "name": f"{group['code']} phòng {index+1} điểm {n+1}",
+                                 "distanceMeters": 100+n} for n in range(5)]
+    gateway = SimpleNamespace(request=AsyncMock(return_value=SimpleNamespace(status_code=200, json=lambda: {"result": summaries})))
+    tools = ListingTools(gateway, None)
+    data = await tools.nearby(IDS[:4], 2000, ["EDUCATION", "SHOPPING"])
+    gateway.request.assert_awaited_once()
+    assert gateway.request.await_args.kwargs["json"]["nearestPerGroup"] == 5
+    text = render(data["summaries"], [room(i) for i in IDS[:4]], IDS[:4], 2000)
+    for group in ("EDUCATION", "SHOPPING"):
+        for room_number in range(1, 5):
+            for point in range(1, 6):
+                assert f"{group} phòng {room_number} điểm {point}" in text
+    assert text.count("<br>") == 32
+    assert "100 m" not in text and "đường chim bay" not in text and "TomTom" not in text
+    assert "phạm vi 2 km" in text
+
+
+@pytest.mark.asyncio
+async def test_six_pois_in_a_group_is_rejected_instead_of_silently_increasing_payload():
+    summaries = (await NearbyTools().nearby(IDS[:1], 2000, ["EDUCATION"]))["summaries"]
+    summaries[0]["groups"][0]["nearest"] *= 6
+    gateway = SimpleNamespace(request=AsyncMock(return_value=SimpleNamespace(status_code=200, json=lambda: {"result": summaries})))
+    with pytest.raises(ListingToolError):
+        await ListingTools(gateway, None).nearby(IDS[:1], 2000, ["EDUCATION"])
+
+
+def test_provider_names_cannot_inject_extra_table_rows_links_or_html():
+    from homespace_ai.application.nearby_table import render
+    from tests.unit.listing_fakes import room
+    result = render([{"listingId": IDS[0], "groups": [{"code": "EDUCATION", "nearest": [
+        {"name": "Trường A | <br><img src=x onerror=alert(1)> [click](javascript:alert(1))", "distanceMeters": 100}]}]}],
+        [room(IDS[0])], IDS[:1], 2000)
+    assert "<img" not in result and "<br>" not in result and "\\[click\\]" in result
+    assert result.count("| Giáo dục |") == 1
