@@ -18,7 +18,7 @@ import structlog
 
 from homespace_ai.application.listing_catalog import CatalogError, SearchCatalog
 from homespace_ai.application.listing_context import current_scope, RECOMMENDATION, scoped_selection
-from homespace_ai.application.listing_presentation import customer_listing_text
+from homespace_ai.application.listing_presentation import customer_listing_text, without_managed_choice
 from homespace_ai.application.use_cases.ask_use_cases import AskResult
 from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnavailableError
 from homespace_ai.clients.gateway import GatewayApiClient
@@ -196,8 +196,10 @@ class ListingAsk:
                             state: dict[str, Any] | None) -> AskResult | None:
         scope = current_scope(history)
         selection = scoped_selection(question, history)
-        if scope and guidance.profile_update(question) and not SEARCH_INTENT.search(question):
-            selection = scope
+        if scope and guidance.profile_only_reply(question):
+            # This answers our own purpose question. Keep the shortlist and factual
+            # filters; a persona does not imply children, bedrooms, amenities or keywords.
+            return await self._continue_advice(question, history, request_id, scope, state)
         if scope and ambiguous_amenities(question):
             return AskResult(answer="Bạn muốn xem tiện ích trong tòa nhà (như WiFi, thang máy) hay địa điểm xung quanh (như siêu thị, trường học)?",
                 status="NEEDS_CLARIFICATION", citations=[], request_id=request_id, listing_context=self.context(scope, state),
@@ -226,7 +228,7 @@ class ListingAsk:
         pending = (state or {}).get("pending")
         if selection == []:
             return self._clarify(request_id, scope, state)
-        if selection is None and requested_count(question) is None and not LISTING_SIGNAL.search(question) and not pending and not any(
+        if selection is None and not guidance.profile_update(question) and requested_count(question) is None and not LISTING_SIGNAL.search(question) and not pending and not any(
                 LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
             return None
         if pending and pending["type"] == "TARGET" and pending["candidates"]:
@@ -441,7 +443,29 @@ class ListingAsk:
             merged["pending"] = self._pending("LOCATION", text)
             return self._ask(request_id, scope, merged, text)
         persist = deepcopy(state) if update.get("hypothetical") and state else merged
+        if (scope and state and update.get("renterProfile")
+                and rs.fingerprint(merged | {"sort": merged.get("sort") or "newest"}) == rs.fingerprint(state | {"sort": state.get("sort") or "newest"})
+                and not update.get("moreResults") and not MORE_PAGE.search(question)
+                and requested_count(question) is None and not rs.RESET.search(question)):
+            # A profile answer may contain "muốn thuê". The unchanged query, not a search
+            # verb alone, determines whether to keep advising on the displayed shortlist.
+            return await self._continue_advice(question, history, request_id, scope, persist)
         return await self._search(question, history, request_id, merged, persist, scope, update)
+
+    async def _continue_advice(self, question, history, request_id, scope, state):
+        try:
+            listings, _ = await self._details(scope, request_id)
+            if not listings:
+                return AskResult(answer="Các phòng vừa xem hiện không còn hiển thị công khai. Bạn muốn mình tìm lại theo các tiêu chí đã lưu không?",
+                    status="NO_RESULTS", citations=[], request_id=request_id, listing_context=self.context([], state))
+            evidence = {"readAt": "now", "listings": listings}
+            result = await self._present(question, history, request_id, "get_listing_details", evidence, scope, state, ids=None)
+            if len(listings) > 1:
+                result = await self._advise_main(question, request_id, result, listings, state)
+            return result
+        except (ListingToolError, GenerationUnavailableError, HTTPException) as error:
+            self._log_failure(request_id, "profile_followup", error)
+            return self._unavailable(request_id, scope, state)
 
     def _resolve_location(self, location: dict[str, Any], question: str, history: list[dict[str, Any]]) -> dict[str, str]:
         filters = [{"field": "ward", "op": "eq", "value": location["ward"]}] if location.get("ward") else []
@@ -661,6 +685,10 @@ class ListingAsk:
             if any(value not in ids for value in generated.listing_ids):
                 raise GenerationUnavailableError("Unknown listing reference.", retryable=False)
             raw = customer_listing_text(generated.answer)
+            if show_table:
+                raw = strip_tables(raw)
+            if evidence["mainRecommendationManaged"]:
+                raw = without_managed_choice(raw)
             selected_ids = list(dict.fromkeys(generated.listing_ids))
             if show_table:
                 selected_ids = ids  # A follow-up comparison keeps every current column; advice is separate.
@@ -674,7 +702,7 @@ class ListingAsk:
                                     "Bạn thử lại hoặc hỏi ít tiêu chí hơn nhé.",
                              status="GENERATION_UNAVAILABLE", citations=[], request_id=request_id, listing_context=result_context)
         if show_table:
-            raw = strip_tables(raw) + "\n\n" + table_for(selected_ids)
+            raw += "\n\n" + table_for(selected_ids)
         if count_notice:
             raw = count_notice + '\n' + raw
         return AskResult(answer=raw.strip(), status="ANSWERED", citations=[], request_id=request_id,

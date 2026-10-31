@@ -68,7 +68,7 @@ async def test_budget_boundary_is_from_customer_ceiling_and_full_context_reaches
     assert evidence["today"].isoformat() == "2026-10-30"
     text = value.render(result, rooms(), boundary())
     assert "vượt ngân sách 400.000đ/tháng" in text and "4.500.000đ" in text and "4.900.000đ" in text
-    assert "vượt ngân sách 900.000" not in text and "tin 4:" not in text and "Diện tích: 45" in text
+    assert "vượt ngân sách 900.000" not in text and "tin 4:" not in text and "rộng **45 m²**" in text
     assert text.count("/rent/") == 1 and "Điểm cần cân nhắc" not in text and len(text) < 450
 
 
@@ -81,7 +81,7 @@ async def test_boundary_payload_shares_metadata_without_losing_room_values_or_fe
     _, generator = await evaluate(mains=mains, proposed=[proposed])
     evidence = generator.generate_value_advice.await_args.kwargs["evidence"]
     for source, row in zip(mains + [proposed], evidence["mainListings"] + evidence["candidates"]):
-        facts = value._facts(source, CAT)
+        facts = value.recommendation_facts(source, {}, CAT) if source in mains else value._facts(source, CAT)
         column = row["factColumn"]
         assert {path for path, field in evidence["factMatrix"].items() if field["values"][column] is not None} == set(facts)
         for path, original in facts.items():
@@ -133,7 +133,7 @@ async def test_invalid_first_highlight_is_removed_instead_of_hiding_the_real_gro
     result, _ = await evaluate(raw, mains=mains, proposed=[proposed])
     assert [p["field"] for p in result["advantages"]] == ["areaM2"]
     text = value.render(result, mains, boundary())
-    assert "Diện tích: 40 m²" in text and "mức tốt nhất trong nhóm hiện tại: 35 m²" in text
+    assert "rộng **40 m²**" in text and "mức tốt nhất trong nhóm hiện tại: 35 m²" in text
     assert "Nhà vệ sinh" not in text
 
 
@@ -509,7 +509,7 @@ async def test_main_only_judge_must_choose_one_current_listing_even_without_boun
     result = await OpenAIGenerativeClient(settings()).generate_value_advice("Các phòng trên có gì xung quanh?", evidence)
     schema = json.loads(calls[0].content)["text"]["format"]["schema"]["properties"]["mainRecommendation"]["properties"]
     assert schema["listingId"] == {"type": "string", "enum": IDS[:2]}
-    assert schema["fields"]["minItems"] == 1 and schema["fields"]["maxItems"] == 2
+    assert schema["fields"]["minItems"] == 0 and schema["fields"]["maxItems"] == 2
     assert result["mainRecommendation"]["listingId"] == IDS[0] and result["selectedId"] is None
 
 

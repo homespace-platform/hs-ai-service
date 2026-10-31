@@ -749,7 +749,7 @@
     {
       "id": "Q024",
       "group": "B",
-      "input": "Mình cần thuê căn hộ ở Hồ Chí Minh, giá công bố đã bao gồm VAT để dễ tính ngân sách.",
+      "input": "Mình cần thuê căn hộ ở Hồ Chí Minh, giá công bố đã bao gồm phí quản lý tòa nhà để dễ tính ngân sách.",
       "expect": {
         "outcome": "SEARCH",
         "required": [
@@ -759,7 +759,7 @@
             "APARTMENT"
           ],
           [
-            "vat_included",
+            "management_fee_included",
             "eq",
             true
           ],
@@ -769,9 +769,7 @@
             "12"
           ]
         ],
-        "forbidden": [
-          "management_fee_included"
-        ]
+        "forbidden": []
       },
       "guard": {
         "required": [

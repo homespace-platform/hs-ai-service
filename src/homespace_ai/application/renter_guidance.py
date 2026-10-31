@@ -4,6 +4,9 @@ import re
 from homespace_ai.application.vietnamese_text import fold_text
 
 PERSONAS = {"STUDENT", "WORKING", "FAMILY", "REMOTE", "OTHER"}
+PROFILE_TERMS = {"FAMILY": {"gia dinh", "ho gia dinh"}, "STUDENT": {"sinh vien", "hoc sinh", "sv"},
+                 "WORKING": {"nguoi di lam", "nhan vien", "cong nhan", "dan van phong"},
+                 "REMOTE": {"lam viec tu xa", "remote", "work from home"}}
 MAIN_REFERENCE = re.compile(r"ban (?:uu tien|khuyen|chon)|phong (?:duoc chon|ban chon|ban uu tien)")
 
 
@@ -58,6 +61,12 @@ def profile_update(question: str, proposed=None) -> dict:
         if match and not re.search(r"\b(?:khong|ko|chua)\b", match[0]):
             result["persona"] = persona
             break
+    if not result:
+        short_answer = text.strip(" .,!?:;")
+        for persona, terms in PROFILE_TERMS.items():
+            if short_answer in terms:
+                result["persona"] = persona
+                break
     if isinstance(proposed, dict):
         quote, persona = proposed.get("quote"), proposed.get("persona")
         if (not result.get("persona") and persona in PERSONAS and isinstance(quote, str) and 0 < len(quote) <= 220
@@ -69,6 +78,46 @@ def profile_update(question: str, proposed=None) -> dict:
             if isinstance(value, str) and value.strip() and len(value) <= 160 and fold_text(value.strip()) in text:
                 result[field] = value.strip()
     return result
+
+
+def profile_only_reply(question: str) -> bool:
+    """Recognize a standalone answer to the renter-purpose question.
+
+    Only a complete, conservative grammar bypasses planning. Any remaining requirement,
+    number, place, preference, pagination or literal-search request still goes to the planner.
+    A persona alone must never let a model invent new mandatory listing conditions.
+    """
+    if not profile_update(question).get("persona"):
+        return False
+    text = fold_text(question).strip(" .,!?:;")
+    text = re.sub(r"^(?:da|vang|a)\s*[,.:]?\s*", "", text)
+    text = re.sub(r"\s+(?:nhe|nha|a|thoi)(?:\s+(?:nhe|nha|a|thoi))*$", "", text)
+    terms = "|".join(re.escape(term) for term in sorted(set().union(*PROFILE_TERMS.values()), key=len, reverse=True))
+    subject = r"(?:toi|minh|em|tui|bon minh|chung toi)"
+    # An object such as "căn hộ" may be a category change, so it cannot be skipped.
+    rental = r"(?:tim|thue|tim thue)"
+    text = re.sub(rf"^{subject}\s+(?:(?:muon|can|dang)\s+)?{rental}\s*[,;]\s*", "", text)
+    return bool(re.fullmatch(
+        rf"(?:(?:{subject})\s+)?(?:(?:hien tai|hien|van|dang|da|se|du dinh|muon|can)\s+)*"
+        rf"(?:(?:la|{rental})\s+)?(?:cho\s+)?(?:{terms})(?:\s+(?:toi|minh|em))?", text))
+
+
+def profile_keyword(keyword: str | None, question: str) -> bool:
+    """A renter's self-description is not a title/content predicate.
+
+    Preserve an explicitly requested literal text search, even if the same utterance also
+    describes the renter. This also lets old conversation state be repaired with provenance.
+    """
+    if not isinstance(keyword, str):
+        return False
+    text = fold_text(question)
+    term = fold_text(keyword).strip()
+    persona = profile_update(question).get("persona")
+    if term not in PROFILE_TERMS.get(persona, set()):
+        return False
+    marker = r"\b(?:tieu de|mo ta|noi dung|tu khoa|cum tu|co chu|chua chu)\b"
+    literal = re.search(marker + r".{0,70}" + re.escape(term) + "|" + re.escape(term) + r".{0,70}" + marker, text)
+    return literal is None
 
 
 def explicit_open_slots(question: str) -> list[str]:

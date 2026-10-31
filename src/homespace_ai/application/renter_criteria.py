@@ -381,6 +381,9 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         # A landmark the customer never named (e.g. a school sharing the ward's name) is not a criterion.
         place_text = None
     keyword = args.get("keyword") if isinstance(args.get("keyword"), str) and args["keyword"].strip() else None
+    from homespace_ai.application.renter_guidance import profile_keyword
+    if profile_keyword(keyword, question):
+        keyword = None
     if place_text and keyword:
         # A landmark is proven by coordinates, never by its name appearing in a title.
         a, b = fold_text(keyword).strip(), fold_text(place_text).strip()

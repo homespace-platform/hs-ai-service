@@ -7,7 +7,6 @@ from uuid import uuid4
 
 from pymongo import ASCENDING, DESCENDING, AsyncMongoClient, ReturnDocument
 
-from homespace_ai.application.renter_search_state import latest_state, sanitize
 from homespace_ai.core.config import get_settings
 
 
@@ -196,7 +195,8 @@ class ConversationRepository:
 
 def conversation_search_state(conversation: dict[str, Any]) -> dict[str, Any] | None:
     """Conversation-level criteria first; else the newest message state over the full transcript."""
-    return sanitize(conversation.get("renterSearchState")) or latest_state(conversation.get("messages") or [])
+    from homespace_ai.application.conversation_listing_memory import conversation_memory
+    return conversation_memory(conversation).state
 
 
 @lru_cache

@@ -17,7 +17,7 @@ CAT = SearchCatalog(CATALOG)
 
 
 def shortlist():
-    return [room(IDS[i], areaM2=area, pricing={"amount": price, "currency": "VND", "unit": "ROOM_MONTH", "vatIncluded": True},
+    return [room(IDS[i], areaM2=area, pricing={"amount": price, "currency": "VND", "unit": "ROOM_MONTH", "managementFeeIncluded": True},
                  roomDetail={"restroomType": wc, "maxOccupants": 3}, amenities=[{"code": "WIFI", "name": "WiFi"}])
             for i, (area, price, wc) in enumerate([(37, 4300000, "PRIVATE"), (33, 4000000, "PRIVATE"),
                                                   (30, 3300000, "SHARED"), (35, 4400000, "PRIVATE")])]
@@ -33,7 +33,7 @@ def generator(reasons=None, tradeoffs=None):
 @pytest.mark.asyncio
 async def test_why_rereads_all_four_and_explains_real_benefits_and_tradeoffs_in_bullets():
     client = generator()
-    result = await explain("Vì sao bạn ưu tiên phòng đó?", {"listingId": IDS[0], "fields": ["pricing.vatIncluded"]},
+    result = await explain("Vì sao bạn ưu tiên phòng đó?", {"listingId": IDS[0], "fields": ["pricing.managementFeeIncluded"]},
         shortlist(), {"context": {"occupants": 3}}, IDS[:4], CAT, client)
     evidence = client.generate_main_explanation.await_args.args[1]
     assert [row["id"] for row in evidence["listings"]] == IDS[:4]
@@ -44,8 +44,8 @@ async def test_why_rereads_all_four_and_explains_real_benefits_and_tradeoffs_in_
     for identifier in IDS[:4]:
         assert f"/rent/{identifier}" in result
     assert "Không gian rộng hơn các phòng còn lại" in result
-    assert "Điểm cần cân nhắc" in result and "4.300.000đ/tháng" in result and "3.300.000đ/tháng" in result
-    assert "vatIncluded" not in result and "theo thông tin hiện công bố" not in result
+    assert "Điểm cần cân nhắc" in result and "4.300.000 đ/tháng" in result and "3.300.000 đ/tháng" in result
+    assert "managementFeeIncluded" not in result and "theo thông tin hiện công bố" not in result
 
 
 @pytest.mark.asyncio
@@ -53,7 +53,7 @@ async def test_a_feature_shared_by_all_is_not_claimed_as_a_unique_advantage():
     items = shortlist()
     client = generator(["amenities.WIFI"], [])
     result = await explain("Tại sao phòng này?", {"listingId": IDS[0]}, items, {}, IDS[:4], CAT, client)
-    assert "tương đương, không phải lợi thế riêng" in result
+    assert "WiFi" not in result
     assert "thuận lợi hơn so với các phòng còn lại" not in result
 
 
@@ -113,10 +113,10 @@ async def test_unknown_model_fields_are_not_rendered():
 def test_short_recommendation_uses_customer_labels_instead_of_raw_keys_and_boolean_dump():
     decision = {"listingId": IDS[0], "reasons": [
         {"field": "amenities.WIFI", "label": "WiFi", "display": "Có", "value": True},
-        {"field": "pricing.vatIncluded", "label": "VAT", "display": "Có", "value": True}]}
+        {"field": "pricing.managementFeeIncluded", "label": "Phí quản lý", "display": "Có", "value": True}]}
     text = value.render_main(decision, shortlist())
-    assert "có **WiFi**" in text and "giá đã gồm **VAT**" in text
-    assert "vatIncluded" not in text and ": **Có**" not in text
+    assert "có **WiFi**" in text and "giá đã gồm **phí quản lý**" in text
+    assert "managementFeeIncluded" not in text and ": **Có**" not in text
 
 
 @pytest.mark.asyncio

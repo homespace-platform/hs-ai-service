@@ -18,7 +18,8 @@ from homespace_ai.core.api_response import ApiResponse
 from homespace_ai.core.config import Settings, get_settings
 from homespace_ai.core.database import get_db
 from homespace_ai.core.security import UserContext, get_current_user
-from homespace_ai.repositories.conversation_repo import conversation_search_state, get_conversation_repository
+from homespace_ai.repositories.conversation_repo import get_conversation_repository
+from homespace_ai.application.conversation_listing_memory import conversation_memory
 
 router = APIRouter(prefix="/agent", tags=["Agent Ask"])
 GREETING_TEXTS = {"chào", "chào bạn", "xin chào", "hi", "hello", "hey", "chào ai", "chào homespace"}
@@ -55,12 +56,8 @@ async def ask_agent(
         if conversation is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
         # Criteria survive beyond the eight-message prompt window; they belong to this owner's conversation only.
-        search_state = conversation_search_state(conversation)
-        history = [{"role": message.get("role", "user"), "content": message.get("content", ""),
-                    "status": message.get("status"), "listingContext": message.get("listingContext"),
-                    "contractContext": message.get("contractContext"),
-                    "appointmentContext": message.get("appointmentContext")}
-                   for message in conversation.get("messages", [])[-8:]]
+        memory = conversation_memory(conversation)
+        search_state, history = memory.state, memory.history
         saved = await conversation_repository.append_message(
             user.user_id, conversation_id, role="user", content=question
         )

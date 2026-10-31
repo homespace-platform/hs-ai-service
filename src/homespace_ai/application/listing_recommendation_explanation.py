@@ -16,25 +16,23 @@ async def explain(question, reference, listings, criteria, scope, catalog, gener
     if criteria.get("requestToday"):
         from datetime import date
         today = date.fromisoformat(criteria["requestToday"])
-    facts = {item["id"]: value._context_facts(item, criteria, catalog, today) for item in listings}
+    facts = {item["id"]: value.recommendation_facts(item, criteria, catalog, today) for item in listings}
     for identifier,row in (nearby_facts or {}).items():
         if identifier in facts:
             facts[identifier].update(row)
-    for item in listings:
-        pricing = item.get("pricing") or {}
-        if pricing.get("currency") == "VND" and pricing.get("unit") in {"MONTH", "ROOM_MONTH"}:
-            facts[item["id"]]["pricing.amount"] = {"value": pricing["amount"], "display": value.formatted(pricing["amount"])+"đ/tháng",
-                "label": "Giá thuê", "direction": "LOWER", "leaf": "amount", "code": "price_amount", "unit": "VND/tháng"}
     others = {identifier: row for identifier,row in facts.items() if identifier != selected}
+    informative = [path for path in facts[selected] if not value.common_reason(path, facts[selected], others)
+                   and not value._ignored(facts[selected][path], criteria)]
     evidence = {"selectedId": selected, "confirmedCriteria": criteria,
         "listings": [{"id": item["id"], "factColumn": index} for index,item in enumerate(listings)],
         "factMatrix": value._judge_matrix(list(facts.values())),
         "selectedComparisons": value._verified_comparisons(facts[selected], others),
-        "otherListingIds": list(others), "previousReasonFields": reference.get("fields", [])}
+        "otherListingIds": list(others), "previousReasonFields": reference.get("fields", []),
+        "informativeFields": informative}
     if len(json.dumps(evidence,ensure_ascii=False,default=str).encode()) > 120000:
         raise ListingToolError("Main explanation evidence is too large")
     valid = set(facts[selected])
-    fallback = [field for field in reference.get("fields", []) if field in valid and not value._ignored(facts[selected][field],criteria)][:3]
+    fallback = [field for field in reference.get("fields", []) if field in informative][:3]
     plan = {"reasons": fallback, "tradeoffs": []}
     if hasattr(generator,"generate_main_explanation"):
         try:
@@ -60,10 +58,6 @@ async def explain(question, reference, listings, criteria, scope, catalog, gener
                 rows.append((identifier,other[path],change))
         return rows
 
-    def display(path, fact):
-        # Pricing already has a customer-readable currency/unit in its display.
-        return value._clean(fact["display"] if path=="pricing.amount" else value._display(fact))
-
     bullets=[]
     fields=list(dict.fromkeys(plan["reasons"]+plan["tradeoffs"]))
     # An appreciably higher rent is a useful, verified tradeoff even if the judge omits it.
@@ -71,17 +65,18 @@ async def explain(question, reference, listings, criteria, scope, catalog, gener
         fields.append("pricing.amount")
     for path in fields[:5]:
         current=facts[selected][path]
-        if value._ignored(current,criteria):
+        if path not in informative:
             continue
-        shown=display(path,current); label=value._clean(current["label"])
         rows=comparisons(path)
         better=[row for row in rows if row[2]==1 or row[2]==2 and value._context_improves(current,row[1],criteria)]
         worse=[row for row in rows if row[2]==-1]
         same=[row for row in rows if row[2]==0]
-        prefix="**Điểm cần cân nhắc:** " if worse else ""
-        statement=prefix+f"**{label}: {shown}**"
-        contrast="; ".join(f"{link(identifier)}: {display(path,other)}" for identifier,other,_ in rows[:3])
-        if better and not worse and not same and len(rows)==len(others):
+        prefix="**Điểm cần cân nhắc:** " if worse or value.shared_use(current) else ""
+        statement=prefix+"Phòng này "+value.fact_phrase(path,current)
+        contrast="; ".join(f"{link(identifier)} {value.fact_phrase(path,other)}" for identifier,other,_ in rows[:3])
+        if value.shared_use(current):
+            bullets.append(f"- {statement}. Đối chiếu với các lựa chọn còn lại: {contrast}. Đây là hạng mục dùng chung, không phải lợi thế về sự riêng tư.")
+        elif better and not worse and not same and len(rows)==len(others):
             benefit={"areaM2":"Không gian rộng hơn các phòng còn lại", "pricing.amount":"Tiền thuê thấp hơn các phòng còn lại"}.get(path,"Đây là điểm thuận lợi hơn so với các phòng còn lại")
             bullets.append(f"- {statement}. {benefit} ({contrast}).")
         elif better:

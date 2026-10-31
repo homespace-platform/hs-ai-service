@@ -230,7 +230,7 @@ Planner dùng `strict=true`, `additionalProperties=false`, enum field lấy từ
 
 | Nhóm | Field/nhóm field được registry hỗ trợ |
 | --- | --- |
-| Chung | ID, title, description, category; giá/đơn vị/tiền tệ; diện tích; đặt cọc; chu kỳ thanh toán; thuê tối thiểu; thương lượng; VAT/phí quản lý đã gồm; số xe; ngày nhận/publish/hết hạn; lượt xem |
+| Chung | ID, title, description, category; giá/đơn vị/tiền tệ; diện tích; đặt cọc; chu kỳ thanh toán; thuê tối thiểu; thương lượng; phí quản lý đã gồm; số xe; ngày nhận/publish/hết hạn; lượt xem |
 | Địa chỉ | `city_id`, `city`, `ward_id`, `ward`, `street`, `display` từ `listing_addresses`; dùng mã Vietmap admin_new. Không có field `district_*` trong registry hiện tại |
 | `house.*` | Đất, mặt tiền/chiều dài/đường vào, số mặt tiền/tầng/phòng, sân thượng, garage, lối đi, nội thất tổng quát, pháp lý, sức chứa người/xe, phạm vi/tầng cho thuê |
 | `apartment.*` | Dự án, block, mã căn, tầng/tổng tầng, số phòng, nội thất tổng quát, hướng cửa/ban công, view, sức chứa, pháp lý |

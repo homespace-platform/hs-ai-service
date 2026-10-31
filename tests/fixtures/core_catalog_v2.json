@@ -1,6 +1,6 @@
 {
   "version" : 2,
-  "catalogVersion" : "fields-v2-310e9034177c",
+  "catalogVersion" : "fields-v2-161e0311fb72",
   "fields" : [ {
     "code" : "id",
     "label" : "Mã tin",
@@ -247,18 +247,6 @@
   }, {
     "code" : "management_fee_included",
     "label" : "Đã gồm phí quản lý",
-    "kind" : "BOOLEAN",
-    "operators" : [ "eq", "ne" ],
-    "unit" : null,
-    "categories" : [ "APARTMENT", "HOUSE", "ROOM" ],
-    "values" : null,
-    "source" : "listings",
-    "nullMeaning" : "Thiếu dữ liệu là chưa rõ, không phải không có hoặc bằng 0.",
-    "role" : "FILTER",
-    "requiresContext" : [ ]
-  }, {
-    "code" : "vat_included",
-    "label" : "Giá đã gồm VAT",
     "kind" : "BOOLEAN",
     "operators" : [ "eq", "ne" ],
     "unit" : null,

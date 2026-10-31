@@ -12,7 +12,7 @@ def full_room(listing_id, **overrides):
     item = room(listing_id, availableFrom="2026-11-19", areaM2=26.0,
                 pricing={"amount": 3000000, "unit": "ROOM_MONTH", "depositType": "MONTH_COUNT", "depositMonths": 1,
                          "paymentCycle": "MONTHLY", "minimumLeaseMonths": 3, "negotiable": False,
-                         "managementFeeIncluded": True, "vatIncluded": False},
+                         "managementFeeIncluded": True},
                 roomDetail={"restroomType": "PRIVATE", "kitchenType": "NONE", "hasWindow": True, "balconyType": "PRIVATE",
                             "hasMezzanine": False, "furnishingStatus": "FULLY_FURNISHED", "maxOccupants": 2,
                             "maxVehicles": 2, "parkingPolicy": "FREE"},
@@ -114,7 +114,7 @@ async def test_follow_up_field_groups_are_rendered_in_the_table(question, rows):
 
 
 @pytest.mark.asyncio
-async def test_recommendation_keeps_model_advice_but_the_table_is_the_servers():
+async def test_recommendation_uses_the_server_table_and_drops_a_competing_model_verdict():
     details = {value: full_room(value) for value in IDS[:2]}
     assistant = assistant_with(ToolPlan("get_listing_details", {"listingIds": IDS[:2]}), details)
 
@@ -125,7 +125,8 @@ async def test_recommendation_keeps_model_advice_but_the_table_is_the_servers():
     result = await assistant.try_answer("Nên chọn phòng nào trong các phòng trên?", history, "advice")
     assert assistant.generative_client.evidence["tableRendered"] == ["Thông tin chính"]
     assert "9 tỷ" not in result.answer, "A model-written table is replaced by the server-rendered one"
-    assert "Mình gợi ý Phòng 1." in result.answer and "| Giá thuê | 3.000.000 đ/phòng/tháng |" in result.answer
+    assert "Mình gợi ý Phòng 1." not in result.answer and "**Lý do:**" not in result.answer
+    assert "| Giá thuê | 3.000.000 đ/phòng/tháng |" in result.answer
 
 
 @pytest.mark.asyncio

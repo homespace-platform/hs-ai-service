@@ -8,11 +8,34 @@ Khách có thể nói rõ chưa chốt loại hình, chưa biết số người 
 hệ thống không tự đặt giới hạn thay khách. Thông tin sinh viên, người đi làm, gia đình hoặc
 làm từ xa chỉ được lưu khi khách tự mô tả, không tự suy ra con nhỏ, phương tiện hay ngân sách.
 
+Hội thoại được lưu đầy đủ trong MongoDB; tiêu chí, mục đích thuê và ID phòng đang xem được
+giữ riêng trong `renterSearchState`, không phụ thuộc cửa sổ 8 tin nhắn gần nhất gửi cho model.
+Khi khách trả lời riêng mục đích thuê (ví dụ “tôi muốn thuê cho gia đình”), hệ thống giữ nhóm
+phòng và các điều kiện trước đó, đọc lại dữ kiện từ Core để tư vấn; không tìm tiêu đề theo
+chữ “gia đình”, không tự thêm số phòng ngủ hay điều kiện về trẻ nhỏ. Nếu khách nói thêm ngân
+sách, số người hoặc khu vực mới thì xử lý thay đổi đó trước khi tìm lại.
+
+Chat cũ bị gán nhầm từ khóa persona được khôi phục khi đọc, dựa vào lượt đã đưa từ khóa vào
+trong toàn bộ lịch sử và nhóm phòng gần nhất cùng tiêu chí. Chỉ sửa ngữ cảnh sử dụng cho
+lượt tiếp theo, không viết lại tin nhắn đã lưu; truy vấn cố ý tìm chữ “gia đình” trong tiêu đề
+vẫn được giữ. Giá, khả năng hiển thị và các dữ kiện phòng luôn đọc lại từ Core.
+
 Khi trả bảng kết quả, AI cân nhắc **một tin trong chính trang đang hiển thị**, tách biệt tin
 boundary. Lời khuyên gồm link và tối đa hai dữ kiện đã kiểm chứng. Một lượt đánh giá chung
 xử lý cả lựa chọn chính và boundary tùy chọn; nếu bước phụ lỗi, bảng kết quả vẫn được giữ.
-Câu hỏi “vì sao bạn ưu tiên phòng được chọn?” đọc lại tin và các trường đã chọn từ Core,
-không tự sinh thêm lý do hay lưu bản sao giá/diện tích trong memory.
+Quy tắc áp dụng mọi tiêu chí, không chỉ WC: các hạng mục dùng chung (bếp, ban công, lối đi,
+đồng hồ điện/nước...) không được lấy làm lý do ưu tiên, kể cả gợi ý boundary. Khi chưa có ưu
+tiên cụ thể, so sánh tất cả hạng mục riêng/chung đã biết; không gán trọng số hay đặt riêng WC
+lên trên tiêu chí khác. Chỉ hạn chế tư vấn một lựa chọn khi có phương án cùng loại, đủ cùng
+dữ kiện, không kém riêng tư ở mục nào và tốt hơn ít nhất một mục. Nếu mỗi phòng có lợi thế
+khác nhau hoặc thiếu dữ kiện, giữ lại để mô hình cân nhắc theo nhu cầu. Bảng và bộ lọc không đổi.
+Sinh viên không đồng nghĩa chấp nhận dùng chung. Mục giống nhau ở cả nhóm (WiFi, phí quản lý,
+sức chứa...) và điểm bất lợi không được dùng làm lý do tích cực; mô hình nhận danh sách
+`usefulReasonFields` đã đối chiếu cho từng tin. Không có khác biệt có lợi thì không bịa lý do.
+Lời khuyên dùng câu tự nhiên như “tiền thuê đã bao gồm phí dịch vụ và rác”, không dùng
+“Phí dịch vụ/rác đã gồm trong tiền thuê: Có”. Bảng dữ kiện vẫn giữ nhãn để dễ đối chiếu.
+Câu hỏi “vì sao bạn ưu tiên phòng được chọn?” đọc lại cả nhóm từ Core, chọn các khác biệt
+có ý nghĩa và giải thích bằng gạch đầu dòng; không lưu bản sao giá/diện tích trong memory.
 
 Sau kết quả, AI hỏi tối đa một câu để hiểu thêm mục đích thuê hoặc ưu tiên chưa rõ; không
 lặp lại câu đã hỏi khi “xem thêm”. Persona giúp tư vấn và đặt câu hỏi, không tự trở thành

@@ -25,7 +25,7 @@ _LABELS = {"areaM2": "Diện tích", "availableFrom": "Ngày có thể nhận", 
            "parkingPolicy": "Chính sách gửi xe", "totalFloors": "Số tầng", "hasRooftop": "Sân thượng",
            "hasGarage": "Gara", "minimumLeaseMonths": "Thời hạn thuê tối thiểu", "depositMonths": "Số tháng cọc",
            "depositAmount": "Tiền cọc cố định", "paymentCycle": "Chu kỳ thanh toán", "includedInRent": "Đã gồm trong tiền thuê",
-           "vatIncluded": "Thuế VAT đã gồm trong giá", "managementFeeIncluded": "Phí quản lý đã gồm trong giá",
+           "managementFeeIncluded": "Phí quản lý đã gồm trong giá",
            "negotiable": "Có thể thương lượng"}
 _ENUMS = {"PRIVATE": "Riêng", "SHARED": "Chung", "NONE": "Không có", "UNFURNISHED": "Không nội thất",
           "BASIC": "Cơ bản", "PARTIALLY_FURNISHED": "Một phần", "FULLY_FURNISHED": "Đầy đủ", "LUXURY": "Cao cấp",
@@ -40,6 +40,8 @@ _CHARGE_LABELS = {"ELECTRICITY": "Tiền điện", "WATER": "Tiền nước", "M
 _BILLING_UNITS = {"PER_KWH": "đ/kWh", "PER_M3": "đ/m³", "PER_PERSON_MONTH": "đ/người/tháng", "PER_MONTH": "đ/tháng",
                   "PER_M2_MONTH": "đ/m²/tháng", "PER_VEHICLE_MONTH": "đ/xe/tháng", "PER_HOUR": "đ/giờ"}
 _HIGH = {"areaM2", "bedroomCount", "bathroomCount", "maxOccupants", "maxMotorbikeCount", "maxCarCount"}
+_PRIVATE_USE = {"PRIVATE", "SEPARATE"}
+_SHARED_USE = {"SHARED", "COMMON"}
 _RANKS = {"restroomType": {"SHARED": 0, "PRIVATE": 1}, "kitchenType": {"NONE": 0, "SHARED": 1, "PRIVATE": 2},
           "balconyType": {"NONE": 0, "SHARED": 1, "PRIVATE": 2},
           "furnishingStatus": {"UNFURNISHED": 0, "BASIC": 1, "PARTIALLY_FURNISHED": 1, "FULLY_FURNISHED": 2, "LUXURY": 3}}
@@ -120,7 +122,7 @@ def _facts(item: dict, catalog=None, today: date | None = None) -> dict[str, dic
         direction = "HIGHER" if leaf in _HIGH else "LOWER" if leaf == "availableFrom" and today else "CONTEXT"
         if isinstance(value, bool):
             direction = "HIGHER" if (leaf.startswith("has") or path.startswith("amenities.")
-                                     or leaf in {"includedInRent", "managementFeeIncluded", "vatIncluded"}) else "CONTEXT"
+                                     or leaf in {"includedInRent", "managementFeeIncluded"}) else "CONTEXT"
         if leaf in _RANKS:
             direction = "ORDERED"
         result[path] = {"value": value, "display": shown or value,
@@ -138,7 +140,7 @@ def _facts(item: dict, catalog=None, today: date | None = None) -> dict[str, dic
         for key, raw in (item.get(detail) or {}).items():
             add(detail + "." + key, raw, prefix + "." + _snake(key), key)
     pricing = item.get("pricing") or {}
-    for key in ("minimumLeaseMonths", "depositMonths", "depositAmount", "paymentCycle", "negotiable", "managementFeeIncluded", "vatIncluded"):
+    for key in ("minimumLeaseMonths", "depositMonths", "depositAmount", "paymentCycle", "negotiable", "managementFeeIncluded"):
         add("pricing." + key, pricing.get(key), _snake(key), key)
     for row in item.get("charges") or []:
         kind = row.get("chargeType") if isinstance(row, dict) else None
@@ -182,6 +184,8 @@ def _comparison(candidate: dict, main: dict) -> int | None:
         return None
     if a == b:
         return 0
+    if a in _PRIVATE_USE | _SHARED_USE and b in _PRIVATE_USE | _SHARED_USE:
+        return (a in _PRIVATE_USE) - (b in _PRIVATE_USE)
     leaf = candidate["leaf"]
     try:
         if candidate["direction"] == "ORDERED":
@@ -235,7 +239,7 @@ def _whole_page_advantages(facts: dict, mains: dict, criteria: dict) -> list[str
     """
     result = []
     for path, fact in facts.items():
-        if _ignored(fact, criteria):
+        if _ignored(fact, criteria) or shared_use(fact):
             continue
         changes = []
         for previous in mains.values():
@@ -361,6 +365,80 @@ def _verified_comparisons(facts: dict, mains: dict) -> dict:
     return differences
 
 
+def recommendation_facts(item: dict, criteria: dict, catalog=None, today=None) -> dict:
+    facts = _context_facts(item, criteria, catalog, today)
+    price = item.get("pricing") or {}
+    if price.get("currency") == "VND" and price.get("unit") in {"MONTH", "ROOM_MONTH"}:
+        facts["pricing.amount"] = {"value": price["amount"], "display": price["amount"], "unit": "đ/tháng",
+            "label": "Tiền thuê", "direction": "LOWER", "leaf": "amount", "code": "price_amount"}
+    return facts
+
+
+def common_reason(path: str, facts: dict, others: dict) -> bool:
+    """Only verified equality across the whole group; missing data is never equality."""
+    return bool(others) and all(path in row and _comparison(facts[path], row[path]) == 0 for row in others.values())
+
+
+def shared_use(fact: dict) -> bool:
+    """Shared usage is a factual arrangement, never a positive privacy advantage."""
+    return fact["value"] in _SHARED_USE
+
+
+def useful_main_fields(facts: dict, others: dict, criteria: dict) -> list[str]:
+    """A short positive reason must actually distinguish the room without a known regression."""
+    result = []
+    for path, fact in facts.items():
+        if _ignored(fact, criteria) or shared_use(fact):
+            continue
+        changes = []
+        for row in others.values():
+            if path not in row:
+                continue
+            change = _comparison(fact, row[path])
+            if change == 2:
+                change = (1 if _context_improves(fact, row[path], criteria) else
+                          -1 if _context_improves(row[path], fact, criteria) else None)
+            changes.append(change)
+        if 1 in changes and -1 not in changes:
+            result.append(path)
+    return result
+
+
+def main_selection_ids(listings: list[dict], criteria: dict) -> list[str]:
+    """Prefer verified privacy across all shared/private arrangements, without field weights.
+
+    Only remove a privacy-dominated option from advice eligibility: another same-category
+    option must have the same known arrangement fields, none less private and at least one
+    more private. Conflicting advantages and missing data stay for the model to assess.
+    Explicit customer priorities override this default; displayed listings never change.
+    """
+    ids = [item["id"] for item in listings]
+    arrangements = {item["id"]: {path: fact for path, fact in _facts(item).items()
+                    if fact["value"] in _PRIVATE_USE | _SHARED_USE} for item in listings}
+    arrangement_codes = {fact["code"] for row in arrangements.values() for fact in row.values()}
+    explicit = (any(p.get("direction") in {"HIGHER", "LOWER"} or
+                    p.get("direction") == "IGNORE" and p.get("field") in arrangement_codes
+                    for p in criteria.get("valuePriorities") or []) or any(c.get("strength") == "preference"
+                for c in criteria.get("constraints") or []) or criteria.get("sort") not in {None, "newest"})
+    if explicit:
+        return ids
+    result = []
+    for item in listings:
+        current = arrangements[item["id"]]
+        dominated = False
+        for other in listings:
+            peer = arrangements[other["id"]]
+            if other["category"] != item["category"] or not current or current.keys() != peer.keys():
+                continue
+            changes = [_comparison(peer[path], fact) for path, fact in current.items()]
+            if 1 in changes and all(change in {0, 1} for change in changes):
+                dominated = True
+                break
+        if not dominated:
+            result.append(item["id"])
+    return result
+
+
 async def evaluate(question: str, criteria: dict, main_listings: list[dict], candidates: list[dict], boundary: dict,
                    generator, catalog=None, *, recommend_main: bool = False, nearby_facts: dict | None = None) -> dict | None:
     if (not main_listings or (not candidates or criteria.get("boundaryAdvice") == "DENY") and not recommend_main
@@ -380,7 +458,7 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
         today = date.fromisoformat(request_date) if request_date else None
     except ValueError:
         today = None
-    mains = {item["id"]: _context_facts(item, criteria, catalog, today) for item in main_listings}
+    mains = {item["id"]: recommendation_facts(item, criteria, catalog, today) for item in main_listings}
     for identifier, facts in (nearby_facts or {}).items():
         if identifier in mains:
             mains[identifier].update(facts)
@@ -400,12 +478,14 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
     pool = _prioritized_pool(pool, criteria)
     budget_constraints = [c for c in criteria.get("constraints") or [] if c.get("strength") == "hard"
                           and c.get("field") in {"rent.monthly_amount", "price_amount"} and c.get("op") in {"lt", "lte"}]
-    retained_criteria = {k: criteria.get(k) for k in ("constraints", "alternatives", "location", "target", "nearby", "context", "unsupported", "needs", "valuePriorities", "renterProfile")}
+    retained_criteria = {k: criteria.get(k) for k in ("constraints", "alternatives", "location", "target", "nearby", "context", "sort", "unsupported", "needs", "valuePriorities", "renterProfile")}
     retained_criteria["constraints"] = [c for c in criteria.get("constraints") or [] if c not in budget_constraints]
     evidence = {"budgetCeiling": ceiling, "maxExtraMonthly": extra, "budgetField": boundary.get("budgetField"), "today": today,
                 "candidateBudgetLimit": ceiling + extra, "mainBudgetConstraints": budget_constraints, "recommendMain": recommend_main,
                 "boundaryPolicy": criteria.get("boundaryAdvice", "AUTO"), "confirmedCriteria": retained_criteria,
+                "mainRecommendationAllowedIds": main_selection_ids(main_listings, criteria),
                 "mainListings": [{"id": item["id"], "rent": item.get("pricing", {}).get("amount"),
+                                  "usefulReasonFields": useful_main_fields(mains[item["id"]], {i:f for i,f in mains.items() if i!=item["id"]}, criteria),
                                   "factColumn": column} for column, item in enumerate(main_listings)],
                 "candidates": [{"id": item["id"], "rent": item["rent"], "budgetOverrun": item["rent"] - ceiling,
                                 "factColumn": len(main_listings) + column,
@@ -432,10 +512,15 @@ def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict)
     if not isinstance(raw, dict) or raw.get("listingId") is None:
         return None
     identifier, fields = raw.get("listingId"), raw.get("fields")
-    if identifier not in mains or not isinstance(fields, list) or not 1 <= len(fields) <= 2 or len(set(fields)) != len(fields):
+    if identifier not in mains or not isinstance(fields, list) or len(fields) > 2 or len(set(fields)) != len(fields):
         raise ListingToolError("Invalid main recommendation")
+    if identifier not in main_selection_ids(listings, criteria):
+        raise ListingToolError("Main recommendation ignores the default privacy preference")
+    useful = useful_main_fields(mains[identifier], {i:f for i,f in mains.items() if i!=identifier}, criteria)
     reasons = []
     for path in fields:
+        if path not in useful:
+            continue  # Shared facts and disadvantages cannot become positive recommendation reasons.
         if path == "pricing.amount":
             listing = next(item for item in listings if item["id"] == identifier)
             price = listing.get("pricing") or {}
@@ -445,7 +530,7 @@ def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict)
             fact = mains[identifier].get(path)
             if fact is not None and not _ignored(fact, criteria):
                 reasons.append({"field": path, "label": fact["label"], "display": _display(fact), "value": fact["value"]})
-    return {"listingId": identifier, "reasons": reasons} if reasons else None
+    return {"listingId": identifier, "reasons": reasons}
 
 
 def reason_text(reason: dict) -> str:
@@ -454,24 +539,51 @@ def reason_text(reason: dict) -> str:
     if path == "pricing.amount":
         return f"giá thuê **{shown}**"
     if path == "areaM2":
-        return f"có diện tích **{shown}**"
+        return f"rộng **{shown}**"
     if path.startswith("amenities."):
-        return f"có **{label}**" if raw is True else f"{label.lower()}: **{shown}**"
-    if path == "pricing.vatIncluded":
-        return "giá đã gồm **VAT**" if raw is True else "giá **chưa gồm VAT**"
+        return f"có **{label}**" if raw is True else f"không có **{label}**"
     if path == "pricing.managementFeeIncluded":
         return "giá đã gồm **phí quản lý**" if raw is True else "**phí quản lý** tính riêng"
+    if path == "pricing.negotiable":
+        return "có thể **thương lượng thêm về giá thuê**" if raw else "giá thuê **không thương lượng**"
+    if path.startswith("charges."):
+        kind = path.split(".")[1]
+        fee = {"SERVICE_OR_GARBAGE": "phí dịch vụ và rác", "INTERNET": "phí Internet", "MANAGEMENT": "phí quản lý",
+               "MOTORBIKE_PARKING": "phí gửi xe máy", "CAR_PARKING": "phí gửi ô tô",
+               "ELECTRICITY": "tiền điện", "WATER": "tiền nước"}.get(kind, label.lower())
+        if path.endswith(".includedInRent"):
+            return f"tiền thuê đã bao gồm **{fee}**" if raw is True else f"tiền thuê **chưa bao gồm {fee}**"
+        return f"{fee} ở mức **{shown}**"
     if path.endswith(".hasWindow") and raw is True:
         return "có **cửa sổ**"
     if path.endswith(".restroomType"):
-        return f"WC **{shown.lower()}**"
+        return "có **nhà vệ sinh riêng**" if raw == "PRIVATE" else "dùng **nhà vệ sinh chung**"
     if path.endswith(".kitchenType"):
-        return f"**bếp {shown.lower()}**"
+        return "có **bếp riêng**" if raw == "PRIVATE" else "dùng **bếp chung**" if raw == "SHARED" else "chưa có khu bếp"
     if path.endswith(".balconyType"):
-        return f"**ban công {shown.lower()}**"
+        return "có **ban công riêng**" if raw == "PRIVATE" else "dùng **ban công chung**" if raw == "SHARED" else "chưa có ban công"
+    if path.endswith(".accessType"):
+        return "có **lối đi riêng**" if raw in _PRIVATE_USE else "dùng **lối đi chung**"
+    if path.endswith(".electricMeterType"):
+        return "có **đồng hồ điện riêng**" if raw in _PRIVATE_USE else "dùng **đồng hồ điện chung**"
+    if path.endswith(".waterMeterType"):
+        return "có **đồng hồ nước riêng**" if raw in _PRIVATE_USE else "dùng **đồng hồ nước chung**"
+    if path.endswith(".maxOccupants"):
+        return f"có thể ở tối đa **{formatted(raw)} người**"
+    if path.endswith(".furnishingStatus"):
+        return "chưa có nội thất bàn giao" if raw == "UNFURNISHED" else f"được trang bị **nội thất {shown.lower()}**"
+    if path == "availableFrom":
+        return f"có thể nhận từ **{shown}**"
+    if isinstance(raw, bool):
+        return f"có **{label.lower()}**" if raw else f"không có **{label.lower()}**"
     if path.startswith("nearby."):
         return f"quanh phòng có **{shown}**"
     return f"{label.lower()} **{shown}**"
+
+
+def fact_phrase(path: str, fact: dict) -> str:
+    phrase = reason_text({"field": path, "label": fact["label"], "display": _display(fact), "value": fact["value"]})
+    return "có " + phrase if path == "pricing.amount" else phrase
 
 
 def render_main(decision: dict, main_listings: list[dict], references: list[str] | None = None) -> str:
@@ -482,7 +594,8 @@ def render_main(decision: dict, main_listings: list[dict], references: list[str]
     noun = {"ROOM": "Phòng", "APARTMENT": "Căn", "HOUSE": "Nhà"}.get(main_listings[ids.index(identifier)].get("category"), "Tin")
     reasons = " và ".join(reason_text(r) for r in decision["reasons"])
     ordinal = (references or ids).index(identifier) + 1
-    return f"**Mình gợi ý bạn cân nhắc [{noun} {ordinal}](/rent/{identifier})** vì {reasons}."
+    lead = f"**Mình gợi ý bạn cân nhắc [{noun} {ordinal}](/rent/{identifier})**"
+    return f"{lead} vì {reasons}." if reasons else f"{lead} trong nhóm đáp ứng các tiêu chí bạn đã nêu."
 
 
 def _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, extra, allow_at_ceiling):
@@ -530,11 +643,6 @@ def _display(fact: dict) -> str:
     return text
 
 
-def _statement(proof: dict, ids: list[str]) -> str:
-    seen = [f"tin {ids.index(row['listingId']) + 1}: {_display(row['fact'])}" for row in proof["comparisons"]]
-    return f"**{proof['fact']['label']}: {_display(proof['fact'])}** (" + "; ".join(seen) + ")"
-
-
 def render(decision: dict, main_listings: list[dict], boundary: dict) -> str:
     ids = [item["id"] for item in main_listings]
     identifier = str(UUID(decision["listingId"]))
@@ -550,11 +658,11 @@ def render(decision: dict, main_listings: list[dict], boundary: dict) -> str:
     if {c["listingId"] for c in proof["comparisons"]} != set(ids):
         raise ListingToolError("Boundary highlight does not improve on the complete page")
     highlight = proof["fact"]
-    gains = f"**{highlight['label']}: {_display(highlight)}**"
+    gains = fact_phrase(proof["field"], highlight)
     # One short baseline explains what the extra rent buys. Do not dump all rows.
     baselines = list(dict.fromkeys(_display(c["fact"]) for c in proof["comparisons"]))
     if len(baselines) == 1:
-        gains += f" (cả {len(ids)} tin hiện tại: {baselines[0]})"
+        gains += f", trong khi cả {len(ids)} phòng hiện tại đều {fact_phrase(proof['field'], proof['comparisons'][0]['fact'])}"
     elif highlight["direction"] in {"HIGHER", "LOWER"} and all(isinstance(c["fact"]["value"], (int, float, Decimal))
                                                            and not isinstance(c["fact"]["value"], bool) for c in proof["comparisons"]):
         best = (max if highlight["direction"] == "HIGHER" else min)(proof["comparisons"], key=lambda c: number(c["fact"]["value"]))["fact"]

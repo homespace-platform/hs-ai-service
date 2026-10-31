@@ -280,8 +280,7 @@ def _term_rows(listings: list[dict[str, Any]]) -> list[Row]:
     getters = [("Tiền cọc", deposit), ("Kỳ thanh toán", pricing("paymentCycle", lambda v: CYCLE.get(v, UNKNOWN))),
                ("Thuê tối thiểu", pricing("minimumLeaseMonths", lambda v: _count(v, "tháng"))),
                ("Giá thương lượng", pricing("negotiable", _yes)),
-               ("Đã gồm phí quản lý", pricing("managementFeeIncluded", _yes)),
-               ("Đã gồm VAT", pricing("vatIncluded", _yes))]
+               ("Đã gồm phí quản lý", pricing("managementFeeIncluded", _yes))]
     return [(label, [getter(item) for item in listings]) for label, getter in getters]
 
 

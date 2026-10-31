@@ -18,7 +18,7 @@ def assistant():
     a = make_assistant(search(c("category", "eq", "ROOM")), IDS[:8])
     a._require_search_basics = True
     for n, identifier in enumerate(IDS[:8]):
-        a.tools.details[identifier] = room(identifier, areaM2=22+n,
+        a.tools.details[identifier] = room(identifier, areaM2=26-n,
             pricing={"amount": 3000000, "currency": "VND", "unit": "ROOM_MONTH"})
     a.generative_client.boundary_decision["mainRecommendation"] = {"listingId": IDS[0], "fields": ["areaM2", "pricing.amount"]}
     return a
@@ -65,7 +65,7 @@ async def test_intake_keeps_known_criteria_then_searches_and_remembers_student_w
     a.planner.plan_result = complete_plan()
     second = await chat.ask("Gò Vấp, HCM, dưới 3,5 triệu cho 2 người nhé")
     assert second.status == "ANSWERED" and len(a.tools.payloads) == 1 and second.listing_ids == IDS[:4]
-    assert second.listing_context["mainRecommendation"] == {"listingId": IDS[0], "fields": ["areaM2", "pricing.amount"]}
+    assert second.listing_context["mainRecommendation"] == {"listingId": IDS[0], "fields": ["areaM2"]}
     assert "Mình gợi ý bạn cân nhắc" in second.answer and "Bạn đang học trường nào" in second.answer
     assert len(a.generative_client.boundary_calls) == 1 and not a.tools.nearby_calls
     assert any("Vì sao" in q for q in second.suggested_questions)

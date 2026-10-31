@@ -2,6 +2,8 @@
 
 import re
 
+from homespace_ai.application.vietnamese_text import fold_text
+
 
 FIELD_LABELS = {
     "category": "loại hình", "price_amount": "mức giá", "price_unit": "đơn vị giá thuê",
@@ -10,7 +12,7 @@ FIELD_LABELS = {
     "payment_cycle": "chu kỳ thanh toán", "minimum_lease_months": "thời hạn thuê tối thiểu",
     "max_motorbike_count": "số xe máy tối đa", "max_car_count": "số ô tô tối đa",
     "negotiable": "thương lượng", "management_fee_included": "phí quản lý trong giá thuê",
-    "vat_included": "thuế VAT trong giá thuê", "available_from": "ngày có thể nhận nhà",
+    "available_from": "ngày có thể nhận nhà",
     "published_at": "ngày đăng", "expires_at": "ngày hết hạn", "view_count": "lượt xem",
     "city_id": "tỉnh/thành phố", "city": "tỉnh/thành phố",
     "ward_id": "phường/xã", "ward": "phường/xã", "street": "đường",
@@ -166,3 +168,32 @@ def customer_listing_text(text: str) -> str:
     """Normalize prose only, leaving complete URLs (including query strings) intact."""
     parts = re.split(r"(https?://[^\s<>]+)", text)
     return "".join(part if index % 2 else _customer_fragment(part) for index, part in enumerate(parts))
+
+
+def without_managed_choice(text: str) -> str:
+    """Remove standalone model verdict blocks when the app owns the verified choice.
+
+    Keep per-room descriptions and tables. This is a presentation boundary, not renter
+    intent parsing: a model's extra 'Gợi ý chọn' block must not contradict the validated pick.
+    """
+    verdict = re.compile(r"^(?:goi y (?:chon|uu tien)|lua chon (?:uu tien|de xuat)|ket luan (?:chon|uu tien)|"
+                         r"minh (?:goi y|de xuat|uu tien|khuyen)|ban nen (?:chon|can nhac))\b")
+    output, discarding, recent_verdict = [], False, False
+    for line in text.splitlines():
+        new_item = bool(re.match(r"^\s*(?:[-+*]\s+|\d+\.\s+|#{1,6}\s+)", line))
+        heading = re.sub(r"^\s*(?:[-+*]\s+|\d+\.\s+|#{1,6}\s+)", "", line).lstrip(" *_")
+        if verdict.search(fold_text(heading)):
+            discarding = recent_verdict = True
+            continue
+        if recent_verdict and re.match(r"^(?:ly do|vi sao|diem manh|diem noi bat)\b", fold_text(heading)):
+            discarding = True
+            continue
+        if not line.strip():
+            discarding = False
+        elif discarding and not new_item:
+            continue
+        else:
+            discarding = False
+            recent_verdict = False
+        output.append(line)
+    return "\n".join(output).strip()
