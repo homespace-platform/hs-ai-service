@@ -74,6 +74,11 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
                 result = {"version": 2, "listingIds": ids[:body["limit"]], "total": 1000, "unknownTotal": 0,
                           "readAt": "2026-10-29T03:00:00Z", "catalogVersion": CATALOG["catalogVersion"],
                           "contextMissing": [], "evidence": []}
+            elif path.endswith("/costs"):
+                assert kwargs["json"]["listingIds"] == ids[:10]
+                result = {"items": [{"listingId": identifier, "monthlyRent": 3000000,
+                    "knownFixedMonthly": 3000000, "fixedMonthlyTotal": None, "estimatedMonthlyTotal": None,
+                    "missingInputs": ["chargeData"]} for identifier in ids[:10]]}
             else:
                 listing_id = path.rsplit("/", 1)[-1]
                 assert listing_id in ids[:10], "Never read all 1,000 ward listings"
@@ -147,8 +152,8 @@ async def test_real_listing_pipeline_search_detail_recommend_and_resume_when_nea
 
             recommended = await ask("Trong các phòng vừa tìm, mình ở một người và muốn tiết kiệm, nên chọn phòng nào?")
             assert recommended["listingIds"] == ids[:10]
-            assert generations[-1]["scopeOnly"] is True
-            assert generations[-1]["selectionScope"][1] == {"position": 2, "listingId": ids[1]}
+            assert "| Tiêu chí |" in recommended["answer"]
+            assert len(generations) == 1  # Multi-room tables use verified rendering, not a second prose answer.
             before_map = (len(calls), len(plans), len(generations))
 
             unsupported = await ask("Quét tiện ích trong bán kính 3 km quanh các phòng đó")

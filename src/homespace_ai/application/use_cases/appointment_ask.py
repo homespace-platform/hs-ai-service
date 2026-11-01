@@ -24,6 +24,7 @@ from homespace_ai.application.appointment_context import (
     Reference, Route, classify, fold, last_context, listing_scope, make_context, resolve_listing,
     resolve_reference, valid_ids)
 from homespace_ai.application.use_cases.ask_use_cases import AskResult
+from homespace_ai.application.response_tables import markdown_table
 from homespace_ai.clients.appointment_tool_planner import AppointmentToolPlanner
 from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnavailableError
 from homespace_ai.clients.gateway import GatewayApiClient
@@ -212,6 +213,10 @@ class AppointmentAsk:
     # ------------------------------------------------------------------ entry point
 
     async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
+        from homespace_ai.application.conversation_guidance import finish
+        return finish(await self._try_answer(question, history, request_id), question, history, "APPOINTMENT")
+
+    async def _try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
         route = classify(question, history)
         if route is None:
             return None
@@ -401,10 +406,12 @@ class AppointmentAsk:
         summary = await self._call(budget, "summarize_my_appointments", filters)
         total = int(summary.get("total") or 0)
         cards: list[dict[str, Any]] = []
+        listed: list[dict[str, Any]] = []
         new_context = make_context([], None, summary.get("filters", {}).get("role"), filters, None, None)
         if 0 < total <= MAX_CARDS:
             found = await self._call(budget, "search_my_appointments", {**filters, "size": MAX_CARDS})
-            cards = [c for c in (self._card(i, found.get("meta")) for i in found.get("items") or []) if c]
+            listed = (found.get("items") or [])[:MAX_CARDS]
+            cards = [c for c in (self._card(i, found.get("meta")) for i in listed) if c]
             new_context = self._list_context(found, cards)
         elif summary.get("nextUpcoming"):
             card = self._card(summary["nextUpcoming"], summary.get("meta"))
@@ -412,7 +419,10 @@ class AppointmentAsk:
             new_context = make_context([card["appointmentId"]] if card else [], None,
                                        (summary.get("filters") or {}).get("role"), filters, None,
                                        (summary.get("meta") or {}).get("today"))
-        return self._result(self._summary_text(summary, folded), "ANSWERED" if total else "NO_RESULTS", request_id,
+        text = self._summary_text(summary, folded)
+        if len(listed) > 1:
+            text += "\n\n" + self._appointments_table(listed)
+        return self._result(text, "ANSWERED" if total else "NO_RESULTS", request_id,
                             context=new_context, scope=scope, cards=cards)
 
     async def _detail(self, appointment_id: str, folded: str, context: dict[str, Any] | None, scope: list[str],
@@ -463,6 +473,8 @@ class AppointmentAsk:
         cards: list[dict[str, Any]] = []
         new_context = context
         status = "ANSWERED"
+        details = [data for name, _, data in results if name == "get_appointment_detail"]
+        table_added = False
         for name, arguments, data in results:
             if name == "search_my_appointments":
                 one = self._list_result(data, request_id, context, scope)
@@ -475,12 +487,20 @@ class AppointmentAsk:
             elif name == "get_appointment_detail":
                 card = self._card(data, data.get("meta"))
                 cards.extend([card] if card else [])
-                parts.append(self._detail_text(data, ""))
+                if len(details) > 1:
+                    if not table_added:
+                        parts.append(self._appointments_table(details[:MAX_CARDS]))
+                        table_added = True
+                else:
+                    parts.append(self._detail_text(data, ""))
                 new_context = make_context([data.get("appointmentId")], data.get("appointmentId"),
                                            data.get("requesterRole"), None, None, (data.get("meta") or {}).get("today"))
             elif name == "get_listing_viewing_availability":
                 parts.append(self._availability_text(data, None, None))
         deduped = list({c["appointmentId"]: c for c in cards}.values())[:MAX_CARDS]
+        if len(details) > 1 and len(details) == len(results):
+            new_context = make_context([c["appointmentId"] for c in deduped], None, None,
+                                       (context or {}).get("filters"), None, (details[0].get("meta") or {}).get("today"))
         return self._result("\n\n".join(parts), status, request_id, context=new_context, scope=scope, cards=deduped)
 
     # ------------------------------------------------------------------ actions: explain, never perform
@@ -654,9 +674,14 @@ class AppointmentAsk:
         titles = {"CAN_REQUEST": "Có thể gửi yêu cầu", "YOUR_REQUEST_PENDING": "Yêu cầu của bạn đang chờ xác nhận",
                   "YOUR_BOOKING_CONFIRMED": "Lịch của bạn đã được xác nhận",
                   "OWNER_CANNOT_BOOK_OWN_LISTING": "Khung giờ trong tin của bạn", "NOT_AVAILABLE": "Không đặt được"}
-        for state in SLOT_STATE_ORDER:
-            if state in grouped:
-                lines.append(f"- **{titles[state]}:** " + ", ".join(grouped[state]))
+        if len(slots) > 1:
+            lines.extend(["", markdown_table(["Khung giờ", "Tình trạng"],
+                [(f"{_hm(s.get('startTime'))}–{_hm(s.get('endTime'))}",
+                  titles.get(s.get("status"), "Không đặt được")) for s in slots])])
+        else:
+            for state in SLOT_STATE_ORDER:
+                if state in grouped:
+                    lines.append(f"- **{titles[state]}:** " + ", ".join(grouped[state]))
         if grouped.get("CAN_REQUEST"):
             lines.append("")
             lines.append("Đây là khung giờ có thể gửi yêu cầu, chưa phải lịch đã được giữ chỗ: chủ nhà vẫn cần xác nhận, "
@@ -723,16 +748,19 @@ class AppointmentAsk:
         else:
             head += f"bạn có **{total}** lịch xem nhà{when}:"
         lines = [head, ""]
-        mixed = filters.get("role") in (None, "BOTH")
-        for index, item in enumerate(items[:MAX_CARDS], 1):
-            parts = [_sched(item.get("currentSchedule")), _listing_text(item.get("listing"))]
-            if mixed:
-                parts.append("bạn là chủ nhà" if item.get("requesterRole") == "OWNER" else "bạn là người đi xem")
-            parts.append(_state_text(item))
-            proposed = _proposed_text(item)
-            if proposed:
-                parts.append(proposed)
-            lines.append(f"- **Lịch {offset + index}:** " + " · ".join(parts))
+        if len(items) > 1:
+            lines.append(self._appointments_table(items[:MAX_CARDS], offset))
+        else:
+            mixed = filters.get("role") in (None, "BOTH")
+            for index, item in enumerate(items[:MAX_CARDS], 1):
+                parts = [_sched(item.get("currentSchedule")), _listing_text(item.get("listing"))]
+                if mixed:
+                    parts.append("bạn là chủ nhà" if item.get("requesterRole") == "OWNER" else "bạn là người đi xem")
+                parts.append(_state_text(item))
+                proposed = _proposed_text(item)
+                if proposed:
+                    parts.append(proposed)
+                lines.append(f"- **Lịch {offset + index}:** " + " · ".join(parts))
         shown = offset + min(len(items), MAX_CARDS)
         if total > shown:
             lines.append(f"\nCòn {total - shown} lịch nữa; bạn nói “xem tiếp” để mình mở tiếp.")
@@ -743,6 +771,21 @@ class AppointmentAsk:
         new_context = self._list_context(found, cards)
         return self._result("\n".join(lines), "NEEDS_CLARIFICATION" if ask_which else "ANSWERED", request_id,
                             context=new_context, scope=scope, cards=cards)
+
+    @staticmethod
+    def _appointments_table(items: list[dict[str, Any]], offset: int = 0) -> str:
+        headers = ["Lịch", "Thời gian hiện tại", "Tin đăng", "Vai trò của bạn", "Tình trạng"]
+        proposed = any(_proposed_text(item) for item in items)
+        if proposed:
+            headers.append("Đề xuất đổi giờ (chưa duyệt)")
+        rows = []
+        for index, item in enumerate(items, offset + 1):
+            role = {"OWNER": "Chủ nhà", "RENTER": "Người đi xem"}.get(item.get("requesterRole"))
+            row = [f"Lịch {index}", _sched(item.get("currentSchedule")), _listing_text(item.get("listing")), role, _state_text(item)]
+            if proposed:
+                row.append(_proposed_text(item) or "Không có đề xuất đổi giờ")
+            rows.append(row)
+        return markdown_table(headers, rows)
 
     @staticmethod
     def _filters_from_resolved(filters: dict[str, Any]) -> dict[str, Any]:

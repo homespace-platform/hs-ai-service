@@ -2,6 +2,14 @@
 
 ## Tư vấn tìm phòng và câu hỏi tiếp theo
 
+Khi trả từ hai kết quả cùng loại, AI dùng bảng để khách dễ đối chiếu, cả ở lượt tìm đầu
+và các câu hỏi tiếp theo (ví dụ “tôi muốn thuê cho gia đình”). Bảng phòng được dựng từ dữ
+liệu đầy đủ vừa đọc, giữ các cột và số thứ tự đang xét; lời tư vấn ngắn và lựa chọn chính
+được tách riêng. Model nhận `tableRendered` để không kể lại từng phòng hay vẽ bảng trùng.
+Danh sách hợp đồng, lịch hẹn và các khung giờ xem nhà cũng dùng bảng; giữ nguyên quyền
+truy cập, phân trang và phân biệt lịch hiện tại với đề xuất đổi giờ chưa được duyệt.
+Một kết quả, câu hỏi làm rõ, thông báo lỗi và hướng dẫn thao tác không bị ép thành bảng.
+
 Trước khi tìm listing, AI thu thập khu vực/địa điểm, loại hình, ngân sách và số người ở.
 Mỗi lượt chỉ hỏi tối đa hai thông tin còn thiếu, giữ các điều kiện khách đã cung cấp.
 Khách có thể nói rõ chưa chốt loại hình, chưa biết số người hoặc chỉ muốn khảo sát giá;
@@ -14,6 +22,38 @@ Khi khách trả lời riêng mục đích thuê (ví dụ “tôi muốn thuê 
 phòng và các điều kiện trước đó, đọc lại dữ kiện từ Core để tư vấn; không tìm tiêu đề theo
 chữ “gia đình”, không tự thêm số phòng ngủ hay điều kiện về trẻ nhỏ. Nếu khách nói thêm ngân
 sách, số người hoặc khu vực mới thì xử lý thay đổi đó trước khi tìm lại.
+
+Lượt bổ sung đối tượng thuê dùng **bảng tư vấn riêng**, không lặp bảng ảnh và thông tin cơ bản
+ở lượt tìm đầu: mỗi phòng có điểm phù hợp, điểm cần cân nhắc, tiện ích trong tòa nhà và các
+địa điểm xung quanh liên quan. Một truy vấn giới hạn trong nhóm đang xem kiểm tra lại điều kiện;
+một batch Nearby đọc quan hệ đã lưu, tối đa 5 địa điểm/nhóm/phòng. Mô hình đối chiếu toàn bộ
+dữ kiện phòng cùng Nearby để chọn một phòng và giải thích ngắn bằng thông tin đã xác minh.
+Sinh viên được hỏi đúng trường, người đi làm được hỏi nơi làm việc nếu chưa rõ; không tự
+coi một trường bất kỳ là trường của khách hay suy ra quãng đường/thời gian đi làm. Không
+tìm boundary, không gọi TomTom trong lượt tư vấn tiếp này. Nếu thiếu Nearby hoặc mô hình
+tư vấn lỗi, vẫn hiển thị thông tin đã đọc được và không bịa điểm phù hợp/lựa chọn chính.
+Địa điểm đã ghi nhận vẫn được liệt kê và cung cấp làm ngữ cảnh tư vấn khi kho chưa phủ đủ
+phạm vi. Chỉ bằng chứng đủ phủ mới dùng để so sánh khoảng cách; số địa điểm nhiều/ít hay
+nhóm đang thiếu không được biến thành điểm chất lượng hoặc kết luận khu vực không có tiện ích.
+
+Câu bổ sung như “tôi là sinh viên thì nên chọn phòng nào?” đi cùng luồng tư vấn theo hoàn
+cảnh, không rơi về bảng tìm kiếm cơ bản. Với nghề/lối sinh hoạt chưa có trong mẫu câu nhanh,
+một bước AI ngắn đọc hoàn cảnh bằng JSON có trích dẫn nguyên văn, rồi lưu `renterProfile.description`
+và chọn tối đa bốn nhóm Nearby liên quan. Ví dụ làm ca đêm, đã nghỉ hưu, vừa học vừa làm
+được giữ chi tiết để tư vấn; không ép mọi khách vào cùng khuôn sinh viên/đi làm/gia đình.
+Bước đọc hoàn cảnh không có tham số để tạo bộ lọc phòng hay gọi nhà cung cấp bản đồ. Nếu
+khách đồng thời đổi ngân sách, khu vực, số người hoặc tiêu chí bắt buộc, các trích dẫn đó
+được chuyển sang bộ lọc chuẩn để xử lý; không bỏ qua điều kiện mới. Thiếu thông tin hoặc
+không xác minh được trích dẫn thì hỏi lại thân thiện, giữ nhóm phòng và tiêu chí cũ.
+
+Khách có thể nói **“quay lại”**, **“trang trước”**, **“quay lại 2 trang”** hoặc **“xem lại nhóm
+phòng đầu tiên”** để mở lại đúng nhóm đã xem. “Xem thêm” sau khi quay lại đi tới nhóm đã lưu
+kế tiếp trước khi tìm tin mới. Memory giữ các nhóm ID và vị trí xem, tối đa 50 nhóm trong
+200 ID đang lưu; không lưu ảnh, giá hoặc nội dung phòng. Mỗi lần mở lại kiểm tra đúng nhóm
+với tiêu chí hiện tại qua Core và đọc lại dữ liệu công khai. Không tìm boundary hoặc gọi
+TomTom trong thao tác điều hướng. Hết kết quả không xóa nhóm đang xem hay biến thành lỗi
+không có phòng. Hội thoại cũ được khôi phục các nhóm từ toàn bộ lịch sử đã lưu, không cần
+chat mới hay thay schema CSDL; bộ tiêu chí mới bắt đầu lịch sử nhóm mới.
 
 Chat cũ bị gán nhầm từ khóa persona được khôi phục khi đọc, dựa vào lượt đã đưa từ khóa vào
 trong toàn bộ lịch sử và nhóm phòng gần nhất cùng tiêu chí. Chỉ sửa ngữ cảnh sử dụng cho
@@ -35,7 +75,7 @@ sức chứa...) và điểm bất lợi không được dùng làm lý do tích
 Lời khuyên dùng câu tự nhiên như “tiền thuê đã bao gồm phí dịch vụ và rác”, không dùng
 “Phí dịch vụ/rác đã gồm trong tiền thuê: Có”. Bảng dữ kiện vẫn giữ nhãn để dễ đối chiếu.
 Câu hỏi “vì sao bạn ưu tiên phòng được chọn?” đọc lại cả nhóm từ Core, chọn các khác biệt
-có ý nghĩa và giải thích bằng gạch đầu dòng; không lưu bản sao giá/diện tích trong memory.
+có ý nghĩa và giải thích bằng bảng đối chiếu ngắn; không lưu bản sao giá/diện tích trong memory.
 
 Sau kết quả, AI hỏi tối đa một câu để hiểu thêm mục đích thuê hoặc ưu tiên chưa rõ; không
 lặp lại câu đã hỏi khi “xem thêm”. Persona giúp tư vấn và đặt câu hỏi, không tự trở thành
@@ -63,9 +103,19 @@ trường dùng để giải thích; không giữ bản sao POI. Khi hỏi lại
 
 “Vì sao bạn ưu tiên phòng được chọn?” đọc lại **toàn bộ nhóm phòng đang xét** từ Core,
 cho mô hình chọn các tiêu chí liên quan và điểm cần cân nhắc từ ma trận đã kiểm chứng.
-Ứng dụng dựng câu trả lời bằng gạch đầu dòng, đối chiếu từng phòng; dữ kiện chung không
+Ứng dụng dựng bảng tối đa 5 tiêu chí, mỗi phòng một cột cùng nhận xét ngắn; dữ kiện chung không
 được trình bày thành lợi thế riêng. Bước này không tìm lại phòng, không gọi boundary hay
 TomTom. Nếu lý do trước có Nearby, chỉ đọc lại các quan hệ POI đã lưu.
+
+Khi câu hỏi đang về **tiện ích xung quanh**, bước đề xuất chỉ được dùng bằng chứng Nearby
+liên quan; không lấy bếp, WiFi, phí Internet hay nội thất làm lý do chọn. Bộ đánh giá ở lượt
+này chỉ nhận ma trận địa điểm, có thể không chọn khi dữ liệu chưa đủ phủ/không có khác biệt
+đã xác minh. Bảng vẫn liệt kê các địa điểm đã ghi nhận, không suy nhóm thiếu là khu vực không
+có tiện ích, không xếp hạng theo số POI. AI hỏi trường/nơi làm/loại tiện ích muốn ưu tiên khi
+chưa rõ. Memory lưu hướng tư vấn `NEARBY` cùng ID và mã bằng chứng, không lưu tên POI hay
+khoảng cách; câu “vì sao chọn phòng?” đọc lại cả nhóm và giải thích đúng hướng này bằng bảng,
+không đổi sang lý do trong phòng. Các lý do cũ còn được xác minh được đối chiếu trước khi
+bổ sung tiêu chí mới. Nếu bằng chứng đã đổi, nói chưa đủ cơ sở, không tự hợp thức hóa lựa chọn cũ.
 
 API trả `suggestedQuestions` (tối đa bốn câu hỏi hoàn chỉnh), lưu cùng câu trả lời trong
 lịch sử tài khoản và phiên khách. Frontend hiển thị ngay trên ô chat ở cả trang chat và
@@ -451,3 +501,17 @@ In Admin, 100% upload means file bytes have been sent, not that ingestion has
 completed. The UI shows a separate waiting-for-API state and limits batch request
 waiting to 60 seconds. After a timeout, inspect the document list before retrying:
 the server might already have saved some files, and retrying creates new versions.
+
+## Conversation quality update — 01/11/2026
+
+Fee comparisons now use a compact table followed by verified, objective-specific advice.
+Fee comparisons show the published rates only: no automatic fixed/monthly totals, no extra vehicle-count
+question to calculate them, and no Nearby suggestion chip after this topic. A Nearby inventory question
+shows the places table without an unsolicited room verdict; explicit recommendation requests still work.
+Restart **AI service**, then reload chat to apply this revision.
+No seed, schema migration, database reset or new environment variable is needed for this update.
+
+Next-question chips follow the active listing/contract/appointment topic and business state; clicking
+still only fills the existing composer. No chat request scans TomTom or performs a business write.
+See [implementation and test report](docs/AI_CONVERSATION_QUALITY_IMPLEMENTATION.md) for the changes,
+commands, recorded model smoke and the remaining manual acceptance checks.

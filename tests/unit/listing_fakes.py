@@ -182,7 +182,7 @@ class Conversation:
                                                  state=self.state())
         self.messages += [{"role": "user", "content": question},
                           {"role": "assistant", "content": result.answer, "status": result.status,
-                           "listingContext": result.listing_context}]
+                           "listingContext": result.listing_context, "answerContext": result.answer_context}]
         return result
 
     def state(self):

@@ -40,6 +40,8 @@ from homespace_ai.application import listing_value_advice as value_advice
 from homespace_ai.application import renter_guidance as guidance
 from homespace_ai.application.listing_recommendation_explanation import explain as explain_main_choice
 from homespace_ai.application.amenity_intent import ambiguous_amenities
+from homespace_ai.application.answer_context import listing_focus, AnswerContext
+from homespace_ai.application.conversation_guidance import finish
 
 
 LISTING_SIGNAL = VietnamesePattern(
@@ -47,7 +49,7 @@ LISTING_SIGNAL = VietnamesePattern(
     r"gửi xe|nội thất|tiện ích|ngân sách|triệu|tr/tháng|giá rẻ|rẻ nhất|ở ghép|ở một mình|thang máy|ban công|"
     r"xem thêm|tin khác)\b")
 SEARCH_INTENT = VietnamesePattern(
-    r"\b(tìm|kiếm|còn phòng|phòng nào|căn nào|nhà nào|so sánh|cần thuê|muốn thuê|cần tìm|muốn tìm|"
+    r"\b(tìm|(?<!tiết )kiếm|còn phòng|phòng nào|căn nào|nhà nào|so sánh|cần thuê|muốn thuê|cần tìm|muốn tìm|"
     r"chỗ ở|nơi ở|chỗ thuê|cần chỗ|kiếm chỗ|xem thêm|tin khác)\b")
 MORE_PAGE = VietnamesePattern(r"xem thêm|tin khác|trang (?:sau|tiếp)|tiếp theo|thêm (?:tin|phòng|căn|nhà)\b")
 SUPPORT_INTENT = VietnamesePattern(r"(homespace là|cách đăng tin|hướng dẫn đăng tin|cách đặt lịch|cách thanh toán|điều khoản sử dụng|chính sách homespace|hợp đồng điện tử)")
@@ -162,6 +164,8 @@ class ListingAsk:
                          state: dict[str, Any] | None = None) -> AskResult | None:
         state = rs.sanitize(state) if state is not None else rs.latest_state(history)
         self._base = deepcopy(state)
+        from homespace_ai.application.listing_page_navigation import recover
+        state = recover(state, history)
         profile = guidance.profile_update(question)
         if profile:
             state = rs.merge(state, {"renterProfile": profile}, question)
@@ -190,28 +194,62 @@ class ListingAsk:
             context = result.listing_context or {}
             result.suggested_questions = guidance.suggested_questions(context.get("searchState"), has_results=bool(result.listing_ids),
                 has_boundary=bool(context.get("valueSuggestion")), has_main=bool(context.get("mainRecommendation")), no_results=result.status == "NO_RESULTS")
-        return result
+        return finish(result, question, history, "LISTING")
 
     async def _listing_flow(self, question: str, history: list[dict[str, Any]], request_id: str,
                             state: dict[str, Any] | None) -> AskResult | None:
         scope = current_scope(history)
         selection = scoped_selection(question, history)
+        from homespace_ai.application.listing_page_navigation import intent, answer as navigate
+        navigation = intent(question)
+        if navigation and (scope or (state or {}).get("shown", {}).get("ids")):
+            response = await navigate(self, question, history, request_id, state, navigation)
+            if response is not None:
+                return response
+        contextual = bool(scope) and guidance.quantified_context_reply(question)
         if scope and guidance.profile_only_reply(question):
             # This answers our own purpose question. Keep the shortlist and factual
             # filters; a persona does not imply children, bedrooms, amenities or keywords.
             return await self._continue_advice(question, history, request_id, scope, state)
+        if scope and guidance.self_context_statement(question) and hasattr(self.generative_client, "generate_renter_context"):
+            from homespace_ai.application.renter_context_intake import read_context
+            try:
+                update, criteria_changed = await read_context(self.generative_client, question, (state or {}).get("renterProfile") or {})
+            except (GenerationUnavailableError, ListingToolError, TimeoutError) as error:
+                self._log_failure(request_id, "renter_context", error)
+                return AskResult(answer="Mình chưa nắm chắc hoàn cảnh thuê bạn vừa chia sẻ. Bạn nói thêm công việc hoặc nhu cầu sinh hoạt bạn muốn ưu tiên nhé; mình sẽ giữ nhóm phòng đang xem.",
+                    status="NEEDS_CLARIFICATION", citations=[], request_id=request_id,
+                    listing_context=self.context(scope, state))
+            contextual = contextual or criteria_changed
+            if update.get("renterProfile"):
+                state = rs.merge(state, update, question)
+                if not contextual and not MORE_PAGE.search(question) and requested_count(question) is None and not rs.RESET.search(question):
+                    if NEARBY_INTENT.search(question) and getattr(self.settings, "nearby_query_enabled", False):
+                        return await answer_nearby(self, question, history, request_id,
+                            {"listingIds": scope, "radiusMeters": self.settings.nearby_default_radius_m, "groups": []}, state=state)
+                    return await self._continue_advice(question, history, request_id, scope, state)
+                contextual = True  # New actual criteria still need the ordinary validated search planner.
         if scope and ambiguous_amenities(question):
             return AskResult(answer="Bạn muốn xem tiện ích trong tòa nhà (như WiFi, thang máy) hay địa điểm xung quanh (như siêu thị, trường học)?",
                 status="NEEDS_CLARIFICATION", citations=[], request_id=request_id, listing_context=self.context(scope, state),
                 suggested_questions=["Các phòng trên có những tiện ích nào xung quanh?", "Các phòng trên có những tiện ích tòa nhà nào?"])
         chosen = None
-        if guidance.MAIN_REFERENCE.search(fold_text(question)) and not SEARCH_INTENT.search(question):
+        if (guidance.MAIN_REFERENCE.search(fold_text(question)) or fold_text(question).strip(" .?!") in {"vi sao", "tai sao"}) and not SEARCH_INTENT.search(question):
             latest = next((item.get("listingContext") for item in reversed(history)
                            if item.get("role") == "assistant" and item.get("listingContext")), {})
             reference = latest.get("mainRecommendation") or {}
+            why_topic = re.sub(r"\b(?:vì sao|tại sao)\b", "", question, flags=re.IGNORECASE)
+            requested_focus = listing_focus(why_topic)
+            specific = next((p for p in latest.get("priorityRecommendations", []) if p.get("focus") == requested_focus), None)
+            if specific:
+                reference = specific
             if reference.get("listingId") in scope:
-                chosen = reference
+                last_question = next((m.get("content", "") for m in reversed(history) if m.get("role") == "user"), "")
+                chosen = ({**reference, "focus": "NEARBY"} if latest.get("nearby") and NEARBY_INTENT.search(last_question) else reference)
                 selection = scope  # Explain against the whole shortlist, not one isolated record.
+            elif latest.get("adviceFocus") == "NEARBY":
+                return AskResult(answer="Ở lượt vừa rồi mình chưa ưu tiên phòng nào theo tiện ích xung quanh vì chưa có đủ khác biệt để kết luận. Bạn muốn ưu tiên gần trường học, nơi làm việc hay tiện ích cụ thể nào?",
+                    status="NEEDS_CLARIFICATION", citations=[], request_id=request_id, listing_context=self.context(scope, state) | {"nearby": latest.get("nearby"), "adviceFocus": "NEARBY"})
         if value_advice.VALUE_REFERENCE.search(question) and not SEARCH_INTENT.search(question):
             latest = next((item.get("listingContext") for item in reversed(history)
                            if item.get("role") == "assistant" and item.get("listingContext")), {})
@@ -228,7 +266,7 @@ class ListingAsk:
         pending = (state or {}).get("pending")
         if selection == []:
             return self._clarify(request_id, scope, state)
-        if selection is None and not guidance.profile_update(question) and requested_count(question) is None and not LISTING_SIGNAL.search(question) and not pending and not any(
+        if selection is None and not contextual and not guidance.profile_update(question) and requested_count(question) is None and not LISTING_SIGNAL.search(question) and not pending and not any(
                 LISTING_SIGNAL.search(item.get("content", "")) for item in history[-2:]):
             return None
         if pending and pending["type"] == "TARGET" and pending["candidates"]:
@@ -252,9 +290,9 @@ class ListingAsk:
             if chosen_nearby and nearby_memory:
                 chosen = None  # Provider facts must be re-read by the nearby tool, not a detail-only explanation.
                 plan = ToolPlan("get_listing_nearby_places", {**nearby_memory, "listingIds": selection})
-            elif selection and not chosen and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
+            elif selection and not contextual and not chosen and nearby_memory and getattr(self.settings, "nearby_query_enabled", False) and RECOMMENDATION.search(question) and not NEARBY_INTENT.search(question) and not VietnamesePattern(r"giá|chi phí|rẻ|nội thất|diện tích").search(question):
                 plan = ToolPlan("get_listing_nearby_places", {**nearby_memory, "listingIds": selection})
-            elif selection and not (getattr(self.settings, "nearby_query_enabled", False) and NEARBY_INTENT.search(question)) and not rs.RESET.search(question):
+            elif selection and not contextual and not (getattr(self.settings, "nearby_query_enabled", False) and NEARBY_INTENT.search(question)) and not rs.RESET.search(question):
                 # Reading known references needs neither the catalog nor a paid planner call, and never edits criteria.
                 plan = ToolPlan("get_listing_detail", {"listingId": selection[0]}) if len(selection) == 1 else (
                     ToolPlan("get_listing_details", {"listingIds": selection}))
@@ -332,7 +370,7 @@ class ListingAsk:
                 if self.catalog is None:
                     self.catalog = SearchCatalog(await self.tools.catalog())
                 location_facts=None
-                if nearby and any(field.startswith("nearby.") for field in chosen.get("fields",[])):
+                if nearby and (chosen.get("focus") == "NEARBY" or any(field.startswith("nearby.") for field in chosen.get("fields",[]))):
                     from homespace_ai.application.nearby_table import facts as nearby_facts
                     evidence=await self.tools.nearby([item["id"] for item in listings],nearby["radiusMeters"],nearby["groups"],nearby.get("targetPlaceId"))
                     location_facts=nearby_facts(evidence["summaries"],radius=nearby["radiusMeters"],profile=(state or {}).get("renterProfile"))
@@ -341,37 +379,76 @@ class ListingAsk:
             context=self.context(scope,state) | {"mainRecommendation":chosen}
             if nearby:
                 context["nearby"]=nearby
+            previous = next((m.get("listingContext") for m in reversed(history) if m.get("role") == "assistant" and m.get("listingContext")), {})
+            if previous.get("priorityRecommendations"):
+                context["priorityRecommendations"] = previous["priorityRecommendations"]
             return AskResult(answer=text or "Bạn muốn mình giải thích rõ hơn về giá, không gian hay tiện nghi của phòng được chọn?",
-                status="ANSWERED",citations=[],request_id=request_id,listing_context=context,listing_ids=[item["id"] for item in listings])
+                status="ANSWERED",citations=[],request_id=request_id,listing_context=context,listing_ids=[item["id"] for item in listings],
+                data_sources=["CORE_NEARBY"] if location_facts is not None else [])
         except (CatalogError,ListingToolError,GenerationUnavailableError,HTTPException,TimeoutError,ValueError,TypeError,KeyError) as error:
             self._log_failure(request_id,"explain_main",error)
             return self._unavailable(request_id,scope,state)
 
     async def _advise_main(self, question: str, request_id: str, answer: AskResult, listings: list[dict],
-                           state: dict | None, *, nearby_facts: dict | None = None) -> AskResult:
+                           state: dict | None, *, nearby_facts: dict | None = None,
+                           recommendation_focus: str | None = None, observed_nearby: dict | None = None) -> AskResult:
         """One current-scope recommendation on follow-ups, with no boundary or provider calls."""
         if answer.status != "ANSWERED" or not listings or not hasattr(self.generative_client, "generate_value_advice"):
             return answer
+        from homespace_ai.application.listing_table import only_charge_types
+        if only_charge_types(question):
+            return answer
         criteria = state or rs.empty_state()
+        recommendation_focus = recommendation_focus or listing_focus(question)
+        if recommendation_focus == "EXPLAIN_CHOICE":
+            recommendation_focus = "OVERALL"
+        nearby_only = recommendation_focus == "NEARBY"
+        if nearby_only:
+            answer.listing_context["adviceFocus"] = "NEARBY"
+            if not (guidance.consultation_request(question) or RECOMMENDATION.search(question)
+                    or VietnamesePattern(r"gần.{0,80}(?:hơn|nhất)\b").search(question)):
+                # An inventory question asks for places, not an unsolicited room verdict.
+                return answer
+        main = None
         try:
             async with asyncio.timeout(value_advice_timeout_seconds()):
                 if self.catalog is None:
                     self.catalog = SearchCatalog(await self.tools.catalog())
                 advice = await value_advice.evaluate(question, criteria | {"requestToday": self.today().isoformat()}, listings,
-                    [], {"candidateIds": []}, self.generative_client, self.catalog, recommend_main=True, nearby_facts=nearby_facts)
-            main = (advice or {}).get("main")
+                    [], {"candidateIds": []}, self.generative_client, self.catalog, recommend_main=True,
+                    nearby_facts=nearby_facts, recommendation_focus=recommendation_focus, observed_nearby=observed_nearby,
+                    compare_priorities=recommendation_focus == "COST")
+            priorities = (advice or {}).get("priorities") or []
+            main = (advice or {}).get("main") or next((p for p in priorities if p["focus"] == recommendation_focus), None)
             if main:
-                answer.answer += "\n\n" + value_advice.render_main(main, listings, answer.listing_context["listingIds"])
+                if not priorities:
+                    answer.answer += "\n\n" + value_advice.render_main(main, listings, answer.listing_context["listingIds"])
                 answer.listing_context["mainRecommendation"] = {"listingId": main["listingId"],
-                    "fields": [reason["field"] for reason in main["reasons"]]}
+                    "fields": [reason["field"] for reason in main["reasons"]], "focus": recommendation_focus}
+            if priorities:
+                answer.answer += "\n\n" + value_advice.render_priorities(priorities, listings, answer.listing_context["listingIds"])
+                answer.listing_context["priorityRecommendations"] = [{"focus": p["focus"], "listingId": p["listingId"],
+                    "fields": [r["field"] for r in p["reasons"]]} for p in priorities]
         except (CatalogError, ListingToolError, GenerationUnavailableError, HTTPException, TimeoutError, ValueError, TypeError, KeyError) as error:
             self._log_failure(request_id, "main_recommendation", error)
-        followup = guidance.followup_question(criteria)
+        if nearby_only and not main:
+            answer.answer += "\n\nMình chưa có đủ khác biệt về tiện ích xung quanh để ưu tiên một phòng hơn các phòng còn lại."
+        if nearby_only:
+            profile = criteria.get("renterProfile") or {}
+            followup = ("Bạn muốn ưu tiên gần đúng trường nào?" if profile.get("persona") == "STUDENT" and not profile.get("studyPlace") and not criteria.get("target") else
+                "Bạn muốn ưu tiên thuận tiện đến nơi làm việc nào?" if profile.get("persona") == "WORKING" and not profile.get("workPlace") and not criteria.get("target") else
+                "Bạn muốn ưu tiên gần trường học, nơi làm việc, siêu thị hay tiện ích nào khác?")
+            if followup in criteria.get("guidanceAsked", []):
+                followup = None
+        elif recommendation_focus == "COST":
+            followup = None
+        else:
+            followup = guidance.followup_question(criteria)
         if followup:
             answer.answer += "\n\n" + followup
             criteria = deepcopy(criteria)
             criteria["guidanceAsked"] = list(dict.fromkeys((criteria.get("guidanceAsked") or []) + [followup]))[-6:]
-            references = {k: answer.listing_context[k] for k in ("mainRecommendation", "nearby") if k in answer.listing_context}
+            references = {k: answer.listing_context[k] for k in ("mainRecommendation", "nearby", "adviceFocus", "priorityRecommendations") if k in answer.listing_context}
             answer.listing_context = self.context(answer.listing_context["listingIds"], criteria) | references
         return answer
 
@@ -443,7 +520,7 @@ class ListingAsk:
             merged["pending"] = self._pending("LOCATION", text)
             return self._ask(request_id, scope, merged, text)
         persist = deepcopy(state) if update.get("hypothetical") and state else merged
-        if (scope and state and update.get("renterProfile")
+        if (scope and state and (update.get("renterProfile") or guidance.consultation_request(question) and (merged.get("renterProfile") or {}).get("persona"))
                 and rs.fingerprint(merged | {"sort": merged.get("sort") or "newest"}) == rs.fingerprint(state | {"sort": state.get("sort") or "newest"})
                 and not update.get("moreResults") and not MORE_PAGE.search(question)
                 and requested_count(question) is None and not rs.RESET.search(question)):
@@ -454,6 +531,9 @@ class ListingAsk:
 
     async def _continue_advice(self, question, history, request_id, scope, state):
         try:
+            if (state or {}).get("renterProfile", {}).get("persona"):
+                from homespace_ai.application.renter_profile_advice import answer_profile
+                return await answer_profile(self, question, history, request_id, scope, state)
             listings, _ = await self._details(scope, request_id)
             if not listings:
                 return AskResult(answer="Các phòng vừa xem hiện không còn hiển thị công khai. Bạn muốn mình tìm lại theo các tiêu chí đã lưu không?",
@@ -524,7 +604,7 @@ class ListingAsk:
                     payload_bytes=len(json.dumps(payload, ensure_ascii=False).encode()), latency_ms=round((time.perf_counter() - started) * 1000))
         ids = result["listingIds"]
         if not ids:
-            return self._no_results(request_id, persist, criteria, result, more=bool(exclude))
+            return self._no_results(request_id, persist, criteria, result, more=bool(exclude), scope=scope)
         full, gone = await self._details(ids, request_id)
         allowed = rs.categories(criteria)
         if allowed:
@@ -606,6 +686,8 @@ class ListingAsk:
                 persist["guidanceAsked"] = list(dict.fromkeys((persist.get("guidanceAsked") or []) + [followup]))[-6:]
             references = {key: answer.listing_context[key] for key in ("mainRecommendation", "valueSuggestion") if key in answer.listing_context}
             answer.listing_context = self.context(answer.listing_ids, persist) | references
+        answer.listing_context["hasMore"] = result["total"] > len(displayed_ids)
+        answer.answer_context = AnswerContext("LISTING", "SEARCH", [], displayed_ids).metadata()
         return answer
 
     def _check_label(self, fields: list[str]) -> str:
@@ -656,20 +738,27 @@ class ListingAsk:
         recommend = bool(RECOMMENDATION.search(question))
         wants_table = bool(TABLE_REQUEST.search(question))
         sections = requested_sections(question, search_page=tool == "search_listings")
-        show_table = tool == "search_listings" or len(full) >= 1 and (wants_table or len(full) >= 2 and bool(sections or recommend))
+        focus = listing_focus(question, sections)
+        from homespace_ai.application.listing_table import only_charge_types
+        charge_types = only_charge_types(question)
+        answer_meta = AnswerContext("LISTING", "SEARCH" if tool == "search_listings" else focus, sections, references).metadata()
+        # Multiple results are always tabular, including persona/advice follow-ups.
+        # Do not depend on the customer repeating "so sánh" or "lập bảng".
+        show_table = tool == "search_listings" or len(full) > 1 or bool(full) and wants_table
 
         def table_for(selected: list[str]) -> str:
             rows = [full[value] for value in selected if value in full] or [full[value] for value in ids if value in full]
-            return listing_table(rows, references, sections, distances) if show_table else ""
+            return listing_table(rows, references, sections, distances, compact=tool != "search_listings" and bool(sections), charge_types=charge_types) if show_table else ""
 
         # Every search page (first hit, "xem thêm", refinements) uses the same table. Advice is the only prose path.
         if tool == "search_listings" and not recommend and (
                 evidence.get("moreResults") or MORE_PAGE.search(question) or not ADVICE_REQUEST.search(question)):
             return AskResult(answer=self._browse_answer(question, evidence, table_for(ids)), status="ANSWERED",
                              citations=[], request_id=request_id, listing_context=result_context, listing_ids=ids)
-        if tool != "search_listings" and not recommend and (wants_table or show_table and sections and not ADVICE_REQUEST.search(question)):
+        if tool != "search_listings" and show_table:
+            evidence["tableRendered"] = section_labels(sections) or ["Thông tin chính"]
             return AskResult(answer=self._table_answer(sections, len(full), table_for(ids)), status="ANSWERED",
-                             citations=[], request_id=request_id, listing_context=result_context, listing_ids=ids)
+                             citations=[], request_id=request_id, listing_context=result_context, listing_ids=ids, answer_context=answer_meta)
         parking_answer = None if recommend else self._parking_answer(question, evidence["listings"], references)
         if parking_answer is not None:
             if count_notice:
@@ -775,7 +864,7 @@ class ListingAsk:
                          listing_context=self.context(scope, state))
 
     def _no_results(self, request_id: str, persist: dict[str, Any], criteria: dict[str, Any], result: dict[str, Any],
-                    *, more: bool = False, changed: int = 0) -> AskResult:
+                    *, more: bool = False, changed: int = 0, scope: list[str] | None = None) -> AskResult:
         lines = criteria_lines(criteria, self.catalog)
         if more:
             text = "Mình đã hiển thị hết các tin khớp đủ tiêu chí hiện tại; không còn tin khác để xem thêm."
@@ -796,6 +885,15 @@ class ListingAsk:
         if not more:
             text += "\nMình không tự nới điều kiện. Bạn muốn đổi điều kiện nào (ví dụ tăng ngân sách, bỏ một tiện ích hay mở rộng khu vực)? Các điều kiện còn lại mình giữ nguyên."
         state = deepcopy(persist)
+        if more:
+            state["pending"] = None
+            nav = state.get("pageHistory") or {}
+            pages = nav.get("pages") or []
+            references = pages[nav["index"]] if pages and nav.get("fingerprint") == rs.fingerprint(state) else scope or []
+            return AskResult(answer=text + "\nBạn có thể nói “quay lại” để xem nhóm trước hoặc “xem lại nhóm phòng đầu tiên”.",
+                status="ANSWERED", citations=[], request_id=request_id, listing_context=self.context(references, state) | {"hasMore": False},
+                answer_context=AnswerContext("LISTING", "PAGE_END", [], references).metadata(),
+                suggested_questions=["Quay lại", "Xem lại nhóm phòng đầu tiên", "Các phòng trên có những tiện ích nào xung quanh?"])
         state["pending"] = self._pending("EMPTY_RESULT", "Bạn muốn đổi điều kiện nào?")
         logger.info("listing_plan_outcome", request_id=request_id, outcome="NO_RESULTS", unknown=result.get("unknownTotal"))
         return AskResult(answer=text, status="NO_RESULTS", citations=[], request_id=request_id,
@@ -831,11 +929,11 @@ class ListingAsk:
     @staticmethod
     def _table_answer(sections: list[str], count: int, table: str) -> str:
         if sections:
-            intro = "Mình đã đọc đầy đủ " + ", ".join(label.lower() for label in section_labels(sections)) + \
+            intro = "Mình đối chiếu " + ", ".join(label.lower() for label in section_labels(sections)) + \
                     (" của các tin đang xét:" if count > 1 else " của tin này:")
         else:
             intro = f"Mình đặt {count} tin cạnh nhau để bạn dễ xem điểm khác biệt:" if count > 1 else "Thông tin chính của tin này:"
-        return intro + "\n\n" + table + "\n\n" + TABLE_HINT
+        return intro + "\n\n" + table
 
     @staticmethod
     def _count_notice(evidence: dict[str, Any]) -> str:

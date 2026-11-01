@@ -4,10 +4,39 @@ import re
 from homespace_ai.application.vietnamese_text import fold_text
 
 PERSONAS = {"STUDENT", "WORKING", "FAMILY", "REMOTE", "OTHER"}
+ADVICE_GROUPS = {"EDUCATION", "HEALTHCARE", "SHOPPING", "FOOD_DRINK", "FINANCE", "TRANSPORT", "RECREATION"}
 PROFILE_TERMS = {"FAMILY": {"gia dinh", "ho gia dinh"}, "STUDENT": {"sinh vien", "hoc sinh", "sv"},
                  "WORKING": {"nguoi di lam", "nhan vien", "cong nhan", "dan van phong"},
                  "REMOTE": {"lam viec tu xa", "remote", "work from home"}}
 MAIN_REFERENCE = re.compile(r"ban (?:uu tien|khuyen|chon)|phong (?:duoc chon|ban chon|ban uu tien)")
+
+
+def consultation_request(question: str) -> bool:
+    return bool(re.search(r"\b(?:nen (?:chon|thue|can nhac)|chon (?:phong|can|nha|cho)|tu van|goi y|de xuat|phu hop|hop voi)\b", fold_text(question)))
+
+
+def self_context_statement(question: str) -> bool:
+    """Ask the semantic planner to collect context, instead of shortcutting to a basic table.
+
+    This detects a conversation shape, not a finite list of occupations. The planner still
+    validates all new conditions; it cannot turn a role into invented hard filters.
+    """
+    text = fold_text(question)
+    self_description = re.search(r"\b(?:toi|minh|em|tui|bon minh|chung toi|vo chong|gia dinh|bo me|anh|chi|co|chu|bac|con)\b.{0,35}"
+                                 r"\b(?:la|lam|dang|nghi|ve huu|song|vua|kinh doanh|ban hang|chay|thue cho)\b", text)
+    return bool(profile_update(question) or self_description)
+
+
+def contextual_consultation(question: str, state: dict | None = None) -> bool:
+    return self_context_statement(question) or consultation_request(question)
+
+
+def quantified_context_reply(question: str) -> bool:
+    """Route newly supplied usage/counts to the validated planner, never parse totals here."""
+    text = fold_text(question).strip(" .!")
+    if re.search(r"\b(?:neu|gia su|bao nhieu|may nguoi|nen chon)\b", text) or "?" in text:
+        return False
+    return bool(re.search(r"\b\d+(?:[.,]\d+)?\s*(?:nguoi|xe may|o to|kwh|khoi nuoc|m3|m³)\b", text))
 
 
 def help_answer(question: str) -> tuple[str, str] | None:
@@ -69,10 +98,15 @@ def profile_update(question: str, proposed=None) -> dict:
                 break
     if isinstance(proposed, dict):
         quote, persona = proposed.get("quote"), proposed.get("persona")
-        if (not result.get("persona") and persona in PERSONAS and isinstance(quote, str) and 0 < len(quote) <= 220
-                and fold_text(quote) in text and re.search(r"\b(?:toi|minh|em|bon minh|tui)\s+(?:la|dang lam|lam viec|di lam)\b", fold_text(quote))
-                and not re.search(r"\b(?:khong|ko|chua|neu|gia su)\b", fold_text(quote))):
+        if (persona in PERSONAS and isinstance(quote, str) and 0 < len(quote.strip()) <= 220
+                and fold_text(quote.strip()) in text
+                and not re.search(r"\b(?:neu|gia su)\b", fold_text(quote))
+                and not re.search(r"\b(?:toi|minh|em|bon minh|tui)\s+(?:khong|ko|chua)\s+(?:phai\s+)?(?:la|di lam)\b", fold_text(quote))):
             result["persona"] = persona
+            result["description"] = quote.strip()
+            groups = proposed.get("adviceGroups")
+            if isinstance(groups, list) and len(groups) <= 4 and all(isinstance(g, str) and g in ADVICE_GROUPS for g in groups):
+                result["adviceGroups"] = list(dict.fromkeys(groups))
         for field in ("studyPlace", "workPlace"):
             value = proposed.get(field)
             if isinstance(value, str) and value.strip() and len(value) <= 160 and fold_text(value.strip()) in text:
@@ -92,6 +126,9 @@ def profile_only_reply(question: str) -> bool:
     text = fold_text(question).strip(" .,!?:;")
     text = re.sub(r"^(?:da|vang|a)\s*[,.:]?\s*", "", text)
     text = re.sub(r"\s+(?:nhe|nha|a|thoi)(?:\s+(?:nhe|nha|a|thoi))*$", "", text)
+    # A request for advice does not change the renter's declared criteria. Strip only
+    # complete advice tails, never extra budgets, locations, amenities or preferences.
+    text = re.sub(r"(?:[,;:.]?\s+(?:thi\s+)?(?:(?:toi|minh|em)\s+)?nen (?:chon|thue|can nhac)\s+(?:phong|can|nha|cho)(?:\s+(?:nao|nao hon|nao nhi))?[?!.]*)$", "", text).strip(" ,;:.!?")
     terms = "|".join(re.escape(term) for term in sorted(set().union(*PROFILE_TERMS.values()), key=len, reverse=True))
     subject = r"(?:toi|minh|em|tui|bon minh|chung toi)"
     # An object such as "căn hộ" may be a category change, so it cannot be skipped.
@@ -102,7 +139,7 @@ def profile_only_reply(question: str) -> bool:
         rf"(?:(?:la|{rental})\s+)?(?:cho\s+)?(?:{terms})(?:\s+(?:toi|minh|em))?", text))
 
 
-def profile_keyword(keyword: str | None, question: str) -> bool:
+def profile_keyword(keyword: str | None, question: str, profile: dict | None = None) -> bool:
     """A renter's self-description is not a title/content predicate.
 
     Preserve an explicitly requested literal text search, even if the same utterance also
@@ -112,8 +149,9 @@ def profile_keyword(keyword: str | None, question: str) -> bool:
         return False
     text = fold_text(question)
     term = fold_text(keyword).strip()
-    persona = profile_update(question).get("persona")
-    if term not in PROFILE_TERMS.get(persona, set()):
+    profile = profile or profile_update(question)
+    description = fold_text(profile.get("description") or "")
+    if term not in PROFILE_TERMS.get(profile.get("persona"), set()) and not (description and re.search(r"\b" + re.escape(term) + r"\b", description)):
         return False
     marker = r"\b(?:tieu de|mo ta|noi dung|tu khoa|cum tu|co chu|chua chu)\b"
     literal = re.search(marker + r".{0,70}" + re.escape(term) + "|" + re.escape(term) + r".{0,70}" + marker, text)
@@ -164,8 +202,6 @@ def followup_question(state: dict) -> str | None:
         questions.append("Bạn đang học trường nào, và có muốn ưu tiên ở gần trường không?")
     if persona == "WORKING" and not profile.get("workPlace") and not state.get("target"):
         questions.append("Bạn có muốn ưu tiên gần nơi làm việc không? Nếu có, bạn cho mình biết khu vực hoặc nơi làm nhé.")
-    if not state.get("needs") and not state.get("valuePriorities"):
-        questions.append("Trong các lựa chọn này, bạn ưu tiên tiết kiệm chi phí, không gian rộng hay tiện nghi sinh hoạt hơn?")
     return next((q for q in questions if q not in state.get("guidanceAsked", [])), None)
 
 

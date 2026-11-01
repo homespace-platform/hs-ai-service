@@ -85,9 +85,11 @@ def search_parameters(catalog: SearchCatalog, cap: int) -> dict[str, Any]:
         "renterProfile": {"type": "object", "additionalProperties": False,
                           "properties": {"persona": {"type": ["string", "null"], "enum": ["STUDENT", "WORKING", "FAMILY", "REMOTE", "OTHER", None]},
                                          "quote": {"type": ["string", "null"], "maxLength": 220},
+                                         "adviceGroups": {"type": "array", "maxItems": 4, "items": {"type": "string", "enum": ["EDUCATION", "HEALTHCARE", "SHOPPING", "FOOD_DRINK", "FINANCE", "TRANSPORT", "RECREATION"]},
+                                             "description": "Up to four relevant cached POI groups for consulting this renter's actual circumstances; not search filters or required nearby amenities."},
                                          "studyPlace": {"type": ["string", "null"], "maxLength": 160},
                                          "workPlace": {"type": ["string", "null"], "maxLength": 160}},
-                          "required": ["persona", "quote", "studyPlace", "workPlace"]},
+                          "required": ["persona", "quote", "adviceGroups", "studyPlace", "workPlace"]},
         "valuePriorities": {"type": "array", "maxItems": 6, "items": {"type": "object", "additionalProperties": False,
             "properties": {"field": {"type": "string", "maxLength": 120},
                            "direction": {"type": "string", "enum": ["HIGHER", "LOWER", "IGNORE"]},
@@ -153,8 +155,10 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "Location: ward/city names exactly as said (no guessed codes); never the account address or the site header. "
         "For rental searches, collect ALL known criteria with search_listings even if location/budget/category/occupants are missing; the application will ask up to two missing basics before calling Core search. Never invent a 'toàn quốc' search. "
         "Never invent category, budget or occupant count. A short reply answers the pending intake slot. Persona does not imply numeric requirements. "
-        "Keep explicitly named school/workplace in renterProfile as exact customer text, not automatically a distance filter. Profile alone never implies cheap rent, children or a school. A profile-only answer (including tôi muốn thuê cho gia đình, mình cần thuê cho gia đình, tôi là sinh viên) after a displayed shortlist continues get_listing_details for that SAME shortlist; keep area/budget/occupants and never search titles for the persona. keyword is only an explicitly requested text predicate, never gia đình/sinh viên/người đi làm merely because it describes the renter. "
-        "renterProfile.persona requires an exact quote of the customer's SELF-description in THIS message; do not infer their profile from a search for someone else or from a hypothetical. "
+        "Keep explicitly named school/workplace in renterProfile as exact customer text, not automatically a distance filter. Profile alone never implies cheap rent, children or a school. "
+        "After a displayed shortlist, a renter-context/advice message (including 'tôi là sinh viên thì nên chọn phòng nào?', a night-shift nurse, retired renter, self-employed seller or a mixed study/work schedule) MUST use search_listings to COLLECT renterProfile and any explicitly changed needs/criteria, with withinDisplayed=true. Leave unchanged criteria empty/null, not copies of CURRENT_STATE; omit new numeric filters the customer did not give. The app detects an unchanged query and consults that SAME shortlist with cached Nearby, instead of searching globally. Do NOT use get_listing_details/get_listing_nearby_places alone for new personal context because those tools cannot update the profile. Plain fact/POI questions without new context still use the ordinary read tools. "
+        "Recognize meaning beyond a fixed profession dictionary: STUDENT/WORKING/FAMILY/REMOTE are broad hints; OTHER covers other actual circumstances such as retirement. Preserve the exact informative self-description in quote, including a stated job, work schedule or combined situations. adviceGroups chooses up to four POI groups relevant to what was actually stated; these are advice context, NEVER hard search filters. A nurse need not work at the nearest hospital; a student need not study at any school we happen to find. Unknown priorities, exact school/workplace, children or mobility requirements must be asked, not invented. "
+        "keyword is only an explicitly requested text predicate, never a renter's occupation or household description. renterProfile.persona requires an exact quote of the customer's actual renter context in THIS message; do not infer it from a generic search, someone else's example or a hypothetical. Application/admin/landlord permissions are not renter personas. "
         "Use ask_clarification for ambiguity you cannot represent, not merely missing basic search slots.",
         "Contradictory bounds in one message (e.g. từ 5 đến 4 triệu): output them exactly as said; never swap or drop.",
         "Reading a displayed listing ('phòng 2 có thang máy không?', 'phí xe phòng này') uses get_listing_detail and adds NO criteria. "
@@ -164,6 +168,7 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "get_listing_nearby_places for the existing selection, never get_listing_details. If 'tiện ích' alone is ambiguous, "
         "ask whether building facilities or surrounding places. Mixed questions require BOTH labeled sources, never call WiFi an external POI.",
         "'Xem thêm', '10 tin khác' = moreResults=true with unchanged criteria. Respect an explicit result count up to " + str(cap) + " via limit.",
+        "'Quay lại', 'trang trước', 'xem lại nhóm trước' navigate previously displayed groups, NEVER moreResults=true or reset/remove criteria. The app handles plain navigation before tool planning; if a longer request ambiguously refers to an older question/area, clarify what to return to instead of pretending the search is exhausted.",
         "Quiet/safe/airy/travel time/flooding have no data: put them in unsupported, never invent numeric or boolean filters. Unsupported: " + unsupported,
         "'Mình không hút thuốc' describes the renter, not a house rule filter.",
         "Greetings, HomeSpace help, contracts, payments: no tool call. Never invent listing IDs, place IDs or coordinates.",

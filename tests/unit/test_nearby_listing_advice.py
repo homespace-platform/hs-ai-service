@@ -83,7 +83,7 @@ async def test_uncollected_sports_is_unknown_and_does_not_support_a_recommendati
     result = await answer_nearby(a, "Phòng nào gần phòng gym thì nên chọn?", HISTORY, "sports",
                                 {"listingIds": IDS, "radiusMeters": 2000, "groups": ["SPORTS"]})
     assert "Chưa có thông tin cho nhóm này" in result.answer and result.listing_ids == IDS
-    assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
+    assert not a.generative_client.boundary_calls and "mainRecommendation" not in result.listing_context
     assert a.generative_client.kwargs is None
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_limited_sample_with_no_school_evidence_cannot_claim_a_school_reco
     result = await answer_nearby(a, "Phòng nào gần trường học thì nên chọn?", HISTORY, "unknown-school",
                                 {"listingIds": IDS, "radiusMeters": 2000, "groups": ["EDUCATION"]})
     assert result.listing_ids == IDS and "Chưa có thông tin cho nhóm này" in result.answer
-    assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
+    assert not a.generative_client.boundary_calls and "mainRecommendation" not in result.listing_context
     assert a.generative_client.kwargs is None
 
 @pytest.mark.asyncio
@@ -144,7 +144,7 @@ async def test_five_km_request_cannot_be_silently_answered_as_three_or_rank_part
     assert a.tools.nearby_calls[0][1] == 5000
     assert result.listing_ids == IDS
     assert "5 km" in result.answer and "Dữ liệu là mẫu" not in result.answer
-    assert not any(path.startswith("nearby.") for path in a.generative_client.boundary_calls[0]["factMatrix"])
+    assert not a.generative_client.boundary_calls and "mainRecommendation" not in result.listing_context
     assert result.listing_context["listingIds"] == IDS
     assert a.generative_client.kwargs is None
 

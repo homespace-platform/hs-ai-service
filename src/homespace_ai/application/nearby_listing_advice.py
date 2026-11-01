@@ -135,8 +135,10 @@ async def answer_nearby(assistant, question, history, request_id, arguments, sta
             text = "**Tiện ích tòa nhà & dịch vụ**\n\n" + listing_table(listings, scope, ["amenities"]) + "\n\n**Địa điểm bên ngoài**\n\n" + text
         result = AskResult(answer=text, status="ANSWERED", citations=[], request_id=request_id,
                            listing_context=result_context, listing_ids=selected, data_sources=["CORE_NEARBY"])
+        from homespace_ai.application.renter_profile_advice import observed_nearby
         return await assistant._advise_main(question, request_id, result, listings, persist,
-            nearby_facts=nearby_facts(chosen, radius=radius, profile=(persist or {}).get("renterProfile")))
+            nearby_facts=nearby_facts(chosen, radius=radius, profile=(persist or {}).get("renterProfile")),
+            recommendation_focus="NEARBY", observed_nearby=observed_nearby(chosen, groups, radius))
     except ValueError as error:
         return AskResult(answer=str(error), status="ANSWERED", citations=[], request_id=request_id, listing_context=_context(assistant, scope, persist))
     except (ListingToolError, GenerationUnavailableError, HTTPException):

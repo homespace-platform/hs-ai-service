@@ -81,6 +81,7 @@ async def ask_agent(
             appointment_context=result.appointment_context, appointment_cards=result.appointment_cards,
             data_sources=result.data_sources,
             suggested_questions=result.suggested_questions,
+            answer_context=result.answer_context,
         )
     return public_answer(result)
 
@@ -98,6 +99,7 @@ async def generate_answer(
     search_state: dict[str, Any] | None = None,
 ) -> AskResult:
     """Shared pipeline; persistence is explicitly handled by each caller."""
+    from homespace_ai.application.conversation_guidance import finish
     generative_client = get_generative_client(settings)
     use_cases = AskUseCases(session=session, settings=settings, embedder=embedder,
                             generative_client=generative_client)
@@ -167,7 +169,7 @@ async def generate_answer(
             request_id=request_id,
         )
 
-    return result
+    return finish(result, question, history)
 
 
 def public_answer(result: AskResult) -> ApiResponse[AskResponse]:

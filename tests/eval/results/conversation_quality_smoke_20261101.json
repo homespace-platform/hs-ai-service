@@ -1,0 +1,123 @@
+{
+  "startedAt": "2026-11-01T11:20:09.916880+00:00",
+  "model": "gpt-4.1-mini",
+  "fixture": "synthetic F4, no application or customer data",
+  "tomtomRequests": 0,
+  "cases": [
+    {
+      "question": "Trong các phòng này, các khoản phí hằng tháng khác nhau thế nào?",
+      "focus": "COST",
+      "answer": "Mình đối chiếu chi phí của các tin đang xét:\n\n| Tiêu chí | [Phòng 1](/rent/00000000-0000-0000-0000-000000000001 \"Phòng thử nghiệm\") | [Phòng 2](/rent/00000000-0000-0000-0000-000000000002 \"Phòng thử nghiệm\") | [Phòng 3](/rent/00000000-0000-0000-0000-000000000003 \"Phòng thử nghiệm\") | [Phòng 4](/rent/00000000-0000-0000-0000-000000000004 \"Phòng thử nghiệm\") |\n| --- | --- | --- | --- | --- |\n| Giá thuê | 3.800.000 đ/phòng/tháng | 3.900.000 đ/phòng/tháng | 3.300.000 đ/phòng/tháng | 3.800.000 đ/phòng/tháng |\n| Internet | Đã gồm trong giá thuê | 90.000 đ | 120.000 đ | 120.000 đ |\n| Dịch vụ/rác | 40.000 đ | 30.000 đ | 45.000 đ | 30.000 đ |\n| Gửi xe máy | 80.000 đ | Đã gồm trong giá thuê | Đã gồm trong giá thuê | Đã gồm trong giá thuê |\n\n| Nếu bạn ưu tiên | Có thể cân nhắc | Điểm khác biệt |\n| --- | --- | --- |\n| Tiết kiệm chi phí | [Phòng 3](/rent/00000000-0000-0000-0000-000000000003) | giá thuê **3.300.000đ/tháng** và tiền thuê đã bao gồm **phí gửi xe máy** |\n\nMức trên là đơn giá được công bố; chưa đủ dữ liệu để kết luận tổng tiền mỗi tháng.",
+      "choice": {
+        "listingId": "00000000-0000-0000-0000-000000000003",
+        "fields": [
+          "pricing.amount",
+          "charges.MOTORBIKE_PARKING.includedInRent"
+        ],
+        "focus": "COST"
+      },
+      "priorities": [
+        {
+          "focus": "COST",
+          "listingId": "00000000-0000-0000-0000-000000000003",
+          "fields": [
+            "pricing.amount",
+            "charges.MOTORBIKE_PARKING.includedInRent"
+          ]
+        }
+      ],
+      "suggestedQuestions": [
+        "Vì sao bạn ưu tiên phòng được chọn?",
+        "Các phòng trên có những tiện ích nào xung quanh?",
+        "Tiền cọc và tiền cần chuẩn bị khi nhận phòng khác nhau thế nào?",
+        "Với số người và xe mình đã nói, phần chi phí cố định mỗi tháng là bao nhiêu?"
+      ],
+      "why": "**Mình đã đối chiếu lại [Phòng 3](/rent/00000000-0000-0000-0000-000000000003) với các phòng còn lại theo nhu cầu bạn đã chia sẻ:**\n\n| Tiêu chí đối chiếu | [Phòng 1](/rent/00000000-0000-0000-0000-000000000001 \"Phòng thử nghiệm\") | [Phòng 2](/rent/00000000-0000-0000-0000-000000000002 \"Phòng thử nghiệm\") | [Phòng 3 · đang chọn](/rent/00000000-0000-0000-0000-000000000003 \"Phòng thử nghiệm\") | [Phòng 4](/rent/00000000-0000-0000-0000-000000000004 \"Phòng thử nghiệm\") | Đánh giá |\n| --- | --- | --- | --- | --- | --- |\n| Tiền thuê | 3.800.000 đ/tháng | 3.900.000 đ/tháng | 3.300.000 đ/tháng | 3.800.000 đ/tháng | Tiền thuê thấp hơn các phòng còn lại. |\n| Phí gửi xe máy đã gồm trong tiền thuê | Không | Có | Có | Có | Nhỉnh hơn một số phòng, nhưng không vượt trội cả nhóm. |\n| Phí dịch vụ/rác | 40.000 đ/người/tháng | 30.000 đ/người/tháng | 45.000 đ/người/tháng | 30.000 đ/người/tháng | Điểm cần cân nhắc: có lựa chọn tốt hơn; không vượt trội cả nhóm. |\n| Internet đã gồm trong tiền thuê | Có | Không | Không | Không | Điểm cần cân nhắc: có lựa chọn tốt hơn; không vượt trội cả nhóm. |\n| Internet | Chưa có thông tin | 90.000 đ/tháng | 120.000 đ/tháng | 120.000 đ/tháng | Điểm cần cân nhắc: có lựa chọn tốt hơn; không vượt trội cả nhóm. |"
+    },
+    {
+      "question": "Bạn so giúp các khoản phí phải trả thêm mỗi tháng của mấy phòng này.",
+      "focus": "COST",
+      "answer": "Mình đối chiếu chi phí của các tin đang xét:\n\n| Tiêu chí | [Phòng 1](/rent/00000000-0000-0000-0000-000000000001 \"Phòng thử nghiệm\") | [Phòng 2](/rent/00000000-0000-0000-0000-000000000002 \"Phòng thử nghiệm\") | [Phòng 3](/rent/00000000-0000-0000-0000-000000000003 \"Phòng thử nghiệm\") | [Phòng 4](/rent/00000000-0000-0000-0000-000000000004 \"Phòng thử nghiệm\") |\n| --- | --- | --- | --- | --- |\n| Giá thuê | 3.800.000 đ/phòng/tháng | 3.900.000 đ/phòng/tháng | 3.300.000 đ/phòng/tháng | 3.800.000 đ/phòng/tháng |\n| Internet | Đã gồm trong giá thuê | 90.000 đ | 120.000 đ | 120.000 đ |\n| Dịch vụ/rác | 40.000 đ | 30.000 đ | 45.000 đ | 30.000 đ |\n| Gửi xe máy | 80.000 đ | Đã gồm trong giá thuê | Đã gồm trong giá thuê | Đã gồm trong giá thuê |\n\nMức trên là đơn giá được công bố; chưa đủ dữ liệu để kết luận tổng tiền mỗi tháng.",
+      "choice": null,
+      "priorities": null,
+      "suggestedQuestions": [
+        "Các phòng trên có những tiện ích nào xung quanh?",
+        "Tiền cọc và tiền cần chuẩn bị khi nhận phòng khác nhau thế nào?",
+        "Với số người và xe mình đã nói, phần chi phí cố định mỗi tháng là bao nhiêu?",
+        "Các phòng này có điều kiện sinh hoạt hoặc nội quy nào cần lưu ý?"
+      ]
+    },
+    {
+      "question": "Phòng nào đỡ tốn tiền hơn nếu tính cả các khoản phí?",
+      "focus": "COST",
+      "answer": "Mình đối chiếu chi phí của các tin đang xét:\n\n| Tiêu chí | [Phòng 1](/rent/00000000-0000-0000-0000-000000000001 \"Phòng thử nghiệm\") | [Phòng 2](/rent/00000000-0000-0000-0000-000000000002 \"Phòng thử nghiệm\") | [Phòng 3](/rent/00000000-0000-0000-0000-000000000003 \"Phòng thử nghiệm\") | [Phòng 4](/rent/00000000-0000-0000-0000-000000000004 \"Phòng thử nghiệm\") |\n| --- | --- | --- | --- | --- |\n| Giá thuê | 3.800.000 đ/phòng/tháng | 3.900.000 đ/phòng/tháng | 3.300.000 đ/phòng/tháng | 3.800.000 đ/phòng/tháng |\n| Internet | Đã gồm trong giá thuê | 90.000 đ | 120.000 đ | 120.000 đ |\n| Dịch vụ/rác | 40.000 đ | 30.000 đ | 45.000 đ | 30.000 đ |\n| Gửi xe máy | 80.000 đ | Đã gồm trong giá thuê | Đã gồm trong giá thuê | Đã gồm trong giá thuê |\n\n| Nếu bạn ưu tiên | Có thể cân nhắc | Điểm khác biệt |\n| --- | --- | --- |\n| Tiết kiệm chi phí | [Phòng 3](/rent/00000000-0000-0000-0000-000000000003) | giá thuê **3.300.000đ/tháng** và tiền thuê đã bao gồm **phí gửi xe máy** |\n| Không gian rộng | [Phòng 4](/rent/00000000-0000-0000-0000-000000000004) | rộng **37 m²** |\n| Tiện nghi sinh hoạt | [Phòng 1](/rent/00000000-0000-0000-0000-000000000001) | có **bếp riêng** |\n\nMức trên là đơn giá được công bố; chưa đủ dữ liệu để kết luận tổng tiền mỗi tháng.",
+      "choice": {
+        "listingId": "00000000-0000-0000-0000-000000000003",
+        "fields": [
+          "pricing.amount",
+          "charges.MOTORBIKE_PARKING.includedInRent"
+        ],
+        "focus": "COST"
+      },
+      "priorities": [
+        {
+          "focus": "COST",
+          "listingId": "00000000-0000-0000-0000-000000000003",
+          "fields": [
+            "pricing.amount",
+            "charges.MOTORBIKE_PARKING.includedInRent"
+          ]
+        },
+        {
+          "focus": "SPACE",
+          "listingId": "00000000-0000-0000-0000-000000000004",
+          "fields": [
+            "areaM2"
+          ]
+        },
+        {
+          "focus": "AMENITIES",
+          "listingId": "00000000-0000-0000-0000-000000000001",
+          "fields": [
+            "roomDetail.kitchenType"
+          ]
+        }
+      ],
+      "suggestedQuestions": [
+        "Vì sao bạn ưu tiên phòng được chọn?",
+        "Các phòng trên có những tiện ích nào xung quanh?",
+        "Tiền cọc và tiền cần chuẩn bị khi nhận phòng khác nhau thế nào?",
+        "Với số người và xe mình đã nói, phần chi phí cố định mỗi tháng là bao nhiêu?"
+      ],
+      "why": "**Mình đã đối chiếu lại [Phòng 3](/rent/00000000-0000-0000-0000-000000000003) với các phòng còn lại theo nhu cầu bạn đã chia sẻ:**\n\n| Tiêu chí đối chiếu | [Phòng 1](/rent/00000000-0000-0000-0000-000000000001 \"Phòng thử nghiệm\") | [Phòng 2](/rent/00000000-0000-0000-0000-000000000002 \"Phòng thử nghiệm\") | [Phòng 3 · đang chọn](/rent/00000000-0000-0000-0000-000000000003 \"Phòng thử nghiệm\") | [Phòng 4](/rent/00000000-0000-0000-0000-000000000004 \"Phòng thử nghiệm\") | Đánh giá |\n| --- | --- | --- | --- | --- | --- |\n| Tiền thuê | 3.800.000 đ/tháng | 3.900.000 đ/tháng | 3.300.000 đ/tháng | 3.800.000 đ/tháng | Tiền thuê thấp hơn các phòng còn lại. |\n| Phí gửi xe máy đã gồm trong tiền thuê | Không | Có | Có | Có | Nhỉnh hơn một số phòng, nhưng không vượt trội cả nhóm. |\n| Phí dịch vụ/rác | 40.000 đ/người/tháng | 30.000 đ/người/tháng | 45.000 đ/người/tháng | 30.000 đ/người/tháng | Điểm cần cân nhắc: có lựa chọn tốt hơn; không vượt trội cả nhóm. |\n| Internet đã gồm trong tiền thuê | Có | Không | Không | Không | Điểm cần cân nhắc: có lựa chọn tốt hơn; không vượt trội cả nhóm. |\n| Internet | Chưa có thông tin | 90.000 đ/tháng | 120.000 đ/tháng | 120.000 đ/tháng | Điểm cần cân nhắc: có lựa chọn tốt hơn; không vượt trội cả nhóm. |"
+    }
+  ],
+  "modelCalls": [
+    {
+      "requestId": "req_ad2702d74fcc4fa48b8f13018ae11fb7",
+      "task": "value_advice"
+    },
+    {
+      "requestId": "req_7b232aef3cd34435bc6ae230d47792fd",
+      "task": "main_explanation"
+    },
+    {
+      "requestId": "req_c0420f67e6b247fba22ee7581e2ebd9a",
+      "task": "value_advice"
+    },
+    {
+      "requestId": "req_21106186b50a43dc8803ab39cf7f81f0",
+      "task": "value_advice"
+    },
+    {
+      "requestId": "req_4d47defeb6214244b61041859f40430f",
+      "task": "main_explanation"
+    }
+  ],
+  "verification": {
+    "feeParaphrasesPassed": 3,
+    "explanationsPassed": 2,
+    "tomtomRequests": 0,
+    "writesToApplicationData": 0
+  }
+}

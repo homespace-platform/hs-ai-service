@@ -18,6 +18,7 @@ import structlog
 from homespace_ai.application.contract_context import (
     Route, classify, last_context, make_context, resolve_reference, valid_ids)
 from homespace_ai.application.use_cases.ask_use_cases import AskResult
+from homespace_ai.application.response_tables import markdown_table
 from homespace_ai.clients.contract_tool_planner import ContractToolPlanner
 from homespace_ai.clients.generative import BaseGenerativeClient, GenerationUnavailableError
 from homespace_ai.clients.gateway import GatewayApiClient
@@ -125,6 +126,10 @@ class ContractAsk:
     # ------------------------------------------------------------------ entry point
 
     async def try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
+        from homespace_ai.application.conversation_guidance import finish
+        return finish(await self._try_answer(question, history, request_id), question, history, "CONTRACT")
+
+    async def _try_answer(self, question: str, history: list[dict[str, Any]], request_id: str) -> AskResult | None:
         route = classify(question, history)
         if route is None:
             return None
@@ -214,8 +219,11 @@ class ContractAsk:
             summary = await self.tools.call("summarize_my_contracts", {k: v for k, v in {"role": role}.items() if v})
             expiring = (summary.get("expiring") or {}).get("contracts") or []
             cards = [c for c in (self._card(item) for item in expiring[:MAX_CARDS]) if c]
+            text = self._summary_text(summary)
+            if len(cards) > 1:
+                text += "\n\nCác hợp đồng sắp hết hạn:\n\n" + self._contracts_table(cards)
             return AskResult(
-                answer=self._summary_text(summary), status="ANSWERED", citations=[], request_id=request_id,
+                answer=text, status="ANSWERED", citations=[], request_id=request_id,
                 contract_context=self._list_context(cards, role, summary), contract_cards=cards,
                 data_sources=["CORE_CONTRACT"])
         wants_expiring = bool(EXPIRING_INTENT.search(question))
@@ -449,17 +457,27 @@ class ContractAsk:
                              contract_context=make_context([]), data_sources=["CORE_CONTRACT"])
         lines = [lead or f"Theo dữ liệu hệ thống đọc lúc {_fmt_instant(meta.get('readAt'))}, có {total} hợp đồng khớp yêu cầu:"]
         lines.append("")
-        for index, card in enumerate(cards, 1):
-            parts = [f"**Hợp đồng {index}:** {card['contractNumber']}", ROLE_LABELS.get(card["askerRole"], ""),
-                     card.get("phaseLabel", "")]
-            if card.get("leaseEndExclusive"):
-                parts.append(f"hết thời hạn thuê trước ngày {_fmt_date(card['leaseEndExclusive'])}")
-            lines.append("- " + "; ".join(part for part in parts if part))
+        if len(cards) > 1:
+            lines.append(self._contracts_table(cards))
+        else:
+            for index, card in enumerate(cards, 1):
+                parts = [f"**Hợp đồng {index}:** {card['contractNumber']}", ROLE_LABELS.get(card["askerRole"], ""),
+                         card.get("phaseLabel", "")]
+                if card.get("leaseEndExclusive"):
+                    parts.append(f"hết thời hạn thuê trước ngày {_fmt_date(card['leaseEndExclusive'])}")
+                lines.append("- " + "; ".join(part for part in parts if part))
         if total > len(cards):
             lines.append(f"\nCòn {total - len(cards)} hợp đồng khác; bạn nêu số hợp đồng hoặc điều kiện lọc để mình thu hẹp nhé.")
         return AskResult(answer="\n".join(lines), status="NEEDS_CLARIFICATION" if clarification else "ANSWERED",
                          citations=[], request_id=request_id, contract_cards=cards,
                          contract_context=self._list_context(cards, role, found), data_sources=["CORE_CONTRACT"])
+
+    @staticmethod
+    def _contracts_table(cards: list[dict[str, Any]]) -> str:
+        return markdown_table(["Hợp đồng", "Số hợp đồng", "Bất động sản", "Vai trò của bạn", "Tình trạng", "Ngày thuê cuối cùng"],
+            [(f"Hợp đồng {index}", card["contractNumber"], card.get("property"), card.get("roleLabel"),
+              card.get("phaseLabel") or card.get("statusLabel"), _fmt_date(card.get("lastRentalDay")))
+             for index, card in enumerate(cards, 1)])
 
     def _clarify_range(self, request_id: str, context: dict[str, Any] | None) -> AskResult:
         count = len(context["contractIds"]) if context else 0

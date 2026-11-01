@@ -339,7 +339,7 @@ def test_today_list_for_a_two_role_account_states_roles_and_filters():
     assert result.status == "ANSWERED" and result.data_sources == ["CORE_APPOINTMENT"]
     assert "**2**" in result.answer and "hôm nay" in result.answer and "17:30 14/10/2026" not in result.answer
     assert "10:30 14/10/2026 (giờ Việt Nam)" in result.answer  # readAt is UTC 03:30 -> Vietnam 10:30
-    assert "bạn là chủ nhà" in result.answer and "bạn là người đi xem" in result.answer
+    assert "| Chủ nhà |" in result.answer and "| Người đi xem |" in result.answer
     assert "yêu cầu đang chờ bạn xác nhận" in result.answer and "yêu cầu đang chờ chủ nhà" not in result.answer
     assert "Thứ Tư, 14/10/2026, 14:00–14:30" in result.answer
     assert no_raw_values(result.answer)
@@ -628,7 +628,8 @@ def test_availability_after_a_listing_result_uses_the_stored_scope_and_core_date
     history = [assistant(None, listing=[L1, L2, L3])]
     result = ask(a, "Căn thứ hai chiều mai xem được không?", history)
     assert fake.calls == [("get_listing_viewing_availability", {"listingId": L2, "datePreset": "TOMORROW"})]
-    assert "13:00–13:30, 14:00–14:30" in result.answer and "09:00" not in result.answer  # 'chiều' filter
+    assert "| 13:00–13:30 | Có thể gửi yêu cầu |" in result.answer
+    assert "| 14:00–14:30 | Có thể gửi yêu cầu |" in result.answer and "09:00" not in result.answer  # 'chiều' filter
     assert "chưa phải lịch đã được giữ chỗ" in result.answer and "không có nghĩa là khung giờ đã kín" in result.answer
     assert "đã kín" not in result.answer.replace("không có nghĩa là khung giờ đã kín", "")
     assert result.listing_ids == [L2] and result.listing_context == {"version": 1, "listingIds": [L1, L2, L3]}
@@ -641,8 +642,8 @@ def test_availability_distinguishes_all_four_states():
         slot("08:00:00", "08:30:00"), slot("09:00:00", "09:30:00", "YOUR_REQUEST_PENDING"),
         slot("10:00:00", "10:30:00", "YOUR_BOOKING_CONFIRMED"), slot("11:00:00", "11:30:00", "NOT_AVAILABLE")], active=A1)})
     text = ask(a, "Phòng này xem được không ngày mai", [assistant(None, listing=[L2])]).answer
-    for expected in ("Có thể gửi yêu cầu:** 08:00–08:30", "Yêu cầu của bạn đang chờ xác nhận:** 09:00–09:30",
-                     "Lịch của bạn đã được xác nhận:** 10:00–10:30", "Không đặt được:** 11:00–11:30",
+    for expected in ("| 08:00–08:30 | Có thể gửi yêu cầu |", "| 09:00–09:30 | Yêu cầu của bạn đang chờ xác nhận |",
+                     "| 10:00–10:30 | Lịch của bạn đã được xác nhận |", "| 11:00–11:30 | Không đặt được |",
                      "mỗi tin chỉ được một yêu cầu"):
         assert expected in text
 

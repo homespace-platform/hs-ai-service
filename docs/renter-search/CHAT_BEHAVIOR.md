@@ -84,8 +84,18 @@ dữ liệu để xác nhận (nếu có); xin thông tin thiếu để tính ch
 
 ## Khi đề xuất
 
-Khi khách nhờ chọn, trợ lý đưa **tối đa ba** tin, chỉ gồm tin đạt mọi điều kiện bắt buộc (còn hai thì đưa
-hai). Lý do dựa trên điều khách đã nói và bằng chứng dữ liệu; nêu đánh đổi, không bịa điểm chất lượng.
+Trang kết quả dùng số lượng khách yêu cầu trong giới hạn cấu hình; nhóm mặc định hiện là bốn tin.
+Lựa chọn chính là một tin trong nhóm nếu có lý do phân biệt được; không ép chọn khi mọi proof bằng nhau
+hoặc còn thiếu. Boundary là lựa chọn tùy chọn riêng, không gộp vào nhóm chính và không gọi lại cho follow-up.
+
+Khi so phí: bảng trước, kết luận gọn dưới; có thể trả ba hướng tiết kiệm/không gian/tiện nghi bằng bảng nhỏ.
+Mỗi dòng có proof đúng mục tiêu. Miễn phí xe giống P2/P3/P4 không đủ để chọn riêng một tin trong ba tin.
+Chỉ so đơn giá công bố; không tính/hiện tổng cố định, không hỏi số xe để tính tổng và không gợi Nearby sau câu so phí.
+Câu hỏi liệt kê tiện ích xung quanh chỉ trả bảng; muốn đánh giá chọn phòng theo Nearby cần khách yêu cầu rõ.
+
+Gợi ý câu hỏi thay đổi theo chủ đề và trạng thái của từng module. Bấm chỉ điền input. Hỏi “Vì sao?” giữ
+đúng lựa chọn và mục tiêu trước đó, đọc dữ liệu mới rồi lập bảng so sánh; không tự chuyển sang tìm mới.
+Chi tiết và phạm vi kiểm thử: [bàn giao chất lượng hội thoại](../AI_CONVERSATION_QUALITY_IMPLEMENTATION.md).
 
 ## Chạy lại bộ câu hỏi bằng giao diện
 

@@ -19,8 +19,8 @@ class CurrentTools(FakeTools):
     async def detail(self, listing_id):
         self.read.append(listing_id)
         index = IDS.index(listing_id)
-        return {"id": listing_id, "title": f"Phòng {index + 1}", "category": "ROOM",
-                "pricing": {"amount": self.prices[index], "unit": "ROOM_MONTH"},
+        return {"id": listing_id, "title": f"Phòng {index + 1}", "category": "ROOM", "status": "PUBLISHED",
+                "pricing": {"amount": self.prices[index], "unit": "ROOM_MONTH", "currency": "VND"},
                 "roomDetail": {"maxOccupants": [3, 2, 1, 1, 1][index], "parkingPolicy": "PAID"},
                 "charges": [{"chargeType": "MOTORBIKE_PARKING", "amount": 70000,
                              "unit": "xe/tháng", "includedInRent": False}]}
@@ -45,10 +45,10 @@ async def test_reported_followup_reads_exactly_four_rooms_and_reaches_grounded_g
     assert assistant.tools.search_calls == 0
     assert assistant.tools.catalog_calls == 1, "Shared main advice reads labels, not a new listing search"
     assert assistant.planner.history is None  # No paid planner call for known references.
-    evidence = json.loads(assistant.generative_client.kwargs["context_chunks"][0]["content"])
-    assert evidence["scopeOnly"] is True
-    assert evidence["selectionScope"][2] == {"position": 3, "listingId": IDS[2]}
-    assert evidence["listings"][2]["pricing"]["amount"] == 1880000
+    evidence = assistant.generative_client.boundary_calls[-1]
+    assert [item["id"] for item in evidence["mainListings"]] == IDS[:4]
+    assert evidence["mainListings"][2]["rent"] == 1880000
+    assert "| Tiêu chí |" in result.answer
     assert result.listing_context["listingIds"] == IDS[:4]
 
 
@@ -73,12 +73,11 @@ async def test_search_compare_recommend_changed_preference_and_new_search_flow()
     assistant.tools.prices[2] = 4000000  # Database update; old comparison is NOT evidence.
     recommended = await ask("Ở 1 mình, phòng nào rẻ nhất?")
     assert recommended.status == "ANSWERED"
-    evidence = json.loads(assistant.generative_client.kwargs["context_chunks"][0]["content"])
-    assert evidence["listings"][2]["pricing"]["amount"] == 4000000
+    evidence = assistant.generative_client.boundary_calls[-1]
+    assert evidence["mainListings"][2]["rent"] == 4000000
     await ask("Bây giờ tôi ở 2 người, nên chọn phòng nào?")
-    evidence = json.loads(assistant.generative_client.kwargs["context_chunks"][0]["content"])
-    assert "Ở 1 mình, phòng nào rẻ nhất?" in evidence["recentUserRequests"]
-    assert "2 người" in assistant.generative_client.kwargs["question"]
+    evidence = assistant.generative_client.boundary_calls[-1]
+    assert [item["id"] for item in evidence["mainListings"]] == IDS[:4]
     assert all(value in IDS for value in assistant.tools.read[4:])
     calls_before = assistant.tools.search_calls
     await ask("Tìm phòng khác ở Phường An Nhơn")
@@ -89,8 +88,9 @@ async def test_search_compare_recommend_changed_preference_and_new_search_flow()
 async def test_recommendation_with_parking_is_not_replaced_by_parking_template():
     assistant = make_assistant(None)
     assistant.tools = CurrentTools()
-    await assistant.try_answer("Tôi muốn gửi xe có phí, nên chọn phòng nào?", previous(), "parking-choice")
-    assert assistant.generative_client.kwargs is not None
+    result = await assistant.try_answer("Tôi muốn gửi xe có phí, nên chọn phòng nào?", previous(), "parking-choice")
+    assert assistant.generative_client.boundary_calls
+    assert "| Tiêu chí |" in result.answer
 
 
 @pytest.mark.asyncio
@@ -187,7 +187,7 @@ async def test_generation_failure_keeps_scope_but_does_not_claim_core_failed():
         raise GenerationUnavailableError("not logged")
 
     assistant.generative_client.generate_answer = failure
-    result = await assistant.try_answer("Phòng nào rẻ nhất?", previous(), "generation-failure")
+    result = await assistant.try_answer("Phòng 2 có phù hợp không?", previous(), "generation-failure")
     assert result.status == "GENERATION_UNAVAILABLE"
     assert result.listing_context["listingIds"] == IDS[:4]
     assert "đã kiểm tra tin đăng" in result.answer

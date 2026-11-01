@@ -37,7 +37,8 @@ def empty_state() -> dict[str, Any]:
             "sort": None, "keyword": None, "unsupported": [], "pending": None, "needs": [], "valuePriorities": [],
             "renterProfile": {}, "intakeOpen": [], "guidanceAsked": [],
             "boundaryAdvice": "AUTO", "boundaryArea": None, "boundarySeen": {"fingerprint": None, "ids": []},
-            "shown": {"fingerprint": None, "ids": []}}
+            "shown": {"fingerprint": None, "ids": []},
+            "pageHistory": {"fingerprint": None, "pages": [], "index": 0}}
 
 
 def _uuid(value: Any) -> str | None:
@@ -115,7 +116,12 @@ def sanitize(raw: Any) -> dict[str, Any] | None:
     profile = raw.get("renterProfile") if isinstance(raw.get("renterProfile"), dict) else {}
     from homespace_ai.application.renter_guidance import PERSONAS
     state["renterProfile"] = {k: v for k, v in profile.items() if (k == "persona" and isinstance(v, str) and v in PERSONAS)
-                              or (k in {"studyPlace", "workPlace"} and isinstance(v, str) and 0 < len(v) <= 160)}
+                              or (k in {"studyPlace", "workPlace"} and isinstance(v, str) and 0 < len(v) <= 160)
+                              or (k == "description" and isinstance(v, str) and 0 < len(v) <= 220)}
+    from homespace_ai.application.renter_guidance import ADVICE_GROUPS
+    groups = profile.get("adviceGroups")
+    if isinstance(groups, list) and len(groups) <= 4 and all(isinstance(g, str) and g in ADVICE_GROUPS for g in groups):
+        state["renterProfile"]["adviceGroups"] = list(dict.fromkeys(groups))
     state["intakeOpen"] = [slot for slot in (raw.get("intakeOpen") or []) if isinstance(slot, str) and slot in {"CATEGORY", "BUDGET", "OCCUPANTS"}][:3]
     state["guidanceAsked"] = [text[:250] for text in raw.get("guidanceAsked") or [] if isinstance(text, str)][-6:]
     priorities = raw.get("valuePriorities") if isinstance(raw.get("valuePriorities"), list) else []
@@ -136,6 +142,8 @@ def sanitize(raw: Any) -> dict[str, Any] | None:
     shown = raw.get("shown") if isinstance(raw.get("shown"), dict) else {}
     state["shown"] = {"fingerprint": shown.get("fingerprint") if isinstance(shown.get("fingerprint"), str) else None,
                       "ids": [i for i in map(_uuid, shown.get("ids") or []) if i][:MAX_SHOWN]}
+    from homespace_ai.application.listing_page_navigation import clean
+    state["pageHistory"] = clean(raw.get("pageHistory"), state["shown"]["ids"])
     if raw.get("boundaryAdvice") in {"AUTO", "ALLOW", "DENY"}:
         state["boundaryAdvice"] = raw["boundaryAdvice"]
     area = raw.get("boundaryArea")
@@ -285,7 +293,12 @@ def merge(previous: dict[str, Any] | None, update: dict[str, Any], question: str
         if isinstance(item, dict) and isinstance(item.get("field"), str):
             priorities[item["field"]] = item
     base["valuePriorities"] = list(priorities.values())[-6:]
-    base.setdefault("renterProfile", {}).update(update.get("renterProfile") or {})
+    current_profile = base.setdefault("renterProfile", {})
+    updated_profile = update.get("renterProfile") or {}
+    if updated_profile.get("persona") and updated_profile["persona"] != current_profile.get("persona"):
+        for key in ("description", "adviceGroups"):
+            current_profile.pop(key, None)
+    current_profile.update(updated_profile)
     base["intakeOpen"] = list(dict.fromkeys(base.get("intakeOpen", []) + (update.get("intakeOpen") or [])))
     return base
 
@@ -460,6 +473,8 @@ def record_shown(state: dict[str, Any], ids: list[str], *, more: bool) -> dict[s
     current = fingerprint(result)
     previous = result["shown"]["ids"] if more and result["shown"]["fingerprint"] == current else []
     result["shown"] = {"fingerprint": current, "ids": list(dict.fromkeys(previous + ids))[-MAX_SHOWN:]}
+    from homespace_ai.application.listing_page_navigation import record
+    result["pageHistory"] = record(result, ids, more=more)
     return result
 
 

@@ -296,10 +296,10 @@ async def test_missing_values_do_not_become_absence_or_zero():
 @pytest.mark.asyncio
 async def test_bad_optional_boundary_keeps_a_valid_main_choice():
     mains, proposed = rooms(), candidate(areaM2=35)
-    raw = decision("roomDetail.restroomType", mainRecommendation={"listingId": IDS[0], "fields": ["pricing.amount", "areaM2"]})
+    raw = decision("roomDetail.restroomType", mainRecommendation={"listingId": IDS[1], "fields": ["pricing.amount"]})
     generator = AsyncMock(); generator.generate_value_advice.return_value = raw
     result = await value.evaluate("Tìm phòng dưới4,5 triệu", {}, mains, [proposed], boundary(), generator, CAT, recommend_main=True)
-    assert result["boundary"] is None and result["main"]["listingId"] == IDS[0]
+    assert result["boundary"] is None and result["main"]["listingId"] == IDS[1]
 
 
 @pytest.mark.asyncio
@@ -500,7 +500,7 @@ async def test_structured_judge_uses_same_listing_model_and_bounded_output_witho
 
 
 @pytest.mark.asyncio
-async def test_main_only_judge_must_choose_one_current_listing_even_without_boundary(monkeypatch):
+async def test_main_only_judge_can_abstain_without_inventing_a_distinction(monkeypatch):
     raw = {"candidateAssessments": [], "selectedId": None, "comparedListingIds": IDS[:2],
            "advantages": [], "tradeoffs": [], "mainRecommendation": {"listingId": IDS[0], "fields": ["areaM2"]}}
     calls = mock_http(monkeypatch, [httpx.Response(200, json=completed(json.dumps(raw)))])
@@ -508,7 +508,7 @@ async def test_main_only_judge_must_choose_one_current_listing_even_without_boun
                 "recommendMain": True, "factMatrix": {"areaM2": {"label": "Diện tích", "values": [25, 20]}}}
     result = await OpenAIGenerativeClient(settings()).generate_value_advice("Các phòng trên có gì xung quanh?", evidence)
     schema = json.loads(calls[0].content)["text"]["format"]["schema"]["properties"]["mainRecommendation"]["properties"]
-    assert schema["listingId"] == {"type": "string", "enum": IDS[:2]}
+    assert schema["listingId"] == {"type": ["string", "null"], "enum": IDS[:2] + [None]}
     assert schema["fields"]["minItems"] == 0 and schema["fields"]["maxItems"] == 2
     assert result["mainRecommendation"]["listingId"] == IDS[0] and result["selectedId"] is None
 

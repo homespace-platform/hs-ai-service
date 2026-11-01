@@ -382,7 +382,8 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         place_text = None
     keyword = args.get("keyword") if isinstance(args.get("keyword"), str) and args["keyword"].strip() else None
     from homespace_ai.application.renter_guidance import profile_keyword
-    if profile_keyword(keyword, question):
+    profile = profile_update(question, args.get("renterProfile"))
+    if profile_keyword(keyword, question, profile):
         keyword = None
     if place_text and keyword:
         # A landmark is proven by coordinates, never by its name appearing in a title.
@@ -428,7 +429,7 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         "unsupported": unsupported, "moreResults": args.get("moreResults") is True,
         "boundaryAdvice": boundary_policy(question, args.get("boundaryAdvice")),
         "needs": grounded_needs(question, args.get("needs")),
-        "renterProfile": profile_update(question, args.get("renterProfile")),
+        "renterProfile": profile,
         "intakeOpen": explicit_open_slots(question),
         "valuePriorities": [item for item in (args.get("valuePriorities") or [])[:6] if isinstance(item, dict)
                             and item.get("field") in catalog.fields and item.get("direction") in {"HIGHER", "LOWER", "IGNORE"}

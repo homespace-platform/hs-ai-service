@@ -34,14 +34,15 @@ async def test_profile_answer_keeps_the_same_shortlist_filters_and_pagination(qu
     a.planner.plan_result=search(keyword=keyword)
     result=await chat.ask(question)
     assert result.status=="ANSWERED" and result.listing_ids==first.listing_ids==IDS[:4]
-    assert a.tools.read==IDS[:4] and len(a.tools.payloads)==searches
-    assert len(a.tools.value_calls)==boundaries and not a.tools.nearby_calls
+    assert a.tools.read==IDS[:4] and len(a.tools.payloads)==searches+1
+    assert a.tools.payloads[-1]["scopeIds"]==IDS[:4], "Re-check only the displayed rooms, never start a new search"
+    assert len(a.tools.value_calls)==boundaries and len(a.tools.nearby_calls)==1
     assert a.planner.calls==plans, "A standalone answer to our purpose question cannot invent search requirements"
     state=result.listing_context["searchState"]
     assert state["renterProfile"]["persona"]==persona and state["keyword"] is None
     for key in ("location","context","constraints","shown","boundaryArea"):
         assert state[key]==before[key]
-    assert a.generative_client.evidence["confirmedCriteria"]["renterProfile"]["persona"]==persona
+    assert a.generative_client.boundary_calls[-1]["confirmedCriteria"]["renterProfile"]["persona"]==persona
 
 
 @pytest.mark.parametrize("question", [
@@ -132,7 +133,7 @@ async def test_a_reply_in_the_same_previously_broken_chat_works_without_starting
     a=assistant();a.planner.plan_result=search(keyword="gia đình")
     result=await a.try_answer("tôi muốn thuê cho gia đình",memory.history,"recovered",state=memory.state)
     assert result.status=="ANSWERED" and result.listing_ids==IDS[:4]
-    assert not a.tools.payloads and not a.tools.value_calls
+    assert len(a.tools.payloads)==1 and a.tools.payloads[0]["scopeIds"]==IDS[:4] and not a.tools.value_calls
     assert result.listing_context["searchState"]["keyword"] is None
 
 

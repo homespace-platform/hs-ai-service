@@ -123,7 +123,7 @@ async def test_recommendation_uses_the_server_table_and_drops_a_competing_model_
     assistant.generative_client.generate_answer = advice
     history = [{"role": "assistant", "content": "2 phòng", "listingContext": {"version": 1, "listingIds": IDS[:2]}}]
     result = await assistant.try_answer("Nên chọn phòng nào trong các phòng trên?", history, "advice")
-    assert assistant.generative_client.evidence["tableRendered"] == ["Thông tin chính"]
+    assert assistant.generative_client.evidence is None, "The app renders the full table without generating competing prose"
     assert "9 tỷ" not in result.answer, "A model-written table is replaced by the server-rendered one"
     assert "Mình gợi ý Phòng 1." not in result.answer and "**Lý do:**" not in result.answer
     assert "| Giá thuê | 3.000.000 đ/phòng/tháng |" in result.answer

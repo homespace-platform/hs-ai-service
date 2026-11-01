@@ -10,9 +10,9 @@ from homespace_ai.application.listing_table import TABLE_REQUEST
 
 History = list[dict[str, Any]]
 LINK = re.compile(r"/rent/([0-9a-fA-F-]{36})")
-NEW_SEARCH = VietnamesePattern(r"\b(?:tìm|kiếm|tìm kiếm|cho (?:tôi|mình) xem)\b")
+NEW_SEARCH = VietnamesePattern(r"\b(?:tìm|(?<!tiết )kiếm|tìm kiếm|cho (?:tôi|mình) xem)\b")
 FOLLOWUP = VietnamesePattern(
-    r"so sánh|nên chọn|chọn .*phòng|chọn .*căn|đề xuất|gợi ý .*phù hợp|"
+    r"so sánh|nên chọn|chọn .*phòng|chọn .*căn|(?:phòng|căn|nhà) nào|đề xuất|gợi ý .*phù hợp|"
     r"rẻ nhất|rẻ hơn|tiết kiệm|phù hợp nhất|trong (?:những|các|số)|"
     r"(?:phòng|căn|nhà|tin) (?:này|đó|trên|vừa|thứ|số|\d+)",
 )

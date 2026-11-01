@@ -248,14 +248,25 @@ def _furnishing_rows(listings: list[dict[str, Any]]) -> list[Row]:
     return rows
 
 
-def _charge_rows(listings: list[dict[str, Any]]) -> list[Row]:
+def only_charge_types(question: str) -> set[str] | None:
+    """An explicit rate-only question must not expand into a full cost consultation."""
+    if not re.search(r"\bchỉ\b.{0,40}(?:xem|so sánh|đơn giá)", question, re.IGNORECASE):
+        return None
+    terms = {"ELECTRICITY": r"điện|kWh", "WATER": r"nước|m³", "INTERNET": r"internet|wifi|wi-fi",
+             "MOTORBIKE_PARKING": r"xe máy", "CAR_PARKING": r"ô tô", "MANAGEMENT": r"quản lý",
+             "SERVICE_OR_GARBAGE": r"dịch vụ|rác"}
+    kinds = {kind for kind, pattern in terms.items() if re.search(pattern, question, re.IGNORECASE)}
+    return kinds or None
+
+
+def _charge_rows(listings: list[dict[str, Any]], only: set[str] | None = None) -> list[Row]:
     rows: list[Row] = []
-    kinds = _union(listings, "charges", lambda row: row.get("chargeType"))
+    kinds = list(only) if only else _union(listings, "charges", lambda row: row.get("chargeType"))
     for kind in [k for k in CHARGE if k in kinds] + [k for k in kinds if k not in CHARGE]:
         if kind == "OTHER":
             continue
         rows.append((CHARGE.get(kind, "Phí khác"), [_charge_text(_charge(item, kind)) for item in listings]))
-    for label in _union(listings, "charges", lambda row: (row.get("customName") or "Phí khác") if row.get("chargeType") == "OTHER" else None):
+    for label in ([] if only else _union(listings, "charges", lambda row: (row.get("customName") or "Phí khác") if row.get("chargeType") == "OTHER" else None)):
         rows.append((_cell(label), [_charge_text(next((row for row in item.get("charges") or [] if row.get("chargeType") == "OTHER"
                                                        and (row.get("customName") or "Phí khác") == label), None)) for item in listings]))
     if not rows:
@@ -349,7 +360,7 @@ def _image(item: dict[str, Any], name: str) -> str:
 
 
 def listing_table(listings: list[dict[str, Any]], references: list[str], sections: list[str] | None = None,
-                  distances: dict[str, int] | None = None) -> str:
+                  distances: dict[str, int] | None = None, *, compact: bool = False, charge_types: set[str] | None = None) -> str:
     """Markdown tables, one column per listing (5 per table), headed by the selectionScope position.
 
     The header links to the public listing and the first row is its cover image, so the table replaces cards.
@@ -360,7 +371,7 @@ def listing_table(listings: list[dict[str, Any]], references: list[str], section
     if sections:
         rows: list[Row] = [("Giá thuê", [_price(item) for item in listings])]
         for name in sections:
-            rows += BUILDERS[name](listings)
+            rows += _charge_rows(listings, charge_types) if name == "charges" else BUILDERS[name](listings)
     else:
         rows = _key_rows(listings, distances or {})
     categories = {item.get("category") for item in listings}
@@ -374,9 +385,9 @@ def listing_table(listings: list[dict[str, Any]], references: list[str], section
     for start in range(0, len(listings), COLUMNS_PER_TABLE):
         part = slice(start, start + COLUMNS_PER_TABLE)
         lines = ["| Tiêu chí | " + " | ".join(headers[part]) + " |",
-                 "| --- | " + " | ".join("---" for _ in headers[part]) + " |",
-                 "| Tiêu đề | " + " | ".join(titles[part]) + " |",
-                 "| Ảnh | " + " | ".join(images[part]) + " |"]
+                 "| --- | " + " | ".join("---" for _ in headers[part]) + " |"]
+        if not compact:
+            lines += ["| Tiêu đề | " + " | ".join(titles[part]) + " |", "| Ảnh | " + " | ".join(images[part]) + " |"]
         lines += ["| " + _cell(label) + " | " + " | ".join(_cell(v) for v in values[part]) + " |" for label, values in rows]
         tables.append("\n".join(lines))
     result = "\n\n".join(tables)

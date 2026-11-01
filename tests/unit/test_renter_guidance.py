@@ -130,7 +130,7 @@ async def test_main_explanation_uses_its_verified_fields_even_after_a_nearby_com
     chat.messages[-1]["listingContext"]["nearby"] = {"radiusMeters": 2000, "groups": ["EDUCATION"]}
     result = await chat.ask("Vì sao bạn chọn phòng đó là phù hợp nhất?")
     assert result.listing_ids == IDS[:4] and not a.tools.nearby_calls
-    assert "Mình đã đối chiếu lại" in result.answer and "\n- " in result.answer
+    assert "Mình đã đối chiếu lại" in result.answer and "| Tiêu chí đối chiếu |" in result.answer
     assert a.generative_client.kwargs is None
 
 
@@ -149,7 +149,7 @@ def test_profile_is_not_inferred_from_a_search_for_someone_else_or_hypothetical(
     assert guidance.profile_update("Tìm chỗ ở gần trường đại học") == {}
     assert guidance.profile_update("Mình không phải sinh viên") == {}
     assert guidance.profile_update("Mình tìm giúp bạn là sinh viên") == {}
-    assert guidance.profile_update("Mình là kỹ sư", {"persona": "WORKING", "quote": "Mình là kỹ sư"}) == {"persona": "WORKING"}
+    assert guidance.profile_update("Mình là kỹ sư", {"persona": "WORKING", "quote": "Mình là kỹ sư"}) == {"persona": "WORKING", "description": "Mình là kỹ sư"}
     assert guidance.profile_update("Tìm phòng", {"persona": "STUDENT", "quote": "Mình là sinh viên"}) == {}
     assert guidance.profile_update("Tôi là người đi làm") == {"persona": "WORKING"}
     assert guidance.profile_update("Tôi tìm nhà cho gia đình") == {"persona": "FAMILY"}

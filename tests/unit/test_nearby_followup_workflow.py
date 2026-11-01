@@ -21,7 +21,7 @@ def setup():
         a.tools.details[identifier] = room(identifier, areaM2=20 + index,
             pricing={"amount": 3000000, "currency": "VND", "unit": "ROOM_MONTH"},
             amenities=[{"code": "WIFI", "name": "WiFi"}])
-    a.generative_client.boundary_decision["mainRecommendation"] = {"listingId": IDS[0], "fields": ["areaM2"]}
+    a.generative_client.boundary_decision["mainRecommendation"] = {"listingId": IDS[0], "fields": ["areaM2", "nearby.SHOPPING.distanceMeters"]}
     state = rs.merge(None, {"constraints": [{"field": "category", "op": "eq", "value": "ROOM", "strength": "hard"}],
                             "context": {"occupants": 2}}, "")
     history = [{"role": "assistant", "content": "4 phòng vừa tìm", "listingContext": a.context(IDS[:4], state)}]
@@ -44,16 +44,17 @@ async def test_outside_wording_never_uses_building_facilities_even_if_planner_ch
     assert "| Tiện ích xung quanh |" in result.answer and "| Phòng" not in result.answer
     assert all(f"/rent/{identifier}" in result.answer for identifier in IDS[:4])
     assert "Địa điểm SHOPPING" in result.answer and "WiFi" not in result.answer
-    assert "Mình gợi ý bạn cân nhắc" in result.answer
+    assert "Mình gợi ý bạn cân nhắc" not in result.answer
+    assert "chưa có đủ khác biệt" not in result.answer and not a.generative_client.boundary_calls
     assert a.generative_client.kwargs is None, "POI table is rendered by the app, never model-written"
 
 
 @pytest.mark.asyncio
-async def test_followup_building_facilities_have_a_main_choice_and_a_nearby_question_hint():
+async def test_identical_building_facilities_do_not_force_a_main_choice_and_keep_a_nearby_hint():
     a, state, history = setup()
     result = await a.try_answer("Các phòng trên có những tiện ích tòa nhà nào?", history, "inside", state=state)
     assert not a.tools.nearby_calls and not a.tools.value_calls
-    assert "| WiFi |" in result.answer and result.listing_context["mainRecommendation"]["listingId"] == IDS[0]
+    assert "| WiFi |" in result.answer and "mainRecommendation" not in result.listing_context
     assert "Các phòng trên có những tiện ích nào xung quanh?" in result.suggested_questions
 
 
@@ -70,7 +71,7 @@ async def test_unspecified_amenities_asks_which_source_and_mixed_request_labels_
 @pytest.mark.asyncio
 async def test_profile_from_a_followup_reaches_the_judge_without_inventing_filters_or_children():
     a, state, history = setup()
-    result = await a.try_answer("Mình là sinh viên, các phòng trên có những tiện ích nào xung quanh?", history, "student", state=state)
+    result = await a.try_answer("Mình là sinh viên, các phòng trên có những tiện ích nào xung quanh, nên chọn phòng nào?", history, "student", state=state)
     evidence = a.generative_client.boundary_calls[-1]
     assert evidence["confirmedCriteria"]["renterProfile"] == {"persona": "STUDENT"}
     assert "nearby.EDUCATION.distanceMeters" not in evidence["factMatrix"], "A kindergarten is not the student's university"
@@ -86,7 +87,7 @@ async def test_profile_from_a_followup_reaches_the_judge_without_inventing_filte
 ])
 async def test_renter_profiles_personalize_followup_without_inventing_household_or_transport(description, persona):
     a, state, history = setup()
-    result = await a.try_answer(description + ", các phòng trên có những tiện ích nào xung quanh?", history, "profiles", state=state)
+    result = await a.try_answer(description + ", các phòng trên có những tiện ích nào xung quanh, nên chọn phòng nào?", history, "profiles", state=state)
     evidence = a.generative_client.boundary_calls[-1]
     assert evidence["confirmedCriteria"]["renterProfile"] == {"persona": persona}
     assert evidence["confirmedCriteria"]["context"] == {"occupants": 2}
@@ -99,9 +100,9 @@ async def test_renter_profiles_personalize_followup_without_inventing_household_
 async def test_single_main_pick_can_use_fresh_nearby_facts_but_never_persist_provider_facts():
     a, state, history = setup()
     a.generative_client.boundary_decision["mainRecommendation"] = {"listingId": IDS[0], "fields": ["nearby.SHOPPING.distanceMeters"]}
-    result = await a.try_answer("Các phòng trên có những tiện ích nào xung quanh?", history, "nearby-pick", state=state)
+    result = await a.try_answer("Các phòng trên có những tiện ích nào xung quanh, nên chọn phòng nào?", history, "nearby-pick", state=state)
     assert "Địa điểm SHOPPING" in result.answer and "100 m" not in result.answer
-    assert result.listing_context["mainRecommendation"] == {"listingId": IDS[0], "fields": ["nearby.SHOPPING.distanceMeters"]}
+    assert result.listing_context["mainRecommendation"] == {"listingId": IDS[0], "fields": ["nearby.SHOPPING.distanceMeters"], "focus": "NEARBY"}
     assert "Địa điểm SHOPPING" not in str(result.listing_context)
     a.tools.summaries[0]["groups"][2]["nearest"][0]["distanceMeters"] = 150
     a.tools.summaries[0]["groups"][2]["nearest"][0]["name"] = "Siêu thị mới cập nhật"
@@ -120,7 +121,8 @@ async def test_missing_poi_evidence_keeps_all_columns_and_does_not_claim_absence
     result = await a.try_answer("Các phòng trên có những tiện ích nào xung quanh?", history, "partial", state=state)
     assert result.listing_ids == IDS[:4] and "Chưa có thông tin cho nhóm này" in result.answer
     assert "không có tiện ích" not in result.answer
-    assert not any(key.startswith("nearby.") for key in a.generative_client.boundary_calls[-1]["factMatrix"])
+    assert not a.generative_client.boundary_calls, "Missing POIs cannot justify a location recommendation"
+    assert "mainRecommendation" not in result.listing_context and "chưa có đủ khác biệt" not in result.answer
 
 
 @pytest.mark.asyncio

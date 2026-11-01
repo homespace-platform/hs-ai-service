@@ -31,14 +31,15 @@ def generator(reasons=None, tradeoffs=None):
 
 
 @pytest.mark.asyncio
-async def test_why_rereads_all_four_and_explains_real_benefits_and_tradeoffs_in_bullets():
+async def test_why_rereads_all_four_and_explains_real_benefits_and_tradeoffs_in_a_compact_table():
     client = generator()
     result = await explain("Vì sao bạn ưu tiên phòng đó?", {"listingId": IDS[0], "fields": ["pricing.managementFeeIncluded"]},
         shortlist(), {"context": {"occupants": 3}}, IDS[:4], CAT, client)
     evidence = client.generate_main_explanation.await_args.args[1]
     assert [row["id"] for row in evidence["listings"]] == IDS[:4]
     assert evidence["factMatrix"]["areaM2"]["values"] == ["37 m²", "33 m²", "30 m²", "35 m²"]
-    assert result.count("\n- ") == 3
+    assert "| Tiêu chí đối chiếu |" in result and "| Đánh giá |" in result
+    assert result.count("\n| ")==5 and "\n- " not in result
     for number in (37, 33, 30, 35):
         assert f"{number} m²" in result
     for identifier in IDS[:4]:
@@ -94,7 +95,7 @@ async def test_optional_model_outage_keeps_verified_whole_group_fallback():
     client = generator()
     client.generate_main_explanation.side_effect = GenerationUnavailableError("offline", retryable=False)
     result = await explain("Vì sao?", {"listingId": IDS[0], "fields": ["areaM2"]}, shortlist(), {}, IDS[:4], CAT, client)
-    assert "37 m²" in result and "35 m²" in result and "\n- " in result
+    assert "37 m²" in result and "35 m²" in result and "| Tiêu chí đối chiếu |" in result
 
 
 @pytest.mark.asyncio

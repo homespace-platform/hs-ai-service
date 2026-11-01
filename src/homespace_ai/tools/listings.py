@@ -212,6 +212,44 @@ class ListingTools:
         }
         return safe
 
+    async def costs(self, listing_ids: list[str], context: dict) -> dict[str, Any]:
+        """One bounded read-only projection. Core owns all monetary calculations."""
+        if not listing_ids or len(listing_ids) > self.max_results or len(set(listing_ids)) != len(listing_ids):
+            raise ListingToolError("Invalid cost shortlist")
+        for identifier in listing_ids:
+            UUID(identifier)
+        clean = {}
+        for key, low, high in (("occupants", 1, 20), ("motorbikes", 0, 10), ("cars", 0, 5),
+                               ("electricityKwh", 0, 5000), ("waterM3", 0, 500)):
+            raw = context.get(key)
+            if raw is not None:
+                if type(raw) is not int or not low <= raw <= high:
+                    raise ListingToolError("Invalid cost context")
+                clean[key] = raw
+        response = await self.gateway.request("POST", f"{self.base_path}/costs", request=self.request,
+            json={"listingIds": listing_ids, "context": clean})
+        result = self._result(response)
+        rows = result.get("items")
+        if (not isinstance(rows, list) or len(rows) > len(listing_ids) or any(not isinstance(r, dict) for r in rows)
+                or len({r.get("listingId") for r in rows}) != len(rows)
+                or any(r.get("listingId") not in listing_ids for r in rows)):
+            raise ListingToolError("Invalid cost evidence")
+        from decimal import Decimal, InvalidOperation
+        for row in rows:
+            for field in ("monthlyRent", "knownFixedMonthly", "fixedMonthlyTotal", "estimatedMonthlyTotal"):
+                raw = row.get(field)
+                try:
+                    if raw is not None and (isinstance(raw, bool) or not Decimal(str(raw)).is_finite() or Decimal(str(raw)) < 0):
+                        raise ValueError
+                except (InvalidOperation, ValueError, TypeError):
+                    raise ListingToolError("Invalid cost number") from None
+            if not isinstance(row.get("missingInputs"), list) or any(k not in {
+                    "occupants", "motorbikes", "cars", "electricityKwh", "waterM3", "chargeData"} for k in row["missingInputs"]):
+                raise ListingToolError("Invalid missing cost context")
+            if any(row.get(k) is not None and type(row[k]) is not bool for k in ("motorbikesAllowed", "carsAllowed")):
+                raise ListingToolError("Invalid vehicle evidence")
+        return result
+
     async def nearby(self, listing_ids: list[str], radius_meters: int, groups: list[str], target_place_id: str | None = None) -> dict[str, Any]:
         if not 1 <= len(listing_ids) <= min(20, self.max_results) or len(set(listing_ids)) != len(listing_ids):
             raise ListingToolError("Invalid nearby listing selection")

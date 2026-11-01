@@ -19,6 +19,16 @@ class ConversationMemory:
     repaired: bool = False
 
 
+def _with_page_history(memory, messages):
+    from homespace_ai.application.listing_page_navigation import recover
+    state = recover(memory.state, messages)
+    if state != memory.state:
+        if not memory.repaired:
+            state["revision"] += 1
+        return ConversationMemory(memory.history, state, repaired=True)
+    return memory
+
+
 def _query_identity(state):
     return rs.fingerprint(state | {"sort": state.get("sort") or "newest"})
 
@@ -26,12 +36,13 @@ def _query_identity(state):
 def conversation_memory(conversation: dict) -> ConversationMemory:
     messages = conversation.get("messages") or []
     state = rs.sanitize(conversation.get("renterSearchState")) or rs.latest_state(messages)
-    history = [{key: message.get(key) for key in ("role", "content", "status", "listingContext", "contractContext", "appointmentContext")}
+    history = [{key: message.get(key) for key in ("role", "content", "status", "listingContext", "contractContext", "appointmentContext", "answerContext")}
                for message in messages[-8:]]
     for message in history:
         message["role"] = message["role"] or "user"
         message["content"] = message["content"] or ""
-    memory = ConversationMemory(history, state)
+    memory = _with_page_history(ConversationMemory(history, state), messages)
+    state = memory.state
     keyword = (state or {}).get("keyword")
     if not keyword or fold_text(keyword).strip() not in set().union(*PROFILE_TERMS.values()):
         return memory
@@ -76,4 +87,4 @@ def conversation_memory(conversation: dict) -> ConversationMemory:
                 # Correct only the in-memory reference projection, never the saved transcript.
                 message["listingContext"] = {**message["listingContext"], "listingIds": restored, "searchState": repaired}
                 break
-    return ConversationMemory(history, repaired, repaired=True)
+    return _with_page_history(ConversationMemory(history, repaired, repaired=True), messages)

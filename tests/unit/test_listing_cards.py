@@ -30,7 +30,7 @@ async def test_structured_answer_schema_constrains_ids_and_keeps_full_evidence(m
 
 
 @pytest.mark.asyncio
-async def test_listing_request_instructs_bullets_and_preserves_markdown_and_card_contract(monkeypatch):
+async def test_listing_request_uses_tables_for_multiple_results_and_keeps_single_result_bullets(monkeypatch):
     evidence = {"listings": [{"id": IDS[0], "category": "ROOM", "roomDetail": {"maxOccupants": 3}}]}
     answer = "Mình đề xuất Phòng 1 cho nhóm của bạn.\n\n- **Sức chứa:** Tối đa 3 người.\n\n- **Lưu ý:** Chưa rõ phí điện, nước."
     calls = mock_http(monkeypatch, [httpx.Response(200, json=completed(json.dumps({
@@ -38,10 +38,10 @@ async def test_listing_request_instructs_bullets_and_preserves_markdown_and_card
     result = await OpenAIGenerativeClient(settings()).generate_listing_answer("Mình cần tìm phòng cho 3 người", evidence)
     payload = json.loads(calls[0].content)
     instructions = payload["instructions"]
-    assert "BẮT BUỘC tách thành gạch đầu dòng Markdown '- '" in instructions
-    assert "mỗi tin một gạch đầu dòng theo số thứ tự selectionScope" in instructions
-    assert "KHÔNG tự vẽ bảng Markdown" in instructions and "Không bao giờ bảo khách phải yêu cầu 'lập bảng'" in instructions
-    assert "không phải dữ kiện để trả lời" in instructions
+    assert "BẮT BUỘC dùng bảng Markdown GFM" in instructions and "câu hỏi tiếp theo" in instructions
+    assert "không kể lại từng phòng/từng kết quả bằng gạch đầu dòng" in instructions
+    assert "KHÔNG tự vẽ thêm bảng" in instructions and "Không chờ khách yêu cầu 'lập bảng'" in instructions
+    assert "Khi chỉ tư vấn một phòng" in instructions and "không tự cắt cột" in instructions
     assert json.dumps(evidence, ensure_ascii=False) in payload["input"][0]["content"]
     assert result.answer == answer
     assert result.listing_ids == [IDS[0]]
@@ -68,7 +68,8 @@ async def test_recommendation_cards_are_separate_from_followup_scope_and_remove_
     assert result.listing_positions == {value: index for index, value in enumerate(IDS[:4], 1)}
     assert result.listing_context["listingIds"] == IDS[:4]
     prose, _, table = result.answer.partition("\n\n|")
-    assert prose == "Mình chọn Phòng 3 cho bạn.", "Model-written links are removed"
+    assert prose == "Mình đặt 4 tin cạnh nhau để bạn dễ xem điểm khác biệt:"
+    assistant.generative_client.generate_listing_answer.assert_not_awaited()
     assert f"[Phòng 3](/rent/{IDS[2]}" in table, "Only the server table header links the listing"
 
 
@@ -77,7 +78,7 @@ async def test_backend_rejects_unverified_id_even_if_generator_returns_it():
     assistant = make_assistant(None)
     assistant.tools = CurrentTools()
     assistant.generative_client.generate_listing_answer = AsyncMock(return_value=ListingGeneratedAnswer("OK", [IDS[4]]))
-    result = await assistant.try_answer("Nên chọn phòng nào?", previous(), "unknown")
+    result = await assistant.try_answer("Phòng 2 có phù hợp không?", previous(), "unknown")
     assert result.status == "GENERATION_UNAVAILABLE"
     assert result.listing_ids == []
 

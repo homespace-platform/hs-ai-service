@@ -38,13 +38,13 @@ async def evaluate(main, criteria=None, listings=None):
 
 @pytest.mark.asyncio
 async def test_student_advice_defaults_to_privacy_and_excludes_shared_facts_from_positive_reasons():
-    result,evidence = await evaluate({"listingId": IDS[2], "fields": ["roomDetail.restroomType", "pricing.managementFeeIncluded"]},
+    result,evidence = await evaluate({"listingId": IDS[2], "fields": ["roomDetail.restroomType", "pricing.amount"]},
                                      {"renterProfile": {"persona": "STUDENT"}})
     assert evidence["mainRecommendationAllowedIds"] == [IDS[0], IDS[2], IDS[3]]
     for item in evidence["mainListings"]:
         assert not {"amenities.WIFI", "pricing.managementFeeIncluded", "roomDetail.maxOccupants", "roomDetail.hasWindow"} & set(item["usefulReasonFields"])
     assert "roomDetail.restroomType" not in evidence["mainListings"][1]["usefulReasonFields"]
-    assert [r["field"] for r in result["main"]["reasons"]] == ["roomDetail.restroomType"]
+    assert [r["field"] for r in result["main"]["reasons"]] == ["roomDetail.restroomType", "pricing.amount"]
     text = advice.render_main(result["main"], displayed_rooms())
     assert "có **nhà vệ sinh riêng**" in text and "phí quản lý" not in text and "chung" not in text
 
@@ -85,8 +85,7 @@ async def test_identical_options_do_not_force_an_invented_advantage():
     items=[deepcopy(first)|{"id":identifier} for identifier in IDS[:4]]
     result,evidence=await evaluate({"listingId":IDS[0],"fields":["amenities.WIFI","roomDetail.maxOccupants"]},listings=items)
     assert all(not item["usefulReasonFields"] for item in evidence["mainListings"])
-    assert result["main"]["reasons"] == []
-    assert "vì" not in advice.render_main(result["main"],items)
+    assert result["main"] is None
 
 
 @pytest.mark.asyncio
@@ -113,9 +112,9 @@ async def test_why_uses_natural_sentences_and_drops_fields_shared_by_all_four():
     generator=AsyncMock()
     generator.generate_main_explanation.return_value={"reasons":["roomDetail.restroomType","amenities.WIFI","pricing.managementFeeIncluded"],"tradeoffs":[]}
     text=await explain("Vì sao chọn phòng này?",{"listingId":IDS[2]},displayed_rooms(),{},IDS[:4],CAT,generator)
-    assert "có **nhà vệ sinh riêng**" in text and "dùng **nhà vệ sinh chung**" in text
+    assert "| Nhà vệ sinh" in text and "| Riêng |" in text and "| Chung |" in text
     assert "WiFi" not in text and "phí quản lý" not in text and ": Có" not in text
-    assert "\n- " in text
+    assert "| Tiêu chí đối chiếu |" in text and "\n- " not in text
 
 
 @pytest.mark.asyncio
@@ -125,7 +124,7 @@ async def test_native_model_schema_respects_all_private_and_shared_arrangements(
     calls=mock_http(monkeypatch,[httpx.Response(200,json=completed(json.dumps(response)))])
     await advice.evaluate("Tôi là sinh viên",{},displayed_rooms(),[],{},OpenAIGenerativeClient(settings()),CAT,recommend_main=True)
     schema=json.loads(calls[0].content)["text"]["format"]["schema"]
-    assert schema["properties"]["mainRecommendation"]["properties"]["listingId"]["enum"] == [IDS[0], IDS[2], IDS[3]]
+    assert schema["properties"]["mainRecommendation"]["properties"]["listingId"]["enum"] == [IDS[0], IDS[2], IDS[3], None]
     assert "pricing.managementFeeIncluded" not in schema["properties"]["mainRecommendation"]["properties"]["fields"]["items"]["enum"]
 
 
@@ -154,7 +153,9 @@ async def test_every_private_or_shared_arrangement_is_compared_without_a_wc_spec
         item["roomDetail"][field]="PRIVATE" if index in (1,3) else "SHARED"
     assert advice.main_selection_ids(items,{}) == [IDS[1],IDS[3]]
     path="roomDetail."+field
-    result,evidence=await evaluate({"listingId":IDS[1],"fields":[path]},listings=items)
+    # Two rooms offer this private facility; the larger room has a separate, proven distinction.
+    items[1]["areaM2"] = 45
+    result,evidence=await evaluate({"listingId":IDS[1],"fields":[path,"areaM2"]},listings=items)
     assert path in evidence["mainListings"][1]["usefulReasonFields"]
     assert path not in evidence["mainListings"][0]["usefulReasonFields"]
     text=advice.render_main(result["main"],items)
@@ -178,7 +179,7 @@ async def test_shared_facility_is_not_promoted_even_if_other_rooms_have_no_such_
     generator=AsyncMock()
     generator.generate_main_explanation.return_value={"reasons":[path],"tradeoffs":[]}
     text=await explain("Vì sao?",{"listingId":IDS[4]},[candidate,*items[:3]],{},[IDS[4],*IDS[:3]],CAT,generator)
-    assert "Điểm cần cân nhắc" in text and "không phải lợi thế về sự riêng tư" in text
+    assert "Điểm cần cân nhắc" in text and "không phải lợi thế riêng tư" in text
     assert "thuận lợi hơn" not in text
 
 

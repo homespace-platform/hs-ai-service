@@ -440,7 +440,9 @@ def main_selection_ids(listings: list[dict], criteria: dict) -> list[str]:
 
 
 async def evaluate(question: str, criteria: dict, main_listings: list[dict], candidates: list[dict], boundary: dict,
-                   generator, catalog=None, *, recommend_main: bool = False, nearby_facts: dict | None = None) -> dict | None:
+                   generator, catalog=None, *, recommend_main: bool = False, nearby_facts: dict | None = None,
+                   profile_comparison: bool = False, observed_nearby: dict | None = None,
+                   recommendation_focus: str | None = None, compare_priorities: bool = False) -> dict | None:
     if (not main_listings or (not candidates or criteria.get("boundaryAdvice") == "DENY") and not recommend_main
             or any(item.get("status") != "PUBLISHED" for item in main_listings)):
         return None
@@ -462,6 +464,20 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
     for identifier, facts in (nearby_facts or {}).items():
         if identifier in mains:
             mains[identifier].update(facts)
+    from homespace_ai.application.answer_context import scoped_facts
+    all_facts = mains
+    focus = recommendation_focus or "OVERALL"
+    mains = {identifier: scoped_facts(row, focus) for identifier, row in mains.items()}
+    nearby_only = recommendation_focus == "NEARBY"
+    if nearby_only:
+        # A location question cannot be answered with an unrelated kitchen/Internet perk.
+        # Only covered, comparable POI facts can justify a location recommendation.
+        mains = {identifier: {path: fact for path, fact in row.items() if path.startswith("nearby.")}
+                 for identifier, row in mains.items()}
+        candidates = []
+        if not any(useful_main_fields(row, {i: f for i, f in mains.items() if i != identifier}, criteria)
+                   for identifier, row in mains.items()):
+            return {"main": None, "boundary": None}
     pool = {}
     allowed = set(boundary.get("candidateIds") or [])
     for item in candidates[:8]:
@@ -483,7 +499,8 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
     evidence = {"budgetCeiling": ceiling, "maxExtraMonthly": extra, "budgetField": boundary.get("budgetField"), "today": today,
                 "candidateBudgetLimit": ceiling + extra, "mainBudgetConstraints": budget_constraints, "recommendMain": recommend_main,
                 "boundaryPolicy": criteria.get("boundaryAdvice", "AUTO"), "confirmedCriteria": retained_criteria,
-                "mainRecommendationAllowedIds": main_selection_ids(main_listings, criteria),
+                "mainRecommendationAllowedIds": [i for i in (main_ids if focus in {"NEARBY", "COST", "SPACE", "AMENITIES"} else main_selection_ids(main_listings, criteria))
+                    if not any((item.get("_costEvidence") or {}).get(k) is False for item in main_listings if item["id"] == i for k in ("motorbikesAllowed", "carsAllowed"))],
                 "mainListings": [{"id": item["id"], "rent": item.get("pricing", {}).get("amount"),
                                   "usefulReasonFields": useful_main_fields(mains[item["id"]], {i:f for i,f in mains.items() if i!=item["id"]}, criteria),
                                   "factColumn": column} for column, item in enumerate(main_listings)],
@@ -493,28 +510,97 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
                                 "verifiedComparisons": _verified_comparisons(item["facts"], mains)} for column, item in enumerate(pool.values())],
                 "factMatrix": _judge_matrix(list(mains.values()) + [item["facts"] for item in pool.values()]),
                 "readAt": boundary.get("readAt")}
+    evidence["recommendationFocus"] = focus
+    if compare_priorities:
+        evidence["priorityOptions"] = {}
+        for objective in ("COST", "SPACE", "AMENITIES"):
+            matrix = {i: scoped_facts(row, objective) for i, row in all_facts.items()}
+            evidence["priorityOptions"][objective] = {"factMatrix": _judge_matrix(list(matrix.values())),
+                "listings": [{"id": i, "usefulReasonFields": useful_main_fields(row, {j:f for j,f in matrix.items() if j != i}, criteria)} for i,row in matrix.items()]}
+    if nearby_only:
+        evidence["observedNearby"] = {identifier: places for identifier, places in (observed_nearby or {}).items() if identifier in mains}
+    if profile_comparison:
+        evidence["profileComparison"] = True
+        evidence["observedNearby"] = {identifier: places for identifier, places in (observed_nearby or {}).items() if identifier in mains}
+        for item in evidence["mainListings"]:
+            item["knownProfileFields"] = [path for path in mains[item["id"]] if not path.startswith("nearby.")]
     if len(json.dumps(evidence, ensure_ascii=False, default=str).encode()) > 120000:
         raise ListingToolError("Boundary evidence exceeds its input budget")
     decision = await generator.generate_value_advice(question=question, evidence=evidence)
     if not isinstance(decision, dict):
         raise ListingToolError("Invalid boundary decision")
-    main = _main_recommendation(decision.get("mainRecommendation"), mains, main_listings, criteria) if recommend_main else None
+    main = _main_recommendation(decision.get("mainRecommendation"), mains, main_listings, criteria,
+                                focus=focus) if recommend_main else None
+    priorities = []
+    if compare_priorities:
+        raw = decision.get("priorityRecommendations") or []
+        if not isinstance(raw, list) or len(raw) > 3:
+            raise ListingToolError("Invalid priority recommendations")
+        seen = set()
+        for row in raw:
+            if not isinstance(row, dict) or row.get("focus") not in {"COST", "SPACE", "AMENITIES"} or row["focus"] in seen:
+                raise ListingToolError("Invalid recommendation focus")
+            seen.add(row["focus"])
+            matrix = {i: scoped_facts(f, row["focus"]) for i,f in all_facts.items()}
+            chosen = _main_recommendation(row, matrix, main_listings, criteria, focus=row["focus"])
+            if chosen:
+                priorities.append(chosen | {"focus": row["focus"]})
+        # The visible conditional choice is authoritative for follow-up references.
+        # A second (hidden) main choice for the same objective must never diverge.
+        main = next((p for p in priorities if p["focus"] == focus), None) or main
+        if main and focus in {"COST", "SPACE", "AMENITIES"} and not any(p["focus"] == focus for p in priorities):
+            priorities.append(main | {"focus": focus})
+        order = {"COST": 0, "SPACE": 1, "AMENITIES": 2}
+        priorities.sort(key=lambda p: order[p["focus"]])
     try:
         suggestion = _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, extra, allow_at_ceiling)
     except ListingToolError:
         if not recommend_main:
             raise
         suggestion = None  # A bad optional proof never removes a valid main recommendation.
-    return {"main": main, "boundary": suggestion} if recommend_main else suggestion
+    if profile_comparison and recommend_main:
+        rows = profile_assessments(decision.get("profileAssessments"), mains, criteria)
+        return {"main": main, "boundary": suggestion, "profileAssessments": rows}
+    return {"main": main, "boundary": suggestion, "priorities": priorities} if recommend_main else suggestion
 
 
-def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict) -> dict | None:
+def profile_assessments(raw, mains: dict, criteria: dict) -> list[dict]:
+    """The model chooses relevant facts, but only freshly verified fields become customer prose."""
+    if raw is None:
+        return []
+    if (not isinstance(raw, list) or len(raw) != len(mains)
+            or any(not isinstance(row, dict) for row in raw)
+            or {row.get("listingId") for row in raw} != set(mains)):
+        raise ListingToolError("Invalid profile comparison scope")
+    result = []
+    for row in raw:
+        identifier = row["listingId"]
+        facts = mains[identifier]
+        useful = useful_main_fields(facts, {i:f for i,f in mains.items() if i != identifier}, criteria)
+        out = {"listingId": identifier}
+        for key, limit in (("strengths", 3), ("considerations", 2)):
+            fields = row.get(key)
+            if (not isinstance(fields, list) or len(fields) > limit
+                    or any(not isinstance(path, str) or path not in facts for path in fields)
+                    or len(set(fields)) != len(fields)):
+                raise ListingToolError("Invalid profile comparison fields")
+            out[key] = [{"field": path, "label": facts[path]["label"], "value": facts[path]["value"],
+                         "display": _display(facts[path])} for path in fields
+                        if not path.startswith("nearby.") and not _ignored(facts[path], criteria)
+                        and (key != "strengths" or path in useful)]
+        if set(row["strengths"]) & set(row["considerations"]):
+            raise ListingToolError("A profile fact cannot be both an advantage and a tradeoff")
+        result.append(out)
+    return result
+
+
+def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict, *, nearby_only: bool = False, focus="OVERALL") -> dict | None:
     if not isinstance(raw, dict) or raw.get("listingId") is None:
         return None
     identifier, fields = raw.get("listingId"), raw.get("fields")
     if identifier not in mains or not isinstance(fields, list) or len(fields) > 2 or len(set(fields)) != len(fields):
         raise ListingToolError("Invalid main recommendation")
-    if identifier not in main_selection_ids(listings, criteria):
+    if focus not in {"NEARBY", "COST", "SPACE", "AMENITIES"} and not nearby_only and identifier not in main_selection_ids(listings, criteria):
         raise ListingToolError("Main recommendation ignores the default privacy preference")
     useful = useful_main_fields(mains[identifier], {i:f for i,f in mains.items() if i!=identifier}, criteria)
     reasons = []
@@ -525,17 +611,32 @@ def _main_recommendation(raw, mains: dict, listings: list[dict], criteria: dict)
             listing = next(item for item in listings if item["id"] == identifier)
             price = listing.get("pricing") or {}
             if price.get("currency") == "VND" and price.get("unit") in {"MONTH", "ROOM_MONTH"}:
-                reasons.append({"field": path, "label": "Tiền thuê", "display": formatted(price["amount"]) + "đ/tháng", "value": price["amount"]})
+                amount = price["amount"]
+                reasons.append({"field": path, "label": "Tiền thuê", "display": formatted(amount) + "đ/tháng", "value": amount})
         else:
             fact = mains[identifier].get(path)
             if fact is not None and not _ignored(fact, criteria):
                 reasons.append({"field": path, "label": fact["label"], "display": _display(fact), "value": fact["value"]})
+    if not reasons:
+        return None
+    # A shared benefit may separate a subgroup but cannot justify selecting one of its equal peers.
+    for peer_id, peer in mains.items():
+        if peer_id == identifier:
+            continue
+        changes = [_comparison(mains[identifier][r["field"]], peer[r["field"]]) if r["field"] in peer else None for r in reasons]
+        if not any(c == 1 or c == 2 and _context_improves(mains[identifier][r["field"]], peer[r["field"]], criteria)
+                   for c,r in zip(changes, reasons)):
+            return None
+    if any((item.get("_costEvidence") or {}).get(k) is False for item in listings if item["id"] == identifier for k in ("motorbikesAllowed", "carsAllowed")):
+        return None
     return {"listingId": identifier, "reasons": reasons}
 
 
 def reason_text(reason: dict) -> str:
     path, label, shown = reason["field"], _clean(reason["label"]), _clean(reason["display"])
     raw = reason.get("value")
+    if path.startswith("cost."):
+        return ("chi phí cố định **" if path.endswith("fixedMonthlyTotal") else "chi phí ước tính **") + shown + "**"
     if path == "pricing.amount":
         return f"giá thuê **{shown}**"
     if path == "areaM2":
@@ -570,8 +671,15 @@ def reason_text(reason: dict) -> str:
         return "có **đồng hồ nước riêng**" if raw in _PRIVATE_USE else "dùng **đồng hồ nước chung**"
     if path.endswith(".maxOccupants"):
         return f"có thể ở tối đa **{formatted(raw)} người**"
+    if path in {"maxMotorbikeCount", "maxCarCount"}:
+        vehicle = "xe máy" if path == "maxMotorbikeCount" else "ô tô"
+        return f"có chỗ gửi tối đa **{formatted(raw)} {vehicle}**" if number(raw) > 0 else f"không nhận gửi {vehicle}"
     if path.endswith(".furnishingStatus"):
-        return "chưa có nội thất bàn giao" if raw == "UNFURNISHED" else f"được trang bị **nội thất {shown.lower()}**"
+        return {"UNFURNISHED": "chưa có nội thất bàn giao", "PARTIALLY_FURNISHED": "được bàn giao **một phần nội thất**",
+                "FULLY_FURNISHED": "được bàn giao **đầy đủ nội thất**", "BASIC": "có **nội thất cơ bản**",
+                "LUXURY": "có **nội thất cao cấp**"}.get(raw, f"nội thất được bàn giao ở mức **{shown.lower()}**")
+    if path.endswith(".hasMezzanine"):
+        return "có **gác lửng**" if raw else "không có gác lửng"
     if path == "availableFrom":
         return f"có thể nhận từ **{shown}**"
     if isinstance(raw, bool):
@@ -596,6 +704,21 @@ def render_main(decision: dict, main_listings: list[dict], references: list[str]
     ordinal = (references or ids).index(identifier) + 1
     lead = f"**Mình gợi ý bạn cân nhắc [{noun} {ordinal}](/rent/{identifier})**"
     return f"{lead} vì {reasons}." if reasons else f"{lead} trong nhóm đáp ứng các tiêu chí bạn đã nêu."
+
+
+def render_priorities(decisions, listings, scope):
+    rows = []
+    for choice in decisions[:3]:
+        identifier = choice["listingId"]
+        noun = {"ROOM": "Phòng", "APARTMENT": "Căn", "HOUSE": "Nhà"}.get(next(x for x in listings if x["id"] == identifier).get("category"), "Tin")
+        rows.append(({"COST": "Tiết kiệm chi phí", "SPACE": "Không gian rộng", "AMENITIES": "Tiện nghi sinh hoạt"}[choice["focus"]],
+            f"[{noun} {scope.index(identifier)+1}](/rent/{identifier})", " và ".join(reason_text(r) for r in choice["reasons"])))
+    # The reusable renderer escapes links, so insert only server-generated, verified internal links after escaping.
+    if not rows:
+        return ""
+    from homespace_ai.application.listing_table import _cell
+    return "| Nếu bạn ưu tiên | Có thể cân nhắc | Điểm khác biệt |\n| --- | --- | --- |\n" + "\n".join(
+        "| " + a + " | " + b + " | " + _cell(c, 300) + " |" for a,b,c in rows)
 
 
 def _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, extra, allow_at_ceiling):
