@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 import structlog
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from homespace_ai.application import appointment_context as ctx
 from homespace_ai.application.appointment_context import (
@@ -31,6 +31,7 @@ from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.clients.listing_tool_planner import ToolPlan
 from homespace_ai.core.config import Settings
 from homespace_ai.tools.appointments import AppointmentToolError, AppointmentTools, normalize
+from homespace_ai.tools.listings import ListingToolError, ListingTools
 
 logger = structlog.get_logger(__name__)
 
@@ -201,13 +202,14 @@ class AppointmentAsk:
     def __init__(self, settings: Settings, generative_client: BaseGenerativeClient | None,
                  gateway: GatewayApiClient | None, request: Request, *, is_guest: bool = False,
                  rag: RagCallable | None = None, tools: Any = None, planner: Any = None,
-                 today: Callable[[], date] | None = None) -> None:
+                 today: Callable[[], date] | None = None, listing_tools: Any = None) -> None:
         self.settings = settings
         self.generative_client = generative_client
         self.is_guest = is_guest
         self.rag = rag
         self.tools = tools or AppointmentTools(gateway, request, is_guest=is_guest)  # type: ignore[arg-type]
         self.planner = planner or AppointmentToolPlanner(settings)
+        self.listing_tools = listing_tools or ListingTools(gateway, request)  # type: ignore[arg-type]
         self.today = today or (lambda: datetime.now(_VN).date())  # real Vietnam clock, never billing time
 
     # ------------------------------------------------------------------ entry point
@@ -222,13 +224,25 @@ class AppointmentAsk:
             return None
         context, _ = last_context(history)
         scope = listing_scope(history)
-        if self.is_guest:
+        if self.is_guest and route.kind != "LISTING_SCHEDULE":
             return self._login_required(request_id)
         try:
-            return await asyncio.wait_for(self._run(question, route, context, scope, request_id),
-                                          TOTAL_TIMEOUT_SECONDS)
+            references = ctx.listing_references(history)
+            result = await asyncio.wait_for(self._run(question, route, context, scope, request_id, references),
+                                            TOTAL_TIMEOUT_SECONDS)
+            if references and result.listing_context:
+                result.listing_context = {**references, **result.listing_context}
+            if route.kind in {"LISTING_SCHEDULE", "AVAILABILITY"} and len(result.listing_ids) == 1:
+                result.listing_context["viewingListingId"] = result.listing_ids[0]
+            return result
         except asyncio.TimeoutError:
             logger.warning("appointment_request_timeout", request_id=request_id)
+            if route.kind == "LISTING_SCHEDULE":
+                result = self._result(
+                    "Mình chưa đọc được lịch tiếp khách lúc này. Bạn thử lại hoặc xem trong trang chi tiết tin nhé.",
+                    "TOOL_UNAVAILABLE", request_id, scope=scope)
+                result.data_sources = ["CORE_LISTING"]
+                return result
             return self._tool_unavailable(request_id, context, scope)
         except AppointmentToolError as error:
             logger.warning("appointment_tool_failed", request_id=request_id, kind=error.kind,
@@ -250,20 +264,23 @@ class AppointmentAsk:
     # ------------------------------------------------------------------ orchestration
 
     async def _run(self, question: str, route: Route, context: dict[str, Any] | None, scope: list[str],
-                   request_id: str) -> AskResult:
+                   request_id: str, references: dict[str, Any] | None = None) -> AskResult:
         folded = fold(question)
         budget = _Budget()
-        result = await self._dispatch(question, folded, route, context, scope, budget, request_id)
-        if route.kind == "APPOINTMENT_AND_RAG" and self.rag is not None and result.status in {"ANSWERED", "NO_RESULTS"}:
+        result = await self._dispatch(question, folded, route, context, scope, budget, request_id, references)
+        if (route.kind == "APPOINTMENT_AND_RAG" or route.include_guidance) and self.rag is not None and result.status in {"ANSWERED", "NO_RESULTS"}:
             return await self._combine(question, route, result, request_id)
         return result
 
     async def _dispatch(self, question: str, folded: str, route: Route, context: dict[str, Any] | None,
-                        scope: list[str], budget: _Budget, request_id: str) -> AskResult:
+                        scope: list[str], budget: _Budget, request_id: str,
+                        references: dict[str, Any] | None = None) -> AskResult:
+        if route.kind == "LISTING_SCHEDULE":
+            return await self._viewing_schedule(question, scope, references, request_id)
         if route.kind == "AVAILABILITY" or (route.action == "BOOK" and scope and (
                 ctx.LISTING_REF.search(folded) or ctx.LISTING_WORD_REF.search(folded)
                 or ctx.LISTING_DEMONSTRATIVE.search(folded))):
-            return await self._availability(question, folded, route, scope, context, budget, request_id)
+            return await self._availability(question, folded, route, scope, context, budget, request_id, references)
         if route.action == "BOOK":
             return self._book_guidance(request_id, context, scope)
         if route.action:
@@ -586,9 +603,53 @@ class AppointmentAsk:
 
     # ------------------------------------------------------------------ availability
 
+    async def _viewing_schedule(self, question: str, scope: list[str], references: dict[str, Any] | None,
+                                request_id: str) -> AskResult:
+        listing_id, out_of_range, ambiguous = resolve_listing(question, scope, references)
+        group = bool(re.search(r"\b(?:cac|nhung) (?:phong|can|nha|tin)\b", fold(question)))
+        if out_of_range or ((ambiguous or not listing_id) and not group):
+            return self._result(
+                "Bạn muốn xem lịch tiếp khách của phòng nào trong danh sách (ví dụ “Phòng 2”)?",
+                "NEEDS_CLARIFICATION", request_id, scope=scope)
+        ids = scope[:MAX_CARDS] if group else [listing_id]
+        listings = []
+        try:
+            for item_id in ids:
+                listings.append(await self.listing_tools.detail(item_id))
+        except (ListingToolError, HTTPException) as error:
+            # A missing/unpublished listing is never evidence that it has no reception hours.
+            result = self._result(
+                "Mình chưa đọc được lịch tiếp khách của tin này. Bạn thử lại hoặc xem trong trang chi tiết tin nhé.",
+                "NOT_FOUND" if error.status_code == 404 else "TOOL_UNAVAILABLE", request_id, scope=scope)
+            result.data_sources = ["CORE_LISTING"]
+            return result
+        # The listing publishes periods, not exact bookable hours. Core supplies exact slots
+        # only when the customer chooses a day; do not hard-code a second timetable here.
+        slots = {"MORNING": "Buổi sáng", "AFTERNOON": "Buổi chiều", "EVENING": "Buổi tối"}
+        columns = ["Lịch tiếp khách"] + [f"Phòng {scope.index(item_id) + 1}" for item_id in ids]
+        rows = [
+            ("Ngày trong tuần", [", ".join(label for key, label in zip(WEEKDAY_ENUM, WEEKDAYS_VI)
+                                         if key in (item.get("viewingDays") or [])) or "Tin chưa cung cấp" for item in listings]),
+            ("Khung giờ", ["; ".join(label for key, label in slots.items()
+                                      if key in (item.get("viewingSlots") or [])) or "Tin chưa cung cấp" for item in listings]),
+        ]
+        intro = "Lịch tiếp khách được chủ nhà công bố cho phòng bạn đang quan tâm:"
+        if group and len(scope) > MAX_CARDS:
+            intro = f"Mình hiển thị lịch tiếp khách của {MAX_CARDS} phòng đầu; bạn có thể hỏi số phòng khác trong danh sách."
+        result = self._result(
+            intro + "\n\n" +
+            markdown_table(columns, [(label, *values) for label, values in rows]) +
+            "\n\nBạn muốn đi xem vào ngày nào? Mình sẽ kiểm tra khung giờ có thể gửi yêu cầu của ngày đó.",
+            "ANSWERED", request_id, scope=scope)
+        result.listing_ids = ids
+        result.data_sources = ["CORE_LISTING"]
+        result.answer_context = {"intent": "VIEWING_SCHEDULE"}
+        return result
+
     async def _availability(self, question: str, folded: str, route: Route, scope: list[str],
-                            context: dict[str, Any] | None, budget: _Budget, request_id: str) -> AskResult:
-        listing_id, out_of_range, ambiguous = resolve_listing(question, scope)
+                            context: dict[str, Any] | None, budget: _Budget, request_id: str,
+                            references: dict[str, Any] | None = None) -> AskResult:
+        listing_id, out_of_range, ambiguous = resolve_listing(question, scope, references)
         if out_of_range:
             return self._result(f"Danh sách tin vừa rồi chỉ có {len(scope)} tin. Bạn cho mình đúng số thứ tự trong danh sách "
                                 "nhé.", "NEEDS_CLARIFICATION", request_id, context=context, scope=scope)
@@ -1000,7 +1061,8 @@ class AppointmentAsk:
         usable = guidance is not None and guidance.status == "ANSWERED" and bool(guidance.citations)
         general = (guidance.answer.strip() if usable else
                    "Hiện tài liệu HomeSpace chưa có hướng dẫn chung phù hợp cho nội dung này.")
-        result.answer = (f"**Thông tin lịch hẹn của bạn**\n\n{result.answer}\n\n"
+        heading = "Khung giờ xem phòng bạn quan tâm" if route.kind == "AVAILABILITY" else "Thông tin lịch hẹn của bạn"
+        result.answer = (f"**{heading}**\n\n{result.answer}\n\n"
                          f"**Hướng dẫn chung từ tài liệu HomeSpace** (không phải dữ liệu riêng của bạn)\n\n{general}")
         result.citations = guidance.citations if usable else []
         result.data_sources = [SOURCE, "RAG"] if usable else [SOURCE]

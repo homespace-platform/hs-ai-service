@@ -632,7 +632,8 @@ def test_availability_after_a_listing_result_uses_the_stored_scope_and_core_date
     assert "| 14:00–14:30 | Có thể gửi yêu cầu |" in result.answer and "09:00" not in result.answer  # 'chiều' filter
     assert "chưa phải lịch đã được giữ chỗ" in result.answer and "không có nghĩa là khung giờ đã kín" in result.answer
     assert "đã kín" not in result.answer.replace("không có nghĩa là khung giờ đã kín", "")
-    assert result.listing_ids == [L2] and result.listing_context == {"version": 1, "listingIds": [L1, L2, L3]}
+    assert result.listing_ids == [L2] and result.listing_context == {
+        "version": 1, "listingIds": [L1, L2, L3], "viewingListingId": L2}
     assert result.listing_positions == {L2: 2} and result.appointment_cards == []
     assert no_raw_values(result.answer)
 

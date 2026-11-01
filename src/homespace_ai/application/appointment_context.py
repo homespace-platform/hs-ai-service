@@ -46,6 +46,16 @@ TIME = re.compile(
 GENERIC = re.compile(
     r"nhu the nao|the nao|\bcach\b|lam sao|lam the nao|quy trinh|thu tuc|huong dan|\bla gi\b|cac buoc|"
     r"can (?:nhung )?gi\b|dieu kien|ra sao|\bchinh sach\b|mat (?:bao lau|may)")
+BOOKING_PROCEDURE = re.compile(
+    r"nhu the nao|the nao|\bcach\b|lam sao|lam the nao|quy trinh|thu tuc|huong dan|cac buoc|"
+    r"can (?:phai )?lam (?:nhung )?gi|can (?:chuan bi |nhung )?gi|bat dau tu dau")
+BOOKING = re.compile(r"\bdat lich\b|\bhen xem\b|\bdang ky (?:di )?xem\b")
+VIEWING_SCHEDULE = re.compile(
+    r"\blich (?:co the )?(?:di )?xem\b|\blich (?:tiep khach|nhan khach)\b|"
+    r"\b(?:ngay|gio|khung gio) (?:co the )?(?:di )?xem\b|\b(?:ngay|gio) (?:nao )?tiep khach\b|"
+    r"\b(?:nhan|tiep) khach (?:vao )?(?:ngay|gio) nao\b")
+RECOMMENDED_LISTING = re.compile(
+    r"\b(?:phong|can ho|can|nha|tin) (?:duoc |ban )?(?:goi y|de xuat|uu tien|khuyen|chon)\b")
 NEW_LISTING_SEARCH = re.compile(r"^\s*(?:tim|kiem|goi y|cho (?:toi|minh) xem)\b")
 
 ORDINAL_DIGIT = re.compile(r"\b(?:lich|buoi|yeu cau|cai)\s*(?:thu\s*|so\s*)?(\d{1,2})\b")
@@ -89,9 +99,10 @@ _THIRD_PARTY = re.compile(r"\b(?:ai|chu nha|khach|nguoi thue|ben kia)\b")
 
 @dataclass(frozen=True)
 class Route:
-    kind: str  # APPOINTMENT | APPOINTMENT_AND_RAG | AVAILABILITY
+    kind: str  # APPOINTMENT | APPOINTMENT_AND_RAG | AVAILABILITY | LISTING_SCHEDULE
     follow_up: bool = False
     action: str | None = None
+    include_guidance: bool = False
 
 
 def detect_action(folded: str) -> str | None:
@@ -196,6 +207,35 @@ def listing_scope(history: History) -> list[str]:
     return current_scope(history)
 
 
+def listing_references(history: History) -> dict[str, Any]:
+    """Only the current assistant scope may supply a recommendation/selected listing reference."""
+    scope = listing_scope(history)
+    if not scope:
+        return {}
+    for message in reversed(history):
+        if message.get("role") != "assistant":
+            continue
+        context = message.get("listingContext")
+        if isinstance(context, dict) and context.get("listingIds") == scope:
+            return context
+        if message.get("status") not in {"TOOL_UNAVAILABLE", "GENERATION_UNAVAILABLE"}:
+            break
+    return {}
+
+
+def is_booking_guidance(question: str) -> bool:
+    """A how-to is knowledge, even with 'tôi muốn' or 'phòng này'; no account lookup is needed."""
+    text = fold(question)
+    if not (BOOKING.search(text) and BOOKING_PROCEDURE.search(text)):
+        return False
+    # A mixed question still needs live data before its procedural part is answered by RAG.
+    if re.search(r"\bxem (?:nha |phong |can )?duoc(?:\s+(?:khong|chua|luc|vao|thu|ngay|hom|sang|chieu|toi|mai|cuoi|tuan|\d)|$)|\bco the (?:di )?xem\b|"
+                 r"\bcon (?:trong|slot|khung gio)\b|\b(?:co|con) (?:slot|khung gio)\b|"
+                 r"\b(?:slot|khung gio) (?:nao|con trong)\b", text):
+        return False
+    return not re.search(r"\b(?:lich (?:hen )?(?:cua toi|cua minh|da dat)|(?:toi|minh) da dat)\b", text)
+
+
 def _is_availability_question(folded: str) -> bool:
     return bool(AVAILABILITY.search(folded))
 
@@ -204,11 +244,23 @@ def _has_listing_reference(folded: str) -> bool:
     return bool(LISTING_REF.search(folded) or LISTING_WORD_REF.search(folded) or LISTING_DEMONSTRATIVE.search(folded))
 
 
+def _viewing_day_followup(folded: str) -> bool:
+    """Accept short day/time replies to a selected listing's schedule, not unrelated dated topics."""
+    if not TIME.search(folded):
+        return False
+    remainder = DATE_TEXT.sub("", TIME.sub("", folded))
+    remainder = re.sub(r"\b(?:ngay|tuan|nay|sau|toi|vao|luc|sang|chieu|buoi|gio|xem|di|duoc|khong|"
+                       r"nhe|nha|a|vay|the|con|minh|muon|co|the|cho|phong|can)\b|[\d\s?!.:,/-]", "", remainder)
+    return not remainder
+
+
 def classify(question: str, history: History) -> Route | None:
     """Decide whether the caller's own viewing appointments (or a listing's viewing availability) are involved.
     None leaves the question to Contract/Listing/RAG."""
     folded = fold(question)
     if not folded:
+        return None
+    if is_booking_guidance(question):
         return None
     context, immediate = last_context(history)
     scope = listing_scope(history)
@@ -224,12 +276,23 @@ def classify(question: str, history: History) -> Route | None:
         action = None  # 'Đặt lịch xem nhà như thế nào?' is a how-to question for RAG, not a request to act
     if NEW_LISTING_SEARCH.search(folded) and not PERSONAL.search(folded) and not action:
         return None
+    # Listing reception hours are not the caller's existing appointments. An overview has no date.
+    listing_reference = _has_listing_reference(folded) or bool(RECOMMENDED_LISTING.search(folded))
+    viewing_schedule = bool(VIEWING_SCHEDULE.search(folded) or
+                            (listing_reference and re.search(r"\blich\b", folded) and not action)) and not re.search(
+        r"\b(?:da dat|da dang ky|cua toi|cua minh|dang cho|xac nhan|bi huy)\b", folded)
+    if scope and viewing_schedule and not TIME.search(strip_listing_ordinals(folded)):
+        return Route("LISTING_SCHEDULE", follow_up=True)
+    references = listing_references(history)
+    if references.get("viewingListingId") in scope and _viewing_day_followup(folded) and not (context and immediate):
+        return Route("AVAILABILITY", follow_up=True)
     # ---- availability of a listing the user was just shown / just named
     if _is_availability_question(folded) and scope and not (
-            context and immediate and re.search(r"\blich\b", folded) and not _has_listing_reference(folded)):
-        if _has_listing_reference(folded) or len(scope) == 1 or TIME.search(folded):
-            if not (GENERIC.search(folded) and not _has_listing_reference(folded)):
-                return Route("AVAILABILITY", follow_up=True, action="BOOK" if action == "BOOK" else None)
+            context and immediate and re.search(r"\blich\b", folded) and not listing_reference):
+        if listing_reference or len(scope) == 1 or TIME.search(folded):
+            if not (GENERIC.search(folded) and not listing_reference):
+                return Route("AVAILABILITY", follow_up=True, action="BOOK" if action == "BOOK" else None,
+                             include_guidance=bool(BOOKING.search(folded) and BOOKING_PROCEDURE.search(folded)))
     # ---- follow-up on an appointment answer that is the latest assistant message
     if context and immediate and context["appointmentIds"] is not None:
         listing_only = _has_listing_reference(folded) and not appointment_words
@@ -285,7 +348,7 @@ def resolve_reference(question: str, context: dict[str, Any] | None) -> Referenc
     return Reference(ambiguous=True)
 
 
-def resolve_listing(question: str, scope: list[str]) -> tuple[str | None, bool, bool]:
+def resolve_listing(question: str, scope: list[str], context: dict[str, Any] | None = None) -> tuple[str | None, bool, bool]:
     """(listingId, out_of_range, ambiguous) from the last listing scope the application stored."""
     if not scope:
         return None, False, False
@@ -300,6 +363,12 @@ def resolve_listing(question: str, scope: list[str]) -> tuple[str | None, bool, 
         number = len(scope) if number == -1 else number
     if number is not None:
         return (scope[number - 1], False, False) if 1 <= number <= len(scope) else (None, True, False)
+    if RECOMMENDED_LISTING.search(folded):
+        recommended = ((context or {}).get("mainRecommendation") or {}).get("listingId")
+        return (recommended, False, False) if recommended in scope else (None, False, True)
+    selected = (context or {}).get("viewingListingId")
+    if selected in scope and (LISTING_DEMONSTRATIVE.search(folded) or _viewing_day_followup(folded)):
+        return selected, False, False
     if len(scope) == 1:
         return scope[0], False, False
     return None, False, True

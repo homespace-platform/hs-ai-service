@@ -107,8 +107,10 @@ def finish(result, question, history, domain=None):
     elif domain == "APPOINTMENT":
         cards = result.appointment_cards
         text = fold_text(question)
-        if intent == "AVAILABILITY":
+        if intent in {"AVAILABILITY", "VIEWING_SCHEDULE"}:
             add("BOOK_GUIDE", "Tôi muốn đặt lịch xem phòng này, cần làm gì?")
+        if intent == "VIEWING_SCHEDULE":
+            add("AVAILABILITY", "Phòng này ngày mai xem được không?", bool(context.get("viewingListingId")))
         if len(cards) > 1:
             add("SELECT", "Cho tôi xem chi tiết lịch hẹn thứ nhất.")
         if len(cards) == 1:
@@ -117,7 +119,7 @@ def finish(result, question, history, domain=None):
             add("RESCHEDULE", "Giờ hiện tại và giờ xin đổi của lịch này khác nhau thế nào?", bool(card.get("rescheduleRequested")) and "doi" not in text)
             add("STATUS", "Lịch hẹn này đang chờ bên nào phản hồi?", card.get("status") == "PENDING" and "phan hoi" not in text and "xac nhan chua" not in text)
             add("GUIDE", "Với trạng thái hiện tại, tôi có thể thao tác gì với lịch này?", card.get("status") in {"PENDING", "CONFIRMED"} and "thao tac" not in text)
-        add("LIST", "Tôi còn lịch xem nhà nào sắp tới?", "sap toi" not in text and intent != "AVAILABILITY")
+        add("LIST", "Tôi còn lịch xem nhà nào sắp tới?", "sap toi" not in text and intent not in {"AVAILABILITY", "VIEWING_SCHEDULE"})
     elif domain == "RENTAL_REVIEW":
         add("REVIEW_REASONS", "Vì sao hồ sơ này được ưu tiên hơn các hồ sơ còn lại?", "vi sao" not in fold_text(question))
         add("REVIEW_COST", "Các hồ sơ này khác nhau thế nào về thời hạn thuê và khoản thanh toán?")

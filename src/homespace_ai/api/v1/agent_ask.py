@@ -109,6 +109,17 @@ async def generate_answer(
     )
     result = None
     is_guest = user.user_id.startswith("guest:")
+    if appointment_context.is_booking_guidance(question):
+        # Asking how to book is a knowledge question, even after a room recommendation or an
+        # empty personal-appointment result. Never require a day, KYC or an account lookup here.
+        result = await use_cases.ask(
+            question=question, user_role="USER", user_name=user.name, locale="vi-VN",
+            conversation_id=conversation_id, request_id=request_id)
+        references = appointment_context.listing_references(history)
+        if references:
+            result.listing_context = dict(references)
+        result.data_sources = ["RAG"]
+        return finish(result, question, history, "KNOWLEDGE")
     if question.strip().lower().strip(" .!?…") not in GREETING_TEXTS and appointment_context.classify(question, history) is not None:
         # Viewing appointments come first: the old personal-data regex in RAG must never answer these, and the
         # Contract module must not capture ordinary appointment words.
