@@ -467,6 +467,11 @@ class ListingAsk:
             "context": update["context"], "sort": update["sort"], "keyword": update["keyword"],
             "unsupported": update["unsupported"], "targetRadiusMeters": update["placeRadiusMeters"],
         }, question)
+        if update.get("locationClarification"):
+            merged["pending"] = self._pending("LOCATION", update["locationClarification"])
+            answer = self._ask(request_id, scope, merged, update["locationClarification"])
+            answer.status = "NEEDS_CLARIFICATION"
+            return answer
         if update.get("location"):
             try:
                 merged["location"] = self._resolve_location(update["location"], question, history)
@@ -575,7 +580,7 @@ class ListingAsk:
             if missing:
                 pending = deepcopy(criteria)
                 pending["pending"] = {**self._pending("INTAKE", ""), "fields": missing[:2]}
-                answer = self._ask(request_id, scope, pending, guidance.intake_question(missing))
+                answer = self._ask(request_id, scope, pending, guidance.intake_question(missing, criteria))
                 answer.status = "NEEDS_CLARIFICATION"
                 answer.suggested_questions = guidance.suggested_questions(pending)
                 return answer
@@ -833,7 +838,7 @@ class ListingAsk:
             if getattr(self, "_require_search_basics", True):
                 needed = guidance.missing_basics(kept)
                 if needed:
-                    text = guidance.intake_question(needed)
+                    text = guidance.intake_question(needed, kept)
                     kept["pending"] = {**self._pending("INTAKE", text), "fields": needed[:2]}
                     result = self._ask(request_id, scope, kept, text)
                     result.status = "NEEDS_CLARIFICATION"

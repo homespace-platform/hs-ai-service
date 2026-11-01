@@ -1,0 +1,184 @@
+{
+  "tomtomRequests": 0,
+  "cases": [
+    {
+      "question": "Tìm phòng trọ đường Phan Văn Trị cho 3 người giá dưới 4 triệu",
+      "tool": "search_listings",
+      "missing": [
+        "LOCATION"
+      ],
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 3
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "4000000"
+            },
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "street",
+              "op": "contains",
+              "value": "Phan Văn Trị"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 3
+        },
+        "evidence": true
+      }
+    },
+    {
+      "question": "Ở TP.HCM nhé",
+      "tool": "search_listings",
+      "missing": [],
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 3
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "4000000"
+            },
+            {
+              "field": "street",
+              "op": "contains",
+              "value": "Phan Văn Trị"
+            },
+            {
+              "field": "city_id",
+              "op": "eq",
+              "value": "12"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 3
+        },
+        "evidence": true
+      },
+      "total": 2,
+      "returned": 2
+    },
+    {
+      "question": "Tăng giá lên dưới 5 triệu, vẫn cho 3 người",
+      "tool": "search_listings",
+      "missing": [],
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 3
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "5000000"
+            },
+            {
+              "field": "street",
+              "op": "contains",
+              "value": "Phan Văn Trị"
+            },
+            {
+              "field": "city_id",
+              "op": "eq",
+              "value": "12"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 3
+        },
+        "evidence": true
+      },
+      "total": 7,
+      "returned": 4
+    },
+    {
+      "question": "Cho 2 người thôi, giá dưới 4 triệu",
+      "tool": "search_listings",
+      "missing": [],
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 2
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "4000000"
+            },
+            {
+              "field": "street",
+              "op": "contains",
+              "value": "Phan Văn Trị"
+            },
+            {
+              "field": "city_id",
+              "op": "eq",
+              "value": "12"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 2
+        },
+        "evidence": true
+      },
+      "total": 17,
+      "returned": 4
+    }
+  ]
+}

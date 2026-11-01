@@ -153,6 +153,12 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "Elevator=amenity.ELEVATOR; private WC=room.restroom_type PRIVATE; free hours=room.access_hours_type FLEXIBLE; private balcony=room.balcony_type PRIVATE; "
         "gym in building=amenity.GYM, gym nearby is a nearby need. Pets: policy.petPolicy.value ALLOWED (APPROVAL_REQUIRED is not certain permission; 'có thể xin phép' may use in [ALLOWED, APPROVAL_REQUIRED]).",
         "Location: ward/city names exactly as said (no guessed codes); never the account address or the site header. "
+        "A street is NOT a ward/city: 'đường Phan Văn Trị' becomes field street, op contains, value 'Phan Văn Trị'. "
+        "Only separately stated administrative names go in location. For 'Tìm phòng trọ đường Phan Văn Trị cho 3 người giá dưới 4 triệu', "
+        "call search_listings with street contains Phan Văn Trị, category ROOM, occupancy.max_occupants gte 3, "
+        "rent.monthly_amount lt 4000000 and context.occupants 3; leave location empty if no city/ward was stated. "
+        "The application will ask only for the missing city, retaining the street. A short city reply or budget/count change "
+        "must keep the street in CURRENT_STATE. Never pass a street as place.query or replace it with a broad keyword. "
         "For rental searches, collect ALL known criteria with search_listings even if location/budget/category/occupants are missing; the application will ask up to two missing basics before calling Core search. Never invent a 'toàn quốc' search. "
         "Never invent category, budget or occupant count. A short reply answers the pending intake slot. Persona does not imply numeric requirements. "
         "Keep explicitly named school/workplace in renterProfile as exact customer text, not automatically a distance filter. Profile alone never implies cheap rent, children or a school. "

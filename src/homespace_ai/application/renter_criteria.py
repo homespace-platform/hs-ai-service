@@ -16,6 +16,7 @@ from homespace_ai.application.renter_dates import resolve as resolve_dates
 from homespace_ai.application.renter_search_state import CONTEXT_KEYS, categories as state_categories
 from homespace_ai.application.vietnamese_text import fold_text
 from homespace_ai.application.renter_guidance import profile_update, explicit_open_slots
+from homespace_ai.application.listing_street import street_mentions, administrative_text
 
 # Nationwide browse was removed from web/Core; chat search always needs a place.
 HYPOTHETICAL = re.compile(r"\b(?:neu|gia su|gia nhu)\b.{0,40}\b(?:thi sao|thi the nao|thi co|the nao)\b")
@@ -352,6 +353,30 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
             location[slot] = value
     constraints = kept
 
+    streets = street_mentions(question)
+    location_clarification = None
+    on_street = len(streets) == 1 and not re.search(
+        r"\b(?:gan|quanh|sat|canh|doi dien|cach)\s+$", fold_text(question[:streets[0][1]]))
+    if on_street:
+        street = streets[0][0]
+        # A model may mistake 'Phan Văn Trị' for a ward or forget the street entirely.
+        # Use the customer's explicit street phrase and resolve only administrative text outside it.
+        from homespace_ai.application.renter_guidance import explicit_location
+        from homespace_ai.application.listing_location import LocationClarification
+        try:
+            explicit = explicit_location(administrative_text(question), []) or {}
+        except LocationClarification as error:
+            explicit = {}
+            location_clarification = str(error)
+        location = {"ward": explicit.get("ward"), "city": explicit.get("city")}
+        constraints = [c for c in constraints if c["field"] != "street" and not (
+            c["field"] in {"title", "description", "display"} and admin_key(str(c["value"])) in {
+                admin_key(street), "duong " + admin_key(street)})]
+        constraints.append({"field": "street", "op": "contains", "value": street, "strength": "hard"})
+        if any(c.get("field") == "street" and fold_text(str(c.get("value"))) != fold_text(street)
+               for c in (state or {}).get("constraints", [])):
+            remove.append("street")
+
     # Stored street names vary in prefix and case ("Đường Lê Lợi", "Lê Lợi").
     for c in constraints:
         if c["field"] == "street" and c["op"] == "eq" and isinstance(c["value"], str):
@@ -372,6 +397,8 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
 
     place = args.get("place") if isinstance(args.get("place"), dict) else {}
     place_text = place.get("query") if isinstance(place.get("query"), str) and place["query"].strip() else None
+    if on_street and place_text and _grounded(place_text, fold_text(streets[0][0])) and not NEAR_WORDS.search(text):
+        place_text = None  # 'ở đường ...' does not ask for a POI/radius lookup.
     if place_text and admin_short(place_text) in admin_names():
         # "Hạnh Thông" / "An Nhơn" is an area, not a landmark to measure distance from.
         if not isinstance(location.get("ward"), str) and not isinstance(location.get("city"), str):
@@ -381,6 +408,13 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         # A landmark the customer never named (e.g. a school sharing the ward's name) is not a criterion.
         place_text = None
     keyword = args.get("keyword") if isinstance(args.get("keyword"), str) and args["keyword"].strip() else None
+    if on_street:
+        street_keys = {admin_key(streets[0][0]), "duong " + admin_key(streets[0][0])}
+        if keyword and admin_key(keyword) in street_keys:
+            keyword = None
+        previous_streets = {admin_key(str(c["value"])) for c in (state or {}).get("constraints", []) if c["field"] == "street"}
+        if admin_key(str((state or {}).get("keyword") or "")) in street_keys | previous_streets:
+            remove.append("keyword")
     from homespace_ai.application.renter_guidance import profile_keyword
     profile = profile_update(question, args.get("renterProfile"))
     if profile_keyword(keyword, question, profile):
@@ -422,6 +456,7 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         "constraints": validated, "alternatives": validated_alternatives, "removeFields": remove,
         "location": {"ward": location.get("ward"), "city": location.get("city")}
         if isinstance(location.get("ward"), str) or isinstance(location.get("city"), str) else None,
+        "locationClarification": location_clarification,
         "nationwide": False,
         "placeQuery": place_text, "placeRadiusMeters": place.get("radiusMeters") if type(place.get("radiusMeters")) is int else None,
         "nearby": nearby, "context": context, "sort": sort, "keyword": keyword,

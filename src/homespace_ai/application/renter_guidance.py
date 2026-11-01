@@ -58,6 +58,8 @@ def help_answer(question: str) -> tuple[str, str] | None:
 def explicit_location(question: str, history: list[dict]) -> dict | None:
     """Keep explicit administrative names even when the model only asks a follow-up."""
     from homespace_ai.application.listing_location import catalog, key, mentioned, resolve_location_filters, LocationClarification
+    from homespace_ai.application.listing_street import administrative_text
+    question = administrative_text(question)
     fields = {"city_id": "TEXT", "ward_id": "TEXT"}
     resolved = resolve_location_filters([], question, history, fields)
     cities, wards, _ = catalog()
@@ -184,11 +186,15 @@ def missing_basics(state: dict) -> list[str]:
     return missing
 
 
-def intake_question(missing: list[str]) -> str:
+def intake_question(missing: list[str], state: dict | None = None) -> str:
     questions = {"LOCATION": "Bạn muốn thuê ở khu vực nào, hoặc gần trường/nơi làm việc nào?",
                  "BUDGET": "Ngân sách tối đa mỗi tháng của bạn là bao nhiêu: riêng tiền thuê hay gồm cả các khoản phí?",
                  "CATEGORY": "Bạn muốn tìm phòng trọ, căn hộ hay nhà nguyên căn? Nếu chưa chốt loại hình, bạn cứ nói nhé.",
                  "OCCUPANTS": "Bạn dự định ở mấy người để mình chọn phòng đủ sức chứa?"}
+    street = next((c.get("value") for c in (state or {}).get("constraints", [])
+                   if c.get("field") == "street" and c.get("strength") == "hard"), None)
+    if street:
+        questions["LOCATION"] = f"Bạn muốn tìm trên đường {street} ở tỉnh/thành phố nào? Mình đã giữ tên đường và các tiêu chí bạn đưa ra."
     return " ".join(questions[slot] for slot in missing[:2])
 
 

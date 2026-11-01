@@ -5,6 +5,7 @@ import json
 import re
 
 from homespace_ai.application.vietnamese_text import fold_text
+from homespace_ai.application.listing_street import administrative_text
 
 
 class LocationClarification(ValueError):
@@ -41,7 +42,7 @@ def resolve_location_filters(filters: list[dict], question: str, history: list[d
     requested = [item for item in filters if item['field'] in geo]
     current = key(question)
     # A city name inside a landmark is not a separately requested administrative restriction.
-    location_text = key(re.sub(r'\b(?:gan|canh|sat|quanh)\b[^,;?!\n]*', ' ', fold_text(question)))
+    location_text = key(re.sub(r'\b(?:gan|canh|sat|quanh)\b[^,;?!\n]*', ' ', fold_text(administrative_text(question))))
     explicit_cities = {code for alias, code in aliases.items() if mentioned(alias, location_text)}
     # A district is not the new ward with a similar name. No unverified legacy mapping.
     if re.search(r'\b(?:quan(?!\s+(?:ly|tam|trong)\b)|huyen)\s+\S+', current) and not re.search(r'\b(?:phuong|xa|dac khu)\s+\S+', current):
