@@ -195,6 +195,11 @@ class ConversationRepository:
         )
         return bool(result.deleted_count)
 
+    async def delete_all_for_user(self, owner_id: str) -> int:
+        """Permanently remove owned documents, including embedded messages and search memory."""
+        result = await self.collection.delete_many({"ownerId": owner_id})
+        return result.deleted_count
+
 
 def conversation_search_state(conversation: dict[str, Any]) -> dict[str, Any] | None:
     """Conversation-level criteria first; else the newest message state over the full transcript."""

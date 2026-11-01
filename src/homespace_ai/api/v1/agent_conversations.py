@@ -58,6 +58,17 @@ async def create_conversation(
     return ApiResponse(result=detail(document))
 
 
+@router.delete("", status_code=204)
+async def delete_all_conversations(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+    repository: ConversationRepository = Depends(get_conversation_repository),
+) -> None:
+    """Hard-delete this account's AI history. Identity always comes from the trusted Gateway."""
+    await repository.delete_all_for_user(user.user_id)
+    response.headers["Cache-Control"] = "no-store"
+
+
 @router.post("/claim-guest", response_model=ApiResponse[ConversationDetail])
 async def claim_guest(body: GuestStateRequest, request: Request, response: Response,
                       user: UserContext = Depends(get_current_user),

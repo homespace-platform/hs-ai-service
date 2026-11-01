@@ -115,6 +115,51 @@ async def test_mongo_history_is_private_persistent_and_deletable(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_real_mongo_bulk_delete_removes_messages_memory_and_pins_only_for_current_owner():
+    if os.getenv("HS_RUN_MONGO_INTEGRATION") != "1":
+        pytest.skip("Set HS_RUN_MONGO_INTEGRATION=1 for real Mongo verification.")
+    settings = get_settings()
+    repository = ConversationRepository(settings.ai_mongodb_uri)
+    owner, other = "bulk-history-test-" + str(uuid4()), "bulk-history-other-" + str(uuid4())
+    ids = []
+    app.dependency_overrides[get_conversation_repository] = lambda: repository
+    def headers(user_id):
+        return {"X-User-Id": user_id, "X-Internal-Secret": settings.gateway_internal_secret}
+    try:
+        for user in (owner, owner, other):
+            document = await repository.create(user)
+            ids.append(document["_id"])
+            await repository.append_message(user, document["_id"], role="user", content="Tìm phòng thử nghiệm")
+            await repository.append_message(user, document["_id"], role="assistant", content="Nội dung thử nghiệm",
+                listing_context={"searchState": {"revision": 1, "test": True}}, listing_ids=["test-listing"])
+        await repository.set_pinned(owner, ids[0], True)
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.delete("/agent/conversations", headers=headers(owner))
+            assert response.status_code == 204, response.text
+            assert (await client.get("/agent/conversations", headers=headers(owner))).json()["result"] == []
+            for identifier in ids[:2]:
+                assert (await client.get(f"/agent/conversations/{identifier}", headers=headers(owner))).status_code == 404
+            assert await repository.collection.count_documents({"ownerId": owner}) == 0
+            assert await repository.collection.count_documents({"_id": {"$in": ids[:2]}}) == 0
+            assert len((await repository.get(other, ids[2]))["messages"]) == 2
+            assert (await client.delete("/agent/conversations", headers=headers(owner))).status_code == 204
+        # An in-flight generation cannot recreate a deleted conversation or restore its memory.
+        assert not await repository.append_message(owner, ids[0], role="assistant", content="Late response")
+        assert await repository.collection.count_documents({"ownerId": owner}) == 0
+        reopened = ConversationRepository(settings.ai_mongodb_uri)
+        try:
+            assert await reopened.list_for_user(owner) == []
+            assert await reopened.get(other, ids[2]) is not None
+        finally:
+            await reopened.close()
+    finally:
+        # Remove only UUID-tagged test documents, never existing account histories.
+        await repository.collection.delete_many({"_id": {"$in": ids}, "ownerId": {"$in": [owner, other]}})
+        app.dependency_overrides.pop(get_conversation_repository, None)
+        await repository.close()
+
+
+@pytest.mark.asyncio
 async def test_real_mongo_guest_metadata_only_three_turns_and_account_claim(monkeypatch):
     if os.getenv("HS_RUN_MONGO_INTEGRATION") != "1":
         pytest.skip("Set HS_RUN_MONGO_INTEGRATION=1 for local Mongo verification.")
