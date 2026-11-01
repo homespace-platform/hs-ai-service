@@ -1,0 +1,31 @@
+{
+  "model": "gpt-4.1-mini",
+  "tomtomRequests": 0,
+  "conversationWrites": 0,
+  "cases": [
+    {
+      "question": "Tôi cần tìm phòng trọ ở gần Đại học Công Nghiệp Hồ Chí Minh",
+      "tool": "search_listings",
+      "placeQuery": "Đại học Công Nghiệp Hồ Chí Minh",
+      "passed": true
+    },
+    {
+      "question": "Tìm phòng trọ gần Đại học công nghiệp HCM cho 2 người dưới 4 triệu, cho tôi xem 4 phòng",
+      "tool": "search_listings",
+      "placeQuery": "Đại học công nghiệp HCM",
+      "passed": true
+    },
+    {
+      "question": "Tìm phòng trọ gần Trường Đại Học Công Nghiệp Thành Phố Hồ Chí Minh — 12 Đường Nguyễn Văn Bảo, Hạnh Thông, Hồ Chí Minh cho 3 người dưới 5 triệu",
+      "tool": "search_listings",
+      "placeQuery": "Trường Đại Học Công Nghiệp Thành Phố Hồ Chí Minh — 12 Đường Nguyễn Văn Bảo, Hạnh Thông, Hồ Chí Minh",
+      "passed": true
+    },
+    {
+      "question": "Ngân sách dưới 4 triệu nhé",
+      "tool": "search_listings",
+      "preservedTarget": true,
+      "passed": true
+    }
+  ]
+}

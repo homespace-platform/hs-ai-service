@@ -173,7 +173,7 @@ async def test_t08_legacy_listing_ids_only_conversation_still_reads_references_w
 
 
 @pytest.mark.asyncio
-async def test_t09_named_landmark_uses_target_coordinates_not_title_keyword():
+async def test_t09_named_landmark_uses_resolved_target_id_not_title_keyword():
     target = {"placeId": "11111111-1111-1111-1111-111111111111", "name": "Đại Học Công Nghiệp", "address": "12 Nguyễn Văn Bảo"}
     assistant = make_assistant(search(c("rent.monthly_amount", "lt", "4000000"), place="IUH", keyword="IUH"))
     assistant.tools.places = {"IUH": [target]}

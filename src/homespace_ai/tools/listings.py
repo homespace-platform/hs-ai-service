@@ -2,15 +2,12 @@
 
 import json
 import re
-from functools import lru_cache
-from importlib.resources import files
 from typing import Any
 from math import isfinite
 from uuid import UUID
 
 from fastapi import Request
 
-from homespace_ai.application.vietnamese_text import fold_text
 from homespace_ai.clients.gateway import GatewayApiClient
 from homespace_ai.core.business_properties import nearby_default_radius_m
 from homespace_ai.application.listing_limits import DEFAULT_RESULTS, DEFAULT_MAX_RESULTS, ABSOLUTE_MAX_RESULTS
@@ -36,22 +33,9 @@ V2_RESPONSE_CHECKS = {"MATCH", "NOT_MATCH", "UNKNOWN"}
 SAFE_COVER = re.compile(r"^https://[^\s<>()|\\\"']+$")
 
 
-@lru_cache(maxsize=1)
-def place_aliases() -> dict[str, str]:
-    data = json.loads(files("homespace_ai").joinpath("data/nearby_place_aliases.json").read_text(encoding="utf-8"))
-    if data.get("version") != 1 or not isinstance(data.get("aliases"), dict):
-        raise ValueError("Invalid nearby place alias data")
-    return {fold_text(key): str(value) for key, value in data["aliases"].items()}
-
-
 def place_query(text: str) -> str:
-    """Managed abbreviations ("IUH") become searchable names; Core matches accents-insensitively."""
-    folded = re.sub(r"\s+", " ", fold_text(text)).strip()
-    folded = re.sub(r"^(?:truong|co so)\s+(?=dh\b|dai hoc\b)", "", folded)
-    for alias, name in sorted(place_aliases().items(), key=lambda item: -len(item[0])):
-        if re.search(r"\b" + re.escape(alias) + r"\b", folded):
-            return name
-    return re.sub(r"^(?:trường|cơ sở)\s+(?=đh\b|đại học\b)", "", text.strip(), flags=re.IGNORECASE)[:160]
+    """Keep disambiguating city/campus/address text; Core resolves actual cached names."""
+    return re.sub(r"\s+", " ", text).strip()[:160]
 
 
 class ListingTools:
@@ -305,12 +289,10 @@ class ListingTools:
             query = arguments.get("placeQuery")
             if not isinstance(query, str) or not 2 <= len(query.strip()) <= 160:
                 raise ListingToolError("A specific place or category is required")
-            response = await self.gateway.request("GET", f"{self.base_path}/nearby-places/search", request=self.request,
-                params={"keyword": query.strip()})
-            candidates = self._result(response).get("places", [])
+            candidates = await self.resolve_place(query)
             if len(candidates) != 1:
                 return {"candidates": candidates[:10], "needsClarification": True}
-            nearby["placeId"] = str(UUID(candidates[0]["id"]))
+            nearby["placeId"] = candidates[0]["placeId"]
         return {"arguments": {"filters": arguments.get("filters", []), "sort": arguments.get("sort", "newest"),
                               "limit": arguments.get("limit", 5), "nearby": nearby}}
 

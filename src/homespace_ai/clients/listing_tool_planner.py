@@ -112,7 +112,7 @@ DESCRIPTIONS = {
     "ask_clarification": "Ask the customer for the one or two missing/ambiguous facts that change the result (area, exact campus, conflicting bounds, ambiguous date). Never a persona questionnaire.",
     "get_listing_detail": "Read all current public facts of ONE known displayed listing. Reading facts never changes search criteria.",
     "get_listing_details": "Read several known displayed listings to compare or recommend within that selection.",
-    "get_listing_nearby_places": "Read cached nearby-place evidence for KNOWN displayed listing IDs (no provider scan). Use for which displayed room is nearer a place or has amenities around.",
+    "get_listing_nearby_places": "Compare outside places around ALREADY DISPLAYED listings only. NOT a tool to find new rooms near a named landmark; that uses search_listings with place.query.",
 }
 
 
@@ -184,7 +184,15 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
     ]
     if nearby_enabled:
         rules.append(
-            f"A named school/hospital/workplace/campus goes to place.query exactly as written (IUH, ĐH Công nghiệp); keyword never proves proximity. "
+            "Finding rooms near a named school/hospital/workplace/campus ALWAYS uses search_listings with place.query, "
+            "not get_listing_nearby_places. Core resolves it against stored POIs and inverts ONLY valid stored listing-to-POI links, "
+            "then applies every listing criterion BEFORE count/order/LIMIT. Never expand to unlinked rooms just because their coordinates "
+            "fall inside a geographic circle, and never ask to fetch more POIs for the chat. "
+            "Keep the customer's city, branch/campus and supplied address in place.query, including a standalone place-name/address reply "
+            "to pending TARGET. You may expand a standard abbreviation to its full name, but never invent its ID/coordinates or discard an address. "
+            "No alias list is required for specific institutions. Ambiguous campuses must be clarified from Core candidates. "
+            "A named target is already a location: do not also invent a ward/city or require an administrative location. "
+            "Preserve all prior criteria and target on 'xem thêm' or price/occupant refinements; do not replace the POI with a title keyword. "
             f"Default radius {settings.nearby_default_radius_m} m; honor an explicit radius up to 5000. 'Gần nhất' to that place = sort target_distance. "
             "Generic 'gần siêu thị/bệnh viện/trường đại học' uses nearby.kind (exact type, not the broad group): " + kinds +
             ". SPORTS/gym nearby is not collected: report unknown, never absent. Distances are straight-line; no travel time.")
@@ -235,10 +243,11 @@ class ListingToolPlanner:
             tools.append({"type": "function", "name": "get_listing_details", "description": DESCRIPTIONS["get_listing_details"],
                           "parameters": _object({"listingIds": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": cap}}),
                           "strict": True})
-        if nearby_enabled:
+        known_ids = sorted(set(current_scope(history)) | {value.lower() for value in _UUID.findall(question)})
+        if nearby_enabled and known_ids and ((state or {}).get("pending") or {}).get("type") != "TARGET":
             tools.append({"type": "function", "name": "get_listing_nearby_places", "description": DESCRIPTIONS["get_listing_nearby_places"],
                           "parameters": _object({
-                              "listingIds": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": min(cap, 20)},
+                              "listingIds": {"type": "array", "items": {"type": "string", "enum": known_ids}, "minItems": 1, "maxItems": min(cap, 20)},
                               "radiusMeters": {"type": "integer", "minimum": 100, "maximum": 5000},
                               "groups": {"type": "array", "items": {"type": "string", "enum": NEARBY_GROUPS}},
                               "placeQuery": _nullable({"type": "string", "maxLength": 160})}), "strict": True})
@@ -260,6 +269,9 @@ class ListingToolPlanner:
                 return clarification_from_text(text)
             if len(calls) != 1:
                 raise ValueError("Expected one tool call")
+            emitted = "search_listings" if calls[0]["name"] == "find_listings_near_place" else calls[0]["name"]
+            if emitted not in {tool["name"] for tool in tools}:
+                raise ValueError("Tool is not available in this conversation state")
             return self._validated(calls[0]["name"], json.loads(calls[0]["arguments"]), question, history, nearby_enabled)
         except (KeyError, IndexError, TypeError, ValueError):
             raise GenerationUnavailableError("Malformed OpenAI tool call.", retryable=False) from None

@@ -103,7 +103,7 @@ def criteria_lines(state: dict[str, Any] | None, catalog: SearchCatalog | None) 
     if location.get("ward") or location.get("city"):
         lines.append("Khu vực: " + ", ".join(v for v in (location.get("ward"), location.get("city")) if v))
     if state.get("target"):
-        lines.append(f"Trong {state['target']['radiusMeters']} m (đường chim bay) quanh {state['target']['name']}")
+        lines.append(f"Có {state['target']['name']} trong tiện ích xung quanh đã ghi nhận (tối đa {state['target']['radiusMeters']} m)")
     for item in state.get("nearby") or []:
         name = next((k.get("label") for k in (catalog.kinds if catalog else []) if k["code"] == item.get("kind")), None)
         lines.append(f"Có {name or item.get('kind') or item.get('group')} trong {item['radiusMeters']} m")
@@ -652,13 +652,28 @@ class ListingAsk:
         if not within:
             persist["boundaryArea"] = rs.boundary_area(criteria)
             answer.listing_context = self.context(answer.listing_ids, persist)
+        eligible_boundary = value_advice.eligible(question, criteria, payload, displayed, more=more, within=within)
+        boundary_check = {"status": "SKIPPED", "reason": "PAGINATION" if more else "DISPLAYED_SCOPE" if within
+                          else "SAME_AREA" if not allow_boundary else "INELIGIBLE" if not eligible_boundary
+                          else "HISTORY_LIMIT" if len(seen_boundary) >= 40 else "GENERATOR_UNAVAILABLE"}
         if answer.status == "ANSWERED" and displayed and hasattr(self.generative_client, "generate_value_advice"):
             try:
                 async with asyncio.timeout(value_advice_timeout_seconds()):
                     boundary, candidates = {"candidateIds": []}, []
-                    if allow_boundary and len(seen_boundary) < 40 and value_advice.eligible(question, criteria, payload, displayed, more=more, within=within):
+                    if allow_boundary and len(seen_boundary) < 40 and eligible_boundary:
+                        boundary_check = {"status": "CHECKING", "reason": "CANDIDATE_LOOKUP", "candidateCount": 0}
                         try:
                             boundary = await self.tools.value_opportunity(payload, displayed_ids, seen_boundary)
+                            boundary_check["candidateCount"] = len(boundary["candidateIds"])
+                            maximum = value_advice.number(boundary.get("maxExtraMonthly") or 0)
+                            comparable = (value_advice.number(boundary.get("budgetCeiling") or 0) > 0
+                                          and 0 < maximum <= 500000)
+                            if comparable:
+                                boundary_check["maxExtraMonthly"] = int(maximum)
+                            if not comparable:
+                                boundary_check.update(status="UNAVAILABLE", reason="BUDGET_NOT_COMPARABLE")
+                            elif not boundary["candidateIds"]:
+                                boundary_check.update(status="NO_CANDIDATES", reason="EMPTY_CANDIDATE_POOL")
                             semaphore = asyncio.Semaphore(4)
                             async def read_candidate(identifier):
                                 async with semaphore:
@@ -670,12 +685,19 @@ class ListingAsk:
                                         raise
                             candidates = [item for item in await asyncio.gather(
                                 *(read_candidate(identifier) for identifier in boundary["candidateIds"])) if item is not None]
+                            boundary_check["readCount"] = len(candidates)
                         except (ListingToolError, HTTPException) as error:
                             self._log_failure(request_id, "boundary_candidates", error, "find_value_opportunity")
+                            boundary_check.update(status="UNAVAILABLE", reason="CANDIDATE_LOOKUP_FAILED")
                             boundary, candidates = {"candidateIds": []}, []
                     advice = await value_advice.evaluate(question, criteria | {"requestToday": self.today().isoformat()}, displayed,
                         candidates, boundary, self.generative_client, self.catalog, recommend_main=True)
                 main, suggestion = (advice or {}).get("main"), (advice or {}).get("boundary")
+                if boundary_check["status"] == "CHECKING":
+                    boundary_check.update((advice or {}).get("boundaryOutcome") or
+                                          {"status": "UNAVAILABLE", "reason": "MISSING_ASSESSMENT"})
+                    if boundary_check["status"] != "SUGGESTED" and len(candidates) < boundary_check["candidateCount"]:
+                        boundary_check.update(status="UNAVAILABLE", reason="CANDIDATE_NO_LONGER_PUBLIC")
                 if main:
                     answer.answer += "\n\n" + value_advice.render_main(main, displayed)
                     answer.listing_context["mainRecommendation"] = {"listingId": main["listingId"],
@@ -688,12 +710,19 @@ class ListingAsk:
             except (ListingToolError, GenerationUnavailableError, HTTPException, TimeoutError, ValueError, TypeError, KeyError) as error:
                 # Optional advice failing must never discard valid main results or widen criteria.
                 self._log_failure(request_id, "value_comparison", error, "find_value_opportunity")
+                if boundary_check["status"] in {"CHECKING", "SUGGESTED"}:
+                    boundary_check.update(status="UNAVAILABLE", reason="COMPARISON_FAILED")
+            feedback = value_advice.render_no_boundary(boundary_check)
+            if feedback:
+                answer.answer += "\n\n" + feedback
             followup = guidance.followup_question(persist)
             if followup:
                 answer.answer += "\n\n" + followup
                 persist["guidanceAsked"] = list(dict.fromkeys((persist.get("guidanceAsked") or []) + [followup]))[-6:]
             references = {key: answer.listing_context[key] for key in ("mainRecommendation", "valueSuggestion") if key in answer.listing_context}
             answer.listing_context = self.context(answer.listing_ids, persist) | references
+        answer.listing_context["boundaryCheck"] = boundary_check
+        logger.info("listing_boundary_check", request_id=request_id, **boundary_check)
         answer.listing_context["hasMore"] = result["total"] > len(displayed_ids)
         answer.answer_context = AnswerContext("LISTING", "SEARCH", [], displayed_ids).metadata()
         return answer
@@ -971,7 +1000,7 @@ class ListingAsk:
         total = evidence.get("total") or len(listings)
         keyword = evidence.get("keyword")
         target = (evidence.get("target") or {}).get("name")
-        where = (f" trong bán kính đã chọn quanh {target}" if target else f" có nhắc đến “{keyword}”" if keyword
+        where = (f" có {target} trong danh sách tiện ích xung quanh" if target else f" có nhắc đến “{keyword}”" if keyword
                  else f" tại {ward}" if ward else "")
         more = bool(evidence.get("moreResults"))
         if more:

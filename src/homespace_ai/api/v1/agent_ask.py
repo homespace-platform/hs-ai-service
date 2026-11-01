@@ -88,6 +88,11 @@ async def ask_agent(
 
 def stored_answer(result: AskResult) -> str:
     # Keep references/preferences, not a permanent second copy of expiring provider facts in Mongo/JWT.
+    pending = (((result.listing_context or {}).get("searchState") or {}).get("pending") or {})
+    if pending.get("type") == "TARGET":
+        # A resolver clarification is the next action, not a rendered nearby evidence table.
+        # Candidate references are already part of this conversation's validated search state.
+        return result.answer
     if "CORE_NEARBY" in result.data_sources:
         return "Đã đối chiếu tiện ích xung quanh của nhóm phòng. Hỏi lại để đọc dữ liệu mới nhất; thông tin địa điểm không được lưu cố định trong lịch sử."
     return result.answer

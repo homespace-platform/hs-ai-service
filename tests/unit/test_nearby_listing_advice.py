@@ -189,15 +189,19 @@ async def test_native_nearby_registry_is_feature_gated_and_rejects_unknown_selec
     settings = config()
     assert settings.nearby_query_enabled is True  # The shipped configuration enables cached POI tools.
     planner = ListingToolPlanner(settings)
+    offered = []
     async def post(payload):
         names = {t["name"] for t in payload["tools"]}
-        assert "get_listing_nearby_places" in names and "find_listings_near_place" not in names  # place search is inside v2 search_listings
+        offered.append(names)
+        assert "find_listings_near_place" not in names  # place search is inside v2 search_listings
         return call("get_listing_nearby_places", {"listingIds": [IDS[0]], "radiusMeters": 5000, "groups": ["SHOPPING"], "placeQuery": None})
     monkeypatch.setattr(planner, "_post", post)
     result = await planner.plan("Tiện ích xung quanh phòng đó", HISTORY, CAT, None, TODAY)
     assert result.name == "get_listing_nearby_places"
     with pytest.raises(GenerationUnavailableError):
         await planner.plan("Tiện ích xung quanh", [], CAT, None, TODAY)
+    assert "get_listing_nearby_places" in offered[0]
+    assert "get_listing_nearby_places" not in offered[1]
 
 @pytest.mark.asyncio
 async def test_near_place_search_keeps_filters_and_requested_count_without_landmark_text():

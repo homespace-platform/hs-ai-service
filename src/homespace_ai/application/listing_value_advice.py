@@ -552,16 +552,36 @@ async def evaluate(question: str, criteria: dict, main_listings: list[dict], can
             priorities.append(main | {"focus": focus})
         order = {"COST": 0, "SPACE": 1, "AMENITIES": 2}
         priorities.sort(key=lambda p: order[p["focus"]])
+    boundary_outcome = {"status": "NO_CLEAR_ADVANTAGE", "reason": "MODEL_ABSTAINED"}
     try:
         suggestion = _boundary_result(decision, pool, mains, main_listings, criteria, ceiling, extra, allow_at_ceiling)
+        if suggestion:
+            boundary_outcome = {"status": "SUGGESTED", "reason": "VERIFIED_WHOLE_PAGE_ADVANTAGE"}
+        elif not pool:
+            boundary_outcome = {"status": "UNAVAILABLE", "reason": "NO_USABLE_CANDIDATES"}
+        elif decision.get("selectedId") is not None:
+            boundary_outcome = {"status": "NO_CLEAR_ADVANTAGE", "reason": "NO_VERIFIED_WHOLE_PAGE_ADVANTAGE"}
     except ListingToolError:
         if not recommend_main:
             raise
         suggestion = None  # A bad optional proof never removes a valid main recommendation.
+        boundary_outcome = {"status": "UNAVAILABLE", "reason": "INVALID_BOUNDARY_EVIDENCE"}
     if profile_comparison and recommend_main:
         rows = profile_assessments(decision.get("profileAssessments"), mains, criteria)
         return {"main": main, "boundary": suggestion, "profileAssessments": rows}
-    return {"main": main, "boundary": suggestion, "priorities": priorities} if recommend_main else suggestion
+    return {"main": main, "boundary": suggestion, "priorities": priorities,
+            "boundaryOutcome": boundary_outcome} if recommend_main else suggestion
+
+
+def render_no_boundary(check: dict) -> str:
+    """Only report an actual check; skipped follow-ups never claim a fresh search."""
+    status = check.get("status")
+    if status in {"NO_CANDIDATES", "NO_CLEAR_ADVANTAGE"}:
+        return "Ngoài ra, mình chưa thấy phòng nào đáng để bạn tăng thêm ngân sách."
+    if status in {"CHECKING", "UNAVAILABLE"}:
+        return ("Mình chưa kiểm tra được đầy đủ các lựa chọn cao hơn ngân sách lúc này; "
+                "các phòng trong bảng vẫn đúng tiêu chí bạn đã đưa.")
+    return ""
 
 
 def profile_assessments(raw, mains: dict, criteria: dict) -> list[dict]:
