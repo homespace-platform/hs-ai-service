@@ -139,6 +139,9 @@ def sanitize(raw: Any) -> dict[str, Any] | None:
                                            if isinstance(c, dict) and _uuid(c.get("placeId"))],
                             "radiusMeters": pending.get("radiusMeters") if isinstance(pending.get("radiusMeters"), int) else None,
                             "proposed": sanitize(pending.get("proposed")) if isinstance(pending.get("proposed"), dict) else None}
+        if pending.get("type") == "LOCATION" and isinstance(pending.get("locationQuery"), dict):
+            state["pending"]["locationQuery"] = {k: v[:160] for k, v in pending['locationQuery'].items()
+                                                  if k in {'ward', 'city'} and isinstance(v, str) and v.strip()}
     shown = raw.get("shown") if isinstance(raw.get("shown"), dict) else {}
     state["shown"] = {"fingerprint": shown.get("fingerprint") if isinstance(shown.get("fingerprint"), str) else None,
                       "ids": [i for i in map(_uuid, shown.get("ids") or []) if i][:MAX_SHOWN]}

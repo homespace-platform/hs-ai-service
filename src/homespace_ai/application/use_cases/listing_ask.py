@@ -27,7 +27,7 @@ from homespace_ai.core.config import Settings
 from homespace_ai.core.business_properties import value_advice_timeout_seconds
 from homespace_ai.tools.listings import ListingSearchRejected, ListingToolError, ListingTools
 from homespace_ai.application.vietnamese_text import VietnamesePattern, fold_text
-from homespace_ai.application.listing_location import LocationClarification, catalog as admin_catalog, resolve_location_filters
+from homespace_ai.application.listing_location import LocationClarification, catalog as admin_catalog, resolve_location_filters, recover_location_query
 from homespace_ai.application.listing_evidence import compact_search_listing
 from homespace_ai.application.listing_limits import max_results, requested_count, search_limit
 from homespace_ai.application.listing_table import (SHOW_REQUEST, TABLE_REQUEST, listing_table, requested_sections,
@@ -166,6 +166,7 @@ class ListingAsk:
         self._base = deepcopy(state)
         from homespace_ai.application.listing_page_navigation import recover
         state = recover(state, history)
+        state = recover_location_query(state, history)
         profile = guidance.profile_update(question)
         if profile:
             state = rs.merge(state, {"renterProfile": profile}, question)
@@ -469,6 +470,7 @@ class ListingAsk:
         }, question)
         if update.get("locationClarification"):
             merged["pending"] = self._pending("LOCATION", update["locationClarification"])
+            merged["pending"]["locationQuery"] = update.get("unresolvedLocation") or {}
             answer = self._ask(request_id, scope, merged, update["locationClarification"])
             answer.status = "NEEDS_CLARIFICATION"
             return answer
@@ -478,6 +480,7 @@ class ListingAsk:
                 merged["nationwide"] = False
             except LocationClarification as error:
                 pending = {**merged, "pending": self._pending("LOCATION", str(error))}
+                pending["pending"]["locationQuery"] = error.location_query
                 return self._ask(request_id, scope, pending, str(error))
         if update.get("placeQuery"):
             if not getattr(self.settings, "nearby_query_enabled", False):
@@ -827,11 +830,13 @@ class ListingAsk:
             if not update.get("hypothetical"):
                 kept = rs.merge(kept, update, question)
             try:
-                location = guidance.explicit_location(question, history)
+                location = (self._resolve_location(update["location"], question, history) if update.get("location")
+                            else guidance.explicit_location(question, history))
                 if location:
                     kept["location"] = location
             except LocationClarification as error:
                 kept["pending"] = self._pending("LOCATION", str(error))
+                kept["pending"]["locationQuery"] = error.location_query
                 result = self._ask(request_id, scope, kept, str(error))
                 result.status = "NEEDS_CLARIFICATION"
                 return result

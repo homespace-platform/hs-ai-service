@@ -21,7 +21,8 @@ class ConversationMemory:
 
 def _with_page_history(memory, messages):
     from homespace_ai.application.listing_page_navigation import recover
-    state = recover(memory.state, messages)
+    from homespace_ai.application.listing_location import recover_location_query
+    state = recover_location_query(recover(memory.state, messages), messages)
     if state != memory.state:
         if not memory.repaired:
             state["revision"] += 1

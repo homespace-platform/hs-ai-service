@@ -204,7 +204,7 @@ def test_ward_name_sent_as_a_landmark_is_the_area_and_text_location_predicates_a
                   place="Hạnh Thông").arguments
     update = normalize(question, args, CAT, None, TODAY)
     assert update["placeQuery"] is None
-    assert update["location"] == {"ward": "Hạnh Thông", "city": "Hồ Chí Minh"}
+    assert update["location"] == {"ward": "Hạnh Thông", "city": "Thành phố Hồ Chí Minh"}
     assert not any(x["field"] in {"ward", "city", "ward_id", "city_id"} for x in update["constraints"])
 
 

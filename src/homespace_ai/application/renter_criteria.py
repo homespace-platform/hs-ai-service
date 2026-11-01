@@ -353,8 +353,16 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
             location[slot] = value
     constraints = kept
 
-    streets = street_mentions(question)
+    from homespace_ai.application.listing_location import location_proposal, LocationClarification
     location_clarification = None
+    unresolved_location = None
+    try:
+        location = location_proposal(question, location, None if 'location' in remove else state)
+    except LocationClarification as error:
+        location_clarification = str(error)
+        unresolved_location = error.location_query
+
+    streets = street_mentions(question)
     on_street = len(streets) == 1 and not re.search(
         r"\b(?:gan|quanh|sat|canh|doi dien|cach)\s+$", fold_text(question[:streets[0][1]]))
     if on_street:
@@ -457,6 +465,7 @@ def normalize(question: str, args: dict[str, Any], catalog: SearchCatalog, state
         "location": {"ward": location.get("ward"), "city": location.get("city")}
         if isinstance(location.get("ward"), str) or isinstance(location.get("city"), str) else None,
         "locationClarification": location_clarification,
+        "unresolvedLocation": unresolved_location,
         "nationwide": False,
         "placeQuery": place_text, "placeRadiusMeters": place.get("radiusMeters") if type(place.get("radiusMeters")) is int else None,
         "nearby": nearby, "context": context, "sort": sort, "keyword": keyword,

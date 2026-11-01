@@ -18,7 +18,7 @@ def street_mentions(question: str) -> list[tuple[str, int, int]]:
     found = []
     for prefix in _PREFIX.finditer(text):
         # Do not fold the prefix: 'điều dưỡng' becomes 'dieu duong' but is not a road.
-        if re.search(r"\b(?:chi|tieu|huyet|luong)\s+$", folded[:prefix.start()]):
+        if re.search(r"\b(?:chi|tieu|huyet|luong|phuong|xa|dac khu)\s+$", folded[:prefix.start()]):
             continue
         if re.match(r"(?:di|truyen|chim|bo)\b", folded[prefix.end():]):
             continue

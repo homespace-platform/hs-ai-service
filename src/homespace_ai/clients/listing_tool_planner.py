@@ -153,6 +153,9 @@ def _instructions(catalog: SearchCatalog, settings: Settings, nearby_enabled: bo
         "Elevator=amenity.ELEVATOR; private WC=room.restroom_type PRIVATE; free hours=room.access_hours_type FLEXIBLE; private balcony=room.balcony_type PRIVATE; "
         "gym in building=amenity.GYM, gym nearby is a nearby need. Pets: policy.petPolicy.value ALLOWED (APPROVAL_REQUIRED is not certain permission; 'có thể xin phép' may use in [ALLOWED, APPROVAL_REQUIRED]).",
         "Location: ward/city names exactly as said (no guessed codes); never the account address or the site header. "
+        "Each slot contains ONE administrative name: 'phường An Nhơn, thành phố Hồ Chí Minh' means "
+        "location.ward='Phường An Nhơn', location.city='Thành phố Hồ Chí Minh'; never put both names in ward. "
+        "For a location clarification, a city-only reply completes the pending ward; keep all prior budget/occupant criteria. "
         "A street is NOT a ward/city: 'đường Phan Văn Trị' becomes field street, op contains, value 'Phan Văn Trị'. "
         "Only separately stated administrative names go in location. For 'Tìm phòng trọ đường Phan Văn Trị cho 3 người giá dưới 4 triệu', "
         "call search_listings with street contains Phan Văn Trị, category ROOM, occupancy.max_occupants gte 3, "

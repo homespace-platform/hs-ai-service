@@ -1,0 +1,229 @@
+{
+  "model": "gpt-4.1-mini",
+  "tomtomRequests": 0,
+  "conversationWrites": 0,
+  "cases": [
+    {
+      "question": "Tìm phòng trọ phường An Nhơn cho 2 người dưới 5 triệu",
+      "status": "NEEDS_CLARIFICATION",
+      "location": {
+        "ward": "Phường An Nhơn"
+      },
+      "payload": null,
+      "displayedCount": 0,
+      "passed": true
+    },
+    {
+      "question": "phường An Nhơn, thành phố Hồ Chí Minh",
+      "status": "ANSWERED",
+      "location": {
+        "wardId": "24332",
+        "ward": "Phường An Nhơn",
+        "cityId": "12",
+        "city": "Thành phố Hồ Chí Minh"
+      },
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 2
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "5000000"
+            },
+            {
+              "field": "ward_id",
+              "op": "eq",
+              "value": "24332"
+            },
+            {
+              "field": "city_id",
+              "op": "eq",
+              "value": "12"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 2
+        },
+        "evidence": true
+      },
+      "displayedCount": 4,
+      "passed": true
+    },
+    {
+      "question": "Tìm phòng trọ phường An Nhơn cho 2 người dưới 5 triệu",
+      "status": "ANSWERED",
+      "location": {},
+      "payload": null,
+      "displayedCount": 0,
+      "passed": true
+    },
+    {
+      "question": "TP.HCM nhé",
+      "status": "ANSWERED",
+      "location": {
+        "wardId": "24332",
+        "ward": "Phường An Nhơn",
+        "cityId": "12",
+        "city": "Thành phố Hồ Chí Minh"
+      },
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 2
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "5000000"
+            },
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "ward_id",
+              "op": "eq",
+              "value": "24332"
+            },
+            {
+              "field": "city_id",
+              "op": "eq",
+              "value": "12"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 2
+        },
+        "evidence": true
+      },
+      "displayedCount": 4,
+      "passed": true
+    },
+    {
+      "question": "Tìm phòng trọ phường An Nhơn, HCM cho 2 người dưới 5 triệu",
+      "status": "ANSWERED",
+      "location": {
+        "wardId": "24332",
+        "ward": "Phường An Nhơn",
+        "cityId": "12",
+        "city": "Thành phố Hồ Chí Minh"
+      },
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 2
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "5000000"
+            },
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "ward_id",
+              "op": "eq",
+              "value": "24332"
+            },
+            {
+              "field": "city_id",
+              "op": "eq",
+              "value": "12"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 2
+        },
+        "evidence": true
+      },
+      "displayedCount": 4,
+      "passed": true
+    },
+    {
+      "question": "Đổi sang phường An Nhơn ở Gia Lai",
+      "status": "NO_RESULTS",
+      "location": {
+        "wardId": "24601",
+        "ward": "Phường An Nhơn",
+        "cityId": "25",
+        "city": "Tỉnh Gia Lai"
+      },
+      "payload": {
+        "version": 2,
+        "filters": [],
+        "where": {
+          "all": [
+            {
+              "field": "occupancy.max_occupants",
+              "op": "gte",
+              "value": 2
+            },
+            {
+              "field": "rent.monthly_amount",
+              "op": "lt",
+              "value": "5000000"
+            },
+            {
+              "field": "category",
+              "op": "eq",
+              "value": "ROOM"
+            },
+            {
+              "field": "ward_id",
+              "op": "eq",
+              "value": "24601"
+            },
+            {
+              "field": "city_id",
+              "op": "eq",
+              "value": "25"
+            }
+          ]
+        },
+        "sort": "newest",
+        "limit": 4,
+        "context": {
+          "occupants": 2
+        },
+        "evidence": true
+      },
+      "displayedCount": 0,
+      "passed": true
+    }
+  ]
+}
