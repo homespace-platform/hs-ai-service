@@ -59,6 +59,7 @@ AWAITING_SIGN = re.compile(r"chờ (?:tôi )?ký|chưa ký|cần ký|đang chờ
 CONTRACT_NUMBER = re.compile(r"\bHD[-/A-Za-z0-9]{3,40}", re.IGNORECASE)
 DATE_TEXT = re.compile(r"(?<!\d)(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)")
 TOPICS: list[tuple[str, re.Pattern[str]]] = [
+    ("workflows", re.compile(r"biên bản|bàn giao|nhận nhà|tiếp tục (?:thuê|ký)|khiếu nại|tính theo ngày|chấm dứt sớm", re.IGNORECASE)),
     ("detail", re.compile(r"đã ký|ký đủ|ký chưa|chữ ký|hiệu lực|trạng thái|chờ ký|ai (?:chưa )?ký|đối tác|địa chỉ|thông tin hợp đồng|tình trạng", re.IGNORECASE)),
     ("terms", re.compile(r"nội thất|trang thiết bị|thiết bị|tiện ích|giá|tiền thuê|phí|điện|nước|điều khoản|chính sách|phạt|số người|\bxe\b|dịch vụ|gửi xe", re.IGNORECASE)),
     ("amendments", re.compile(r"phụ lục|sửa đổi|điều chỉnh|thay đổi", re.IGNORECASE)),
@@ -75,6 +76,7 @@ GROUP_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("OCCUPANCY", re.compile(r"số người", re.IGNORECASE)),
 ]
 RAG_QUERIES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"biên bản|bàn giao|nhận nhà|tiếp tục (?:thuê|ký)|khiếu nại|tính theo ngày|chấm dứt sớm", re.IGNORECASE), "Quy trình biên bản nhận nhà, tiếp tục thuê sau khiếu nại và chấm dứt sớm theo thỏa thuận trên HomeSpace, gồm tính kỳ cuối theo ngày và ký PDF riêng, như thế nào?"),
     (re.compile(r"gia hạn", re.IGNORECASE), "Quy trình gia hạn hợp đồng thuê nhà trên HomeSpace gồm những bước nào và cần điều kiện gì?"),
     (re.compile(r"phụ lục|sửa đổi", re.IGNORECASE), "Quy trình tạo, đề xuất và ký phụ lục sửa đổi hợp đồng trên HomeSpace là gì?"),
     (re.compile(r"chấm dứt|trả phòng|kết thúc", re.IGNORECASE), "Quy trình chấm dứt hợp đồng thuê và tất toán tiền cọc trên HomeSpace như thế nào?"),
@@ -306,6 +308,8 @@ class ContractAsk:
                 plans.append(ToolPlan("get_contract_amendments", {"contractId": contract_id}))
             elif name == "lifecycle":
                 plans.append(ToolPlan("get_contract_lifecycle", {"contractId": contract_id}))
+            elif name == "workflows":
+                plans.append(ToolPlan("get_contract_workflows", {"contractId": contract_id}))
             elif name == "financial":
                 plans.append(ToolPlan("get_contract_financial_summary", {"contractId": contract_id}))
         validated = []

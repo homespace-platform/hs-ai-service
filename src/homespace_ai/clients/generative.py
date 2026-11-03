@@ -157,6 +157,7 @@ SYSTEM_PROMPT += MULTI_RESULT_FORMAT_PROMPT
 ADMIN_RAG_PROMPT += MULTI_RESULT_FORMAT_PROMPT
 LISTING_SYSTEM_PROMPT += MULTI_RESULT_FORMAT_PROMPT
 CONTRACT_SYSTEM_PROMPT += MULTI_RESULT_FORMAT_PROMPT
+CONTRACT_SYSTEM_PROMPT += "\nWorkflow: HĐ thuê đã ký không tự chứng minh đã nhận nhà. MOVE_IN cần hai xác nhận biên bản hoặc chữ ký riêng đã kiểm chứng. Khiếu nại đã đóng không tự mở ký: REQUEST_RESUME/RESUME cần đồng ý hai bên. EARLY_EXIT AGREED chưa phải đã trả nhà; RETURNED chưa phải đã quyết toán, phải đọc closure và receipt. DAILY_PRORATED chỉ dùng phép tính/nguồn hoàn do Core cung cấp; không tự chia ngày, tạo khoản hoàn hoặc coi đã nhận tiền. PDF riêng có lượt ký riêng, không dùng chữ ký HĐ gốc thay thế. Khi hỏi quy trình dùng RAG; khi hỏi hồ sơ hiện tại dùng get_contract_workflows. Không giả định hệ thống đã gửi thông báo."
 RENTAL_REVIEW_SYSTEM_PROMPT += MULTI_RESULT_FORMAT_PROMPT
 
 

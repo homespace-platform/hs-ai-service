@@ -17,7 +17,7 @@ History = list[dict[str, Any]]
 # Domain words that can point at the caller's own contracts.
 DOMAIN = re.compile(
     r"hợp đồng|phụ lục|gia hạn|hoàn cọc|tiền cọc|đặt cọc|hóa đơn|hoá đơn|tiền thuê|trả phòng|"
-    r"chấm dứt|kết thúc thuê|tất toán|quyết toán|hết hạn|nợ", re.IGNORECASE)
+    r"chấm dứt|kết thúc thuê|tất toán|quyết toán|hết hạn|nợ|biên bản|bàn giao|nhận nhà|tiếp tục ký|khiếu nại", re.IGNORECASE)
 # Strong signals that the user is asking about their own data, not about how the platform works.
 PERSONAL = re.compile(
     r"của tôi|của mình|đang thuê|đang cho thuê|hiện tại|hiện nay|lúc này|bây giờ|hôm nay|"
@@ -43,7 +43,7 @@ WORD_ORDINAL = re.compile(
 DEMONSTRATIVE = re.compile(r"hợp đồng (?:đó|này|kia|ấy)|\b(?:nó|cái đó|cái này)\b|phụ lục (?:đó|này)", re.IGNORECASE)
 FOLLOWUP_TOPIC = re.compile(
     r"nội thất|trang thiết bị|tiện ích|giá|tiền thuê|phí|điện|nước|cọc|hóa đơn|hoá đơn|gia hạn|hết hạn|"
-    r"ngày|kỳ|thanh toán|còn bao lâu|đã ký|chấm dứt|phụ lục|điều khoản|chính sách|hoàn", re.IGNORECASE)
+    r"ngày|kỳ|thanh toán|còn bao lâu|đã ký|chấm dứt|phụ lục|điều khoản|chính sách|hoàn|biên bản|bàn giao|nhận nhà|tiếp tục ký|khiếu nại", re.IGNORECASE)
 
 _WORDS = {"nhất": 1, "đầu tiên": 1, "đầu": 1, "hai": 2, "ba": 3, "bốn": 4, "tư": 4, "năm": 5,
           "cuối cùng": -1, "cuối": -1}

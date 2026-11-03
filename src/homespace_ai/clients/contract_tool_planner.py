@@ -23,6 +23,7 @@ _DESCRIPTIONS = {
     "get_contract_terms": "Terms of ONE known contract valid on a date (default today): LEASE, PRICING, CHARGES, EQUIPMENT (furniture), AMENITIES, POLICIES, SPECIAL_TERMS, PROPERTY, OCCUPANCY.",
     "get_contract_amendments": "Amendment history of ONE known contract with explicit states (CURRENT, SIGNED_PENDING_EFFECTIVE, SUPERSEDED, REJECTED, ...).",
     "get_contract_lifecycle": "Renewal eligibility (advisory), renewal requests, termination and closure state of ONE known contract.",
+    "get_contract_workflows": "Current pre-tenancy cancellation/resumption, physical move-in handover, mutual early exit, final-rent calculation and separate document signing for ONE known contract. Read-only; never performs consent or money actions.",
     "get_contract_financial_summary": "Invoices, outstanding amounts, deposit and refund/settlement state of ONE known contract. Computed by Core.",
 }
 
@@ -44,6 +45,7 @@ _PARAMETERS: dict[str, dict[str, Any]] = {
         "asOf": {"type": ["string", "null"], "pattern": r"^\d{4}-\d{2}-\d{2}$"}},
     "get_contract_amendments": {},
     "get_contract_lifecycle": {},
+    "get_contract_workflows": {},
     "get_contract_financial_summary": {
         "invoices": {"type": ["string", "null"], "enum": [*tools.INVOICE_FILTERS, None]},
         "limit": {"type": ["integer", "null"], "minimum": 1, "maximum": 36}},

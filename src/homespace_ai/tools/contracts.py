@@ -91,6 +91,7 @@ TOOLS: dict[str, tuple[str, dict[str, Any]]] = {
         "groups": lambda v: _enum_list(v, TERM_GROUPS, 9), "asOf": _date}),
     "get_contract_amendments": ("/items/{id}/amendments", {}),
     "get_contract_lifecycle": ("/items/{id}/lifecycle", {}),
+    "get_contract_workflows": ("/items/{id}/lifecycle", {}),
     "get_contract_financial_summary": ("/items/{id}/financial", {
         "invoices": lambda v: _enum(v, INVOICE_FILTERS), "limit": lambda v: _int(v, 1, 36)}),
 }
