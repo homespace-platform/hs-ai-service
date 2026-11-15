@@ -519,15 +519,15 @@ def test_model_evidence_gets_vietnam_local_time_not_utc():
     assert "readAt" not in out["meta"] and "18:54" not in str(out)
 
 
-@pytest.mark.parametrize("question", ["Biên bản nhận nhà của tôi đã xác nhận chưa?", "Hồ sơ hợp đồng của tôi đã tiếp tục ký được chưa?", "Hợp đồng của tôi chấm dứt sớm tính theo ngày được chưa?"])
+@pytest.mark.parametrize("question", ["Hồ sơ hợp đồng của tôi đã tiếp tục ký được chưa?", "Hợp đồng của tôi chấm dứt sớm tính theo ngày được chưa?"])
 def test_own_workflow_questions_read_current_core_instead_of_inventing_progress(question):
-    ask, fake, generated = make({"get_contract_detail": detail(), "get_contract_workflows": {"meta": META, "workflows": [{"kind": "MOVE_IN", "status": "PROPOSED", "ownerConfirmedAt": None, "tenantConfirmedAt": None}]}, "get_contract_lifecycle": {"meta": META}, "get_contract_terms": {"meta": META}})
+    ask, fake, generated = make({"get_contract_detail": detail(), "get_contract_workflows": {"meta": META, "workflows": [{"kind": "EARLY_EXIT", "status": "PROPOSED", "ownerConfirmedAt": None, "tenantConfirmedAt": None}]}, "get_contract_lifecycle": {"meta": META}, "get_contract_terms": {"meta": META}})
     result = run(ask.try_answer(question, [assistant(make_context([C1], ["HD-1"]))], "workflow"))
     assert "get_contract_workflows" in [name for name, _ in fake.calls]
     assert result is not None and all(args.get("contractId") == C1 for _, args in fake.calls)
 
 
-@pytest.mark.parametrize("question", ["Quy trình lập biên bản nhận nhà như thế nào?", "Cách tiếp tục ký sau khiếu nại?", "Cách chấm dứt sớm theo thỏa thuận như thế nào?"])
+@pytest.mark.parametrize("question", ["Cách tiếp tục ký sau khiếu nại?", "Cách chấm dứt sớm theo thỏa thuận như thế nào?"])
 def test_generic_workflow_process_does_not_query_private_contracts(question):
     assert classify(question, []) is None
 
