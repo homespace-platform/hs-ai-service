@@ -10,7 +10,7 @@ description: Select and run focused Python verification for HomeSpace AI Service
 1. Identify changed Python modules.
 2. Identify affected behavior and available tests.
 3. Classify change risk.
-4. Run the smallest relevant pytest selection.
+4. For edits without behavior impact, inspect the change once. For behavior changes, reuse applicable passing results for unchanged inputs, then run the smallest remaining pytest selection after editing.
 5. Check affected interfaces and schemas.
 6. Report actual results.
 
@@ -21,7 +21,7 @@ description: Select and run focused Python verification for HomeSpace AI Service
 - Do not run all tests by default.
 - Do not install dependencies unnecessarily.
 - Avoid real external API calls in unit tests.
-- Do not rerun unchanged failing commands.
+- On failure, diagnose whether it is a setup or code issue. Rerun only the affected command after correcting the cause.
 - Expand verification for high-risk integrations.
 
 ## Completion
