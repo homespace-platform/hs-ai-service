@@ -1,5 +1,6 @@
 import asyncio
 import socket
+import uuid
 from urllib.parse import urlparse
 
 import httpx
@@ -43,7 +44,8 @@ class EurekaRegistration:
         self._client = client
         self.host = resolve_advertised_host(settings.eureka_instance_hostname)
         self.service_name = settings.app_name.upper()
-        self.instance_id = f"{self.host}:{settings.app_name}:{settings.port}"
+        # Unique per process: during a redeploy the old container's shutdown DELETE must not remove the new registration.
+        self.instance_id = f"{self.host}:{settings.app_name}:{settings.port}:{uuid.uuid4().hex[:8]}"
         eureka = urlparse(str(settings.eureka_client_service_url))
         self._eureka_root = f"{eureka.scheme}://{eureka.netloc}{eureka.path.rstrip('/')}"
         self._registration_url = f"{self._eureka_root}/apps/{self.service_name}"
