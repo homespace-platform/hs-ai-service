@@ -103,6 +103,7 @@ async def liveness() -> dict[str, str]:
     return {"status": "UP"}
 
 
+@app.get("/health", tags=["Health"])
 @app.get("/health/ready", tags=["Health"])
 async def readiness() -> dict[str, str]:
     configured_secret = settings.gateway_internal_secret.strip()
